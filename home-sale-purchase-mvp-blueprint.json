@@ -1,0 +1,3688 @@
+{
+  "artifact_type": "home_sale_purchase_mvp_blueprint",
+  "version": "1.0",
+  "product_name": "Home Sale + Purchase Control Centre",
+  "intent": "Machine-readable MVP feature blueprint for a mobile-first SPA with simple backend, persistent storage, and selective agentic LangGraph functionality.",
+  "goal": {
+    "summary": "A single mobile-first SPA that helps one person or household manage the full sell-and-buy home journey in one place.",
+    "primary_outcomes": [
+      "Keep everything in one place",
+      "Make the financial consequences visible",
+      "Turn messy information into decision-ready summaries"
+    ],
+    "scope_includes": [
+      "research",
+      "property tracking",
+      "documents and notes",
+      "agent and vendor communication records",
+      "financial modelling",
+      "tasks, deadlines, and decision support"
+    ],
+    "scope_excludes": [
+      "full real-estate portal",
+      "legal platform",
+      "mortgage broker platform",
+      "full accounting system"
+    ]
+  },
+  "recommended_mvp_navigation": [
+    "Home",
+    "Sell",
+    "Buy",
+    "Money",
+    "Tasks",
+    "Library",
+    "Assistant"
+  ],
+  "recommended_core_entities": [
+    "User",
+    "Household",
+    "Project",
+    "Property",
+    "Contact",
+    "CommunicationLog",
+    "Note",
+    "File",
+    "Task",
+    "FinancialScenario",
+    "Offer",
+    "ChecklistItem",
+    "Decision",
+    "ResearchItem",
+    "Tag",
+    "AgentRun",
+    "AssistantRun",
+    "RetrievalIndexRecord"
+  ],
+  "feature_groups": [
+    {
+      "id": "FG-001",
+      "name": "Core product structure",
+      "description": "Authentication, project setup, dashboard, and foundational app controls.",
+      "features": [
+        {
+          "id": 1,
+          "name": "User sign up / login",
+          "priority": "must_have"
+        },
+        {
+          "id": 2,
+          "name": "Secure session management",
+          "priority": "must_have"
+        },
+        {
+          "id": 3,
+          "name": "Password reset",
+          "priority": "should_have"
+        },
+        {
+          "id": 4,
+          "name": "Basic profile",
+          "priority": "should_have"
+        },
+        {
+          "id": 5,
+          "name": "Household mode for two collaborators",
+          "priority": "should_have"
+        },
+        {
+          "id": 6,
+          "name": "Role permissions: owner / partner-collaborator / read-only collaborator",
+          "priority": "should_have"
+        },
+        {
+          "id": 7,
+          "name": "Encrypted storage for sensitive notes and financial assumptions",
+          "priority": "must_have"
+        },
+        {
+          "id": 8,
+          "name": "Audit trail for important changes",
+          "priority": "should_have"
+        },
+        {
+          "id": 9,
+          "name": "Backup/export of user data",
+          "priority": "should_have"
+        },
+        {
+          "id": 10,
+          "name": "Single home screen with sale status, buy status, next tasks, saved properties, latest messages/logs, and financial snapshot",
+          "priority": "must_have"
+        },
+        {
+          "id": 11,
+          "name": "Progress tracker for end-to-end journey",
+          "priority": "should_have"
+        },
+        {
+          "id": 12,
+          "name": "Alerts for deadlines and follow-ups",
+          "priority": "must_have"
+        },
+        {
+          "id": 13,
+          "name": "Quick-add actions for property, note, call log, document upload, financial scenario, and task",
+          "priority": "must_have"
+        }
+      ]
+    },
+    {
+      "id": "FG-002",
+      "name": "Sell-side features",
+      "description": "Manage the current property sale from planning through settlement.",
+      "features": [
+        {
+          "id": 14,
+          "name": "Create a Sell Current Home project",
+          "priority": "must_have"
+        },
+        {
+          "id": 15,
+          "name": "Store property details for the home being sold",
+          "priority": "must_have"
+        },
+        {
+          "id": 16,
+          "name": "Capture ownership and basic house details",
+          "priority": "should_have"
+        },
+        {
+          "id": 17,
+          "name": "Add expected sale timing window",
+          "priority": "must_have"
+        },
+        {
+          "id": 18,
+          "name": "Store target sale price range",
+          "priority": "must_have"
+        },
+        {
+          "id": 19,
+          "name": "Store minimum acceptable price",
+          "priority": "must_have"
+        },
+        {
+          "id": 20,
+          "name": "Track sale strategy: auction / tender / deadline sale / price by negotiation / fixed price",
+          "priority": "must_have"
+        },
+        {
+          "id": 21,
+          "name": "Add multiple agents",
+          "priority": "must_have"
+        },
+        {
+          "id": 22,
+          "name": "Store each agent’s name, agency, contact details, appraisal range, proposed commission, marketing estimate, recommended sale method, and notes",
+          "priority": "must_have"
+        },
+        {
+          "id": 23,
+          "name": "Compare agents side by side",
+          "priority": "should_have"
+        },
+        {
+          "id": 24,
+          "name": "Score agents on chosen criteria",
+          "priority": "should_have"
+        },
+        {
+          "id": 25,
+          "name": "Track appraisal appointments",
+          "priority": "must_have"
+        },
+        {
+          "id": 26,
+          "name": "Store appraisal documents/photos",
+          "priority": "should_have"
+        },
+        {
+          "id": 27,
+          "name": "Record why an agent was shortlisted or rejected",
+          "priority": "should_have"
+        },
+        {
+          "id": 28,
+          "name": "Commission calculator",
+          "priority": "must_have"
+        },
+        {
+          "id": 29,
+          "name": "Marketing package cost calculator",
+          "priority": "must_have"
+        },
+        {
+          "id": 30,
+          "name": "Legal/conveyancing estimate tracker",
+          "priority": "must_have"
+        },
+        {
+          "id": 31,
+          "name": "Staging / cleaning / repairs budget",
+          "priority": "must_have"
+        },
+        {
+          "id": 32,
+          "name": "Mortgage discharge or break-fee assumptions",
+          "priority": "should_have"
+        },
+        {
+          "id": 33,
+          "name": "Net proceeds estimate after fees",
+          "priority": "must_have"
+        },
+        {
+          "id": 34,
+          "name": "Best case / expected / worst case sale outcome",
+          "priority": "should_have"
+        },
+        {
+          "id": 35,
+          "name": "Pre-sale checklist",
+          "priority": "must_have"
+        },
+        {
+          "id": 36,
+          "name": "Repair and improvement task list",
+          "priority": "must_have"
+        },
+        {
+          "id": 37,
+          "name": "Staging and presentation checklist",
+          "priority": "should_have"
+        },
+        {
+          "id": 38,
+          "name": "Open-home prep checklist",
+          "priority": "should_have"
+        },
+        {
+          "id": 39,
+          "name": "Document checklist for title, LIM, builder reports, rates info, and body corporate info if applicable",
+          "priority": "must_have"
+        },
+        {
+          "id": 40,
+          "name": "Track document/checklist state as not started / in progress / complete / waiting on third party",
+          "priority": "must_have"
+        },
+        {
+          "id": 41,
+          "name": "Log open homes",
+          "priority": "should_have"
+        },
+        {
+          "id": 42,
+          "name": "Record buyer feedback from agent",
+          "priority": "should_have"
+        },
+        {
+          "id": 43,
+          "name": "Record enquiry count",
+          "priority": "should_have"
+        },
+        {
+          "id": 44,
+          "name": "Record watch-list / interest signals",
+          "priority": "should_have"
+        },
+        {
+          "id": 45,
+          "name": "Log offers received",
+          "priority": "must_have"
+        },
+        {
+          "id": 46,
+          "name": "Record offer terms: price / conditions / settlement date / deposit",
+          "priority": "must_have"
+        },
+        {
+          "id": 47,
+          "name": "Compare offers side by side",
+          "priority": "must_have"
+        },
+        {
+          "id": 48,
+          "name": "Record decision and reasoning",
+          "priority": "must_have"
+        },
+        {
+          "id": 49,
+          "name": "Track sale milestone: listed / open homes underway / offer received / under contract / unconditional / settled",
+          "priority": "must_have"
+        }
+      ]
+    },
+    {
+      "id": "FG-003",
+      "name": "Buy-side features",
+      "description": "Manage property discovery, due diligence, and offer workflows for the purchase.",
+      "features": [
+        {
+          "id": 50,
+          "name": "Create a Buy Next Home project",
+          "priority": "must_have"
+        },
+        {
+          "id": 51,
+          "name": "Set target locations",
+          "priority": "must_have"
+        },
+        {
+          "id": 52,
+          "name": "Set must-have criteria",
+          "priority": "must_have"
+        },
+        {
+          "id": 53,
+          "name": "Set nice-to-have criteria",
+          "priority": "must_have"
+        },
+        {
+          "id": 54,
+          "name": "Set hard exclusions",
+          "priority": "must_have"
+        },
+        {
+          "id": 55,
+          "name": "Set property type preferences",
+          "priority": "must_have"
+        },
+        {
+          "id": 56,
+          "name": "Set budget ceiling",
+          "priority": "must_have"
+        },
+        {
+          "id": 57,
+          "name": "Set target timing window",
+          "priority": "should_have"
+        },
+        {
+          "id": 58,
+          "name": "Set financing assumptions",
+          "priority": "must_have"
+        },
+        {
+          "id": 59,
+          "name": "Save candidate properties manually",
+          "priority": "must_have"
+        },
+        {
+          "id": 60,
+          "name": "Add property from URL",
+          "priority": "must_have"
+        },
+        {
+          "id": 61,
+          "name": "Store listing details: address, price/guide, bedrooms, bathrooms, parking, land area, floor area, property type, listing method",
+          "priority": "must_have"
+        },
+        {
+          "id": 64,
+          "name": "Save listing photos / screenshots / brochure",
+          "priority": "must_have"
+        },
+        {
+          "id": 65,
+          "name": "Save open-home times",
+          "priority": "must_have"
+        },
+        {
+          "id": 66,
+          "name": "Watchlist status: researching / inspecting / shortlisted / offer candidate / rejected",
+          "priority": "must_have"
+        },
+        {
+          "id": 67,
+          "name": "Add rejection reason",
+          "priority": "should_have"
+        },
+        {
+          "id": 68,
+          "name": "Favourite / rank properties",
+          "priority": "should_have"
+        },
+        {
+          "id": 69,
+          "name": "Side-by-side comparison of shortlisted homes",
+          "priority": "must_have"
+        },
+        {
+          "id": 70,
+          "name": "Weighted scoring model",
+          "priority": "should_have"
+        },
+        {
+          "id": 71,
+          "name": "Manual pros and cons list",
+          "priority": "must_have"
+        },
+        {
+          "id": 72,
+          "name": "Red-flag tracker",
+          "priority": "must_have"
+        },
+        {
+          "id": 73,
+          "name": "Fit against must-have criteria",
+          "priority": "must_have"
+        },
+        {
+          "id": 74,
+          "name": "Commute / location notes",
+          "priority": "should_have"
+        },
+        {
+          "id": 75,
+          "name": "School / amenity / neighbourhood notes",
+          "priority": "should_have"
+        },
+        {
+          "id": 76,
+          "name": "Renovation risk notes",
+          "priority": "should_have"
+        },
+        {
+          "id": 77,
+          "name": "Ongoing ownership cost notes",
+          "priority": "should_have"
+        },
+        {
+          "id": 78,
+          "name": "Open-home visit checklist",
+          "priority": "must_have"
+        },
+        {
+          "id": 79,
+          "name": "Add visit notes",
+          "priority": "must_have"
+        },
+        {
+          "id": 80,
+          "name": "Add room-by-room observations",
+          "priority": "should_have"
+        },
+        {
+          "id": 81,
+          "name": "Upload photos taken during visits",
+          "priority": "must_have"
+        },
+        {
+          "id": 82,
+          "name": "Voice-note capture after inspection",
+          "priority": "should_have"
+        },
+        {
+          "id": 83,
+          "name": "Record questions for agent/vendor",
+          "priority": "must_have"
+        },
+        {
+          "id": 84,
+          "name": "Due diligence checklist",
+          "priority": "must_have"
+        },
+        {
+          "id": 85,
+          "name": "Track report requests: LIM / title / builder’s report / rental appraisal / body corporate docs",
+          "priority": "must_have"
+        },
+        {
+          "id": 86,
+          "name": "Store due diligence documents",
+          "priority": "must_have"
+        },
+        {
+          "id": 87,
+          "name": "Highlight issues found",
+          "priority": "must_have"
+        },
+        {
+          "id": 88,
+          "name": "Mark risk severity: low / medium / high",
+          "priority": "must_have"
+        },
+        {
+          "id": 89,
+          "name": "Track unresolved questions before offer",
+          "priority": "must_have"
+        },
+        {
+          "id": 90,
+          "name": "Create purchase scenarios for a property",
+          "priority": "must_have"
+        },
+        {
+          "id": 91,
+          "name": "Offer calculator",
+          "priority": "must_have"
+        },
+        {
+          "id": 92,
+          "name": "Deposit calculator",
+          "priority": "must_have"
+        },
+        {
+          "id": 93,
+          "name": "Conditions selector: finance / builder’s report / LIM / sale of existing home / solicitor approval",
+          "priority": "must_have"
+        },
+        {
+          "id": 94,
+          "name": "Settlement date options",
+          "priority": "must_have"
+        },
+        {
+          "id": 95,
+          "name": "Offer notes and negotiation position",
+          "priority": "should_have"
+        },
+        {
+          "id": 96,
+          "name": "Track submitted offers",
+          "priority": "must_have"
+        },
+        {
+          "id": 97,
+          "name": "Track counteroffers",
+          "priority": "must_have"
+        },
+        {
+          "id": 98,
+          "name": "Compare final options",
+          "priority": "should_have"
+        },
+        {
+          "id": 99,
+          "name": "Track milestone: researching / due diligence / preparing offer / under offer / conditional / unconditional / settled",
+          "priority": "must_have"
+        }
+      ]
+    },
+    {
+      "id": "FG-004",
+      "name": "Financial modelling",
+      "description": "Calculate affordability, equity, sale proceeds, purchase costs, and multi-scenario comparisons.",
+      "features": [
+        {
+          "id": 100,
+          "name": "Single finance dashboard",
+          "priority": "must_have"
+        },
+        {
+          "id": 101,
+          "name": "Current home estimated value",
+          "priority": "must_have"
+        },
+        {
+          "id": 102,
+          "name": "Mortgage balance input",
+          "priority": "must_have"
+        },
+        {
+          "id": 103,
+          "name": "Savings / cash available",
+          "priority": "must_have"
+        },
+        {
+          "id": 104,
+          "name": "KiwiSaver / other available funds if relevant",
+          "priority": "should_have"
+        },
+        {
+          "id": 105,
+          "name": "Estimated equity",
+          "priority": "must_have"
+        },
+        {
+          "id": 106,
+          "name": "Estimated borrowing capacity input",
+          "priority": "must_have"
+        },
+        {
+          "id": 107,
+          "name": "Total available budget estimate",
+          "priority": "must_have"
+        },
+        {
+          "id": 108,
+          "name": "Scenario builder",
+          "priority": "must_have"
+        },
+        {
+          "id": 109,
+          "name": "Model sale price assumptions",
+          "priority": "must_have"
+        },
+        {
+          "id": 110,
+          "name": "Model commission assumptions",
+          "priority": "must_have"
+        },
+        {
+          "id": 111,
+          "name": "Model marketing costs",
+          "priority": "must_have"
+        },
+        {
+          "id": 112,
+          "name": "Model legal fees",
+          "priority": "must_have"
+        },
+        {
+          "id": 113,
+          "name": "Model moving costs",
+          "priority": "should_have"
+        },
+        {
+          "id": 114,
+          "name": "Model repairs / prep costs",
+          "priority": "must_have"
+        },
+        {
+          "id": 115,
+          "name": "Model purchase price assumptions",
+          "priority": "must_have"
+        },
+        {
+          "id": 116,
+          "name": "Model deposit amount",
+          "priority": "must_have"
+        },
+        {
+          "id": 117,
+          "name": "Model loan amount",
+          "priority": "must_have"
+        },
+        {
+          "id": 118,
+          "name": "Model interest rate assumptions",
+          "priority": "must_have"
+        },
+        {
+          "id": 119,
+          "name": "Model repayment estimates",
+          "priority": "must_have"
+        },
+        {
+          "id": 120,
+          "name": "Model one-off transaction costs relevant to jurisdiction",
+          "priority": "should_have"
+        },
+        {
+          "id": 121,
+          "name": "Model contingency buffer",
+          "priority": "must_have"
+        },
+        {
+          "id": 122,
+          "name": "Net cash remaining after move",
+          "priority": "must_have"
+        },
+        {
+          "id": 123,
+          "name": "Cash shortfall warning",
+          "priority": "must_have"
+        },
+        {
+          "id": 124,
+          "name": "Affordability warning",
+          "priority": "must_have"
+        },
+        {
+          "id": 125,
+          "name": "Save named scenarios",
+          "priority": "must_have"
+        },
+        {
+          "id": 126,
+          "name": "Compare scenarios side by side",
+          "priority": "must_have"
+        },
+        {
+          "id": 127,
+          "name": "Best case / base case / stress case",
+          "priority": "should_have"
+        },
+        {
+          "id": 128,
+          "name": "Sensitivity testing for sale price drops, rate rises, fee increases, and delayed sale",
+          "priority": "should_have"
+        },
+        {
+          "id": 129,
+          "name": "Can I afford this if… modelling",
+          "priority": "must_have"
+        },
+        {
+          "id": 130,
+          "name": "Decision-ready summary for each scenario",
+          "priority": "must_have"
+        }
+      ]
+    },
+    {
+      "id": "FG-005",
+      "name": "Communications and record-keeping",
+      "description": "Central contact records, communication history, and searchable activity timeline.",
+      "features": [
+        {
+          "id": 131,
+          "name": "Store key contacts: agents, brokers, solicitors, valuers, inspectors, bank contacts, movers",
+          "priority": "must_have"
+        },
+        {
+          "id": 132,
+          "name": "Contact profiles",
+          "priority": "must_have"
+        },
+        {
+          "id": 133,
+          "name": "Tag contacts by role",
+          "priority": "must_have"
+        },
+        {
+          "id": 134,
+          "name": "Link contacts to sale or purchase project",
+          "priority": "must_have"
+        },
+        {
+          "id": 135,
+          "name": "Manual log of calls",
+          "priority": "must_have"
+        },
+        {
+          "id": 136,
+          "name": "Manual log of emails",
+          "priority": "must_have"
+        },
+        {
+          "id": 137,
+          "name": "Manual log of text messages / chat summaries",
+          "priority": "must_have"
+        },
+        {
+          "id": 138,
+          "name": "Meeting notes",
+          "priority": "must_have"
+        },
+        {
+          "id": 139,
+          "name": "Timestamped interaction history",
+          "priority": "must_have"
+        },
+        {
+          "id": 140,
+          "name": "Attach files to communications",
+          "priority": "must_have"
+        },
+        {
+          "id": 141,
+          "name": "Link a communication to a property, contact, task, or decision",
+          "priority": "must_have"
+        },
+        {
+          "id": 142,
+          "name": "Follow-up reminder from a communication",
+          "priority": "must_have"
+        },
+        {
+          "id": 143,
+          "name": "Chronological timeline across properties, contacts, offers, tasks, uploaded files, and notes",
+          "priority": "should_have"
+        },
+        {
+          "id": 144,
+          "name": "Filter timeline by project or property",
+          "priority": "should_have"
+        },
+        {
+          "id": 145,
+          "name": "Search all notes and logs",
+          "priority": "must_have"
+        }
+      ]
+    },
+    {
+      "id": "FG-006",
+      "name": "Research and knowledge capture",
+      "description": "Save, organise, tag, and search external research and property-specific references.",
+      "features": [
+        {
+          "id": 146,
+          "name": "Save articles, links, and references",
+          "priority": "must_have"
+        },
+        {
+          "id": 147,
+          "name": "Save screenshots and PDFs",
+          "priority": "must_have"
+        },
+        {
+          "id": 148,
+          "name": "Categorise research by topic: suburb research / sale process / legal / lending / property checks / market trends",
+          "priority": "must_have"
+        },
+        {
+          "id": 149,
+          "name": "Write notes against each saved item",
+          "priority": "must_have"
+        },
+        {
+          "id": 150,
+          "name": "Tag items",
+          "priority": "must_have"
+        },
+        {
+          "id": 151,
+          "name": "Search research library",
+          "priority": "must_have"
+        },
+        {
+          "id": 152,
+          "name": "Link research items to a specific property",
+          "priority": "must_have"
+        },
+        {
+          "id": 153,
+          "name": "Link comparable sales notes to a suburb or property",
+          "priority": "should_have"
+        },
+        {
+          "id": 154,
+          "name": "Store market commentary notes",
+          "priority": "should_have"
+        },
+        {
+          "id": 155,
+          "name": "Store vendor/agent claims and verification notes",
+          "priority": "should_have"
+        }
+      ]
+    },
+    {
+      "id": "FG-007",
+      "name": "Tasks, reminders, and workflow",
+      "description": "Task management, templates, and workflow-driven reminders.",
+      "features": [
+        {
+          "id": 156,
+          "name": "Create tasks manually",
+          "priority": "must_have"
+        },
+        {
+          "id": 157,
+          "name": "Auto-generate checklist tasks from workflow templates",
+          "priority": "should_have"
+        },
+        {
+          "id": 158,
+          "name": "Assign due dates",
+          "priority": "must_have"
+        },
+        {
+          "id": 159,
+          "name": "Assign priority",
+          "priority": "must_have"
+        },
+        {
+          "id": 160,
+          "name": "Assign owner",
+          "priority": "should_have"
+        },
+        {
+          "id": 161,
+          "name": "Mark task status: to do / in progress / waiting / done",
+          "priority": "must_have"
+        },
+        {
+          "id": 162,
+          "name": "Sell-side checklist template",
+          "priority": "must_have"
+        },
+        {
+          "id": 163,
+          "name": "Buy-side checklist template",
+          "priority": "must_have"
+        },
+        {
+          "id": 164,
+          "name": "Offer preparation checklist",
+          "priority": "must_have"
+        },
+        {
+          "id": 165,
+          "name": "Due diligence checklist",
+          "priority": "must_have"
+        },
+        {
+          "id": 166,
+          "name": "Settlement preparation checklist",
+          "priority": "should_have"
+        },
+        {
+          "id": 167,
+          "name": "Deadline reminders",
+          "priority": "must_have"
+        },
+        {
+          "id": 168,
+          "name": "Follow-up reminders",
+          "priority": "must_have"
+        },
+        {
+          "id": 169,
+          "name": "Open-home reminders",
+          "priority": "must_have"
+        },
+        {
+          "id": 170,
+          "name": "Document expiry / missing-item reminders",
+          "priority": "should_have"
+        },
+        {
+          "id": 171,
+          "name": "Offer deadline reminders",
+          "priority": "must_have"
+        },
+        {
+          "id": 172,
+          "name": "Settlement countdown reminders",
+          "priority": "should_have"
+        }
+      ]
+    },
+    {
+      "id": "FG-008",
+      "name": "Documents and file storage",
+      "description": "Upload, categorise, and organise files linked to projects, properties, and contacts.",
+      "features": [
+        {
+          "id": 173,
+          "name": "Upload documents",
+          "priority": "must_have"
+        },
+        {
+          "id": 174,
+          "name": "Store images",
+          "priority": "must_have"
+        },
+        {
+          "id": 175,
+          "name": "Store PDFs",
+          "priority": "must_have"
+        },
+        {
+          "id": 176,
+          "name": "Store spreadsheets",
+          "priority": "should_have"
+        },
+        {
+          "id": 177,
+          "name": "Store brochures and contracts",
+          "priority": "must_have"
+        },
+        {
+          "id": 178,
+          "name": "Preview common file types",
+          "priority": "should_have"
+        },
+        {
+          "id": 179,
+          "name": "Basic file categorisation",
+          "priority": "must_have"
+        },
+        {
+          "id": 180,
+          "name": "Link files to properties, contacts, or projects",
+          "priority": "must_have"
+        },
+        {
+          "id": 181,
+          "name": "Folder-like views by sale / purchase / property / contact",
+          "priority": "should_have"
+        },
+        {
+          "id": 182,
+          "name": "Search documents by name/tag",
+          "priority": "must_have"
+        },
+        {
+          "id": 183,
+          "name": "Version notes for replaced documents",
+          "priority": "should_have"
+        },
+        {
+          "id": 184,
+          "name": "Mark key documents as pinned",
+          "priority": "should_have"
+        }
+      ]
+    },
+    {
+      "id": "FG-009",
+      "name": "Agentic LangGraph functionality",
+      "description": "Selective agent workflows that add real value by summarising, retrieving, comparing, and planning using user-owned data.",
+      "features": [
+        {
+          "id": 185,
+          "name": "Summarise saved articles, brochures, and reports",
+          "priority": "must_have",
+          "agentic": true
+        },
+        {
+          "id": 186,
+          "name": "Extract key points from uploaded documents",
+          "priority": "must_have",
+          "agentic": true
+        },
+        {
+          "id": 187,
+          "name": "Produce a plain-English summary of a LIM, builder report, or title",
+          "priority": "should_have",
+          "agentic": true
+        },
+        {
+          "id": 188,
+          "name": "Surface likely risks and unanswered questions",
+          "priority": "must_have",
+          "agentic": true
+        },
+        {
+          "id": 189,
+          "name": "Suggest follow-up questions for agent / solicitor / broker",
+          "priority": "must_have",
+          "agentic": true
+        },
+        {
+          "id": 190,
+          "name": "Turn rough notes into clean call summaries",
+          "priority": "must_have",
+          "agentic": true
+        },
+        {
+          "id": 191,
+          "name": "Draft follow-up emails or message replies",
+          "priority": "should_have",
+          "agentic": true
+        },
+        {
+          "id": 192,
+          "name": "Extract action items from logged communications",
+          "priority": "must_have",
+          "agentic": true
+        },
+        {
+          "id": 193,
+          "name": "Suggest next steps after a meeting or inspection",
+          "priority": "must_have",
+          "agentic": true
+        },
+        {
+          "id": 194,
+          "name": "Generate comparison summaries between shortlisted homes",
+          "priority": "must_have",
+          "agentic": true
+        },
+        {
+          "id": 195,
+          "name": "Explain trade-offs in plain English",
+          "priority": "must_have",
+          "agentic": true
+        },
+        {
+          "id": 196,
+          "name": "Highlight inconsistencies between user criteria and current preference",
+          "priority": "should_have",
+          "agentic": true
+        },
+        {
+          "id": 197,
+          "name": "Identify missing information before making an offer",
+          "priority": "must_have",
+          "agentic": true
+        },
+        {
+          "id": 198,
+          "name": "Explain scenario differences in plain English",
+          "priority": "must_have",
+          "agentic": true
+        },
+        {
+          "id": 199,
+          "name": "Identify the biggest cost drivers",
+          "priority": "must_have",
+          "agentic": true
+        },
+        {
+          "id": 200,
+          "name": "Warn when a scenario looks fragile",
+          "priority": "must_have",
+          "agentic": true
+        },
+        {
+          "id": 201,
+          "name": "Suggest cheaper or safer alternative scenarios based on saved assumptions",
+          "priority": "should_have",
+          "agentic": true
+        },
+        {
+          "id": 202,
+          "name": "Detect stalled tasks",
+          "priority": "should_have",
+          "agentic": true
+        },
+        {
+          "id": 203,
+          "name": "Recommend the next 3 highest-value actions",
+          "priority": "must_have",
+          "agentic": true
+        },
+        {
+          "id": 204,
+          "name": "Build a weekly action plan from all open tasks",
+          "priority": "should_have",
+          "agentic": true
+        },
+        {
+          "id": 205,
+          "name": "Summarise current project state for quick review",
+          "priority": "must_have",
+          "agentic": true
+        },
+        {
+          "id": 206,
+          "name": "Semantic search across notes, docs, communications, research, and saved properties",
+          "priority": "must_have",
+          "agentic": true
+        },
+        {
+          "id": 207,
+          "name": "Ask natural-language questions over stored data",
+          "priority": "must_have",
+          "agentic": true
+        },
+        {
+          "id": 208,
+          "name": "Citation-backed answers linked to original records",
+          "priority": "must_have",
+          "agentic": true
+        },
+        {
+          "id": 209,
+          "name": "Agent memory scoped to project and property",
+          "priority": "must_have",
+          "agentic": true
+        }
+      ]
+    },
+    {
+      "id": "FG-010",
+      "name": "Search and filtering",
+      "description": "Global search, saved searches, recent items, and operational filters.",
+      "features": [
+        {
+          "id": 210,
+          "name": "Global search across all app content",
+          "priority": "must_have"
+        },
+        {
+          "id": 211,
+          "name": "Filter by property / suburb / project / contact / tag / date",
+          "priority": "must_have"
+        },
+        {
+          "id": 212,
+          "name": "Saved searches",
+          "priority": "should_have"
+        },
+        {
+          "id": 213,
+          "name": "Recently viewed items",
+          "priority": "should_have"
+        },
+        {
+          "id": 214,
+          "name": "Quick filters for overdue tasks, shortlisted properties, missing documents, outstanding questions, and active financial scenarios",
+          "priority": "must_have"
+        }
+      ]
+    },
+    {
+      "id": "FG-011",
+      "name": "Decision support",
+      "description": "Structured decision records and generated decision summaries.",
+      "features": [
+        {
+          "id": 215,
+          "name": "Record major decisions",
+          "priority": "should_have"
+        },
+        {
+          "id": 216,
+          "name": "Capture why the decision was made",
+          "priority": "should_have"
+        },
+        {
+          "id": 217,
+          "name": "Record assumptions used",
+          "priority": "should_have"
+        },
+        {
+          "id": 218,
+          "name": "Record risks accepted",
+          "priority": "should_have"
+        },
+        {
+          "id": 219,
+          "name": "Record alternatives considered",
+          "priority": "should_have"
+        },
+        {
+          "id": 220,
+          "name": "Timestamp each decision",
+          "priority": "should_have"
+        },
+        {
+          "id": 221,
+          "name": "Should I list now? summary",
+          "priority": "could_have"
+        },
+        {
+          "id": 222,
+          "name": "Which agent is strongest? summary",
+          "priority": "could_have"
+        },
+        {
+          "id": 223,
+          "name": "Which property is best fit? summary",
+          "priority": "could_have"
+        },
+        {
+          "id": 224,
+          "name": "Can I afford this safely? summary",
+          "priority": "could_have"
+        },
+        {
+          "id": 225,
+          "name": "What must happen before I can make an offer? summary",
+          "priority": "could_have"
+        }
+      ]
+    },
+    {
+      "id": "FG-012",
+      "name": "Reporting and export",
+      "description": "Export scenario data, summaries, logs, and project packs.",
+      "features": [
+        {
+          "id": 226,
+          "name": "Export financial scenarios",
+          "priority": "should_have"
+        },
+        {
+          "id": 227,
+          "name": "Export property comparison summary",
+          "priority": "should_have"
+        },
+        {
+          "id": 228,
+          "name": "Export communication log",
+          "priority": "should_have"
+        },
+        {
+          "id": 229,
+          "name": "Export task list",
+          "priority": "should_have"
+        },
+        {
+          "id": 230,
+          "name": "Export full project pack",
+          "priority": "could_have"
+        },
+        {
+          "id": 231,
+          "name": "Shareable summary PDF for partner/family/adviser",
+          "priority": "could_have"
+        },
+        {
+          "id": 232,
+          "name": "CSV export of core records",
+          "priority": "should_have"
+        },
+        {
+          "id": 233,
+          "name": "Backup export of all structured data",
+          "priority": "should_have"
+        }
+      ]
+    },
+    {
+      "id": "FG-013",
+      "name": "Mobile UX requirements",
+      "description": "Mobile-first interaction requirements needed for the MVP to feel usable in the field.",
+      "features": [
+        {
+          "id": 234,
+          "name": "Fast thumb-friendly navigation",
+          "priority": "must_have"
+        },
+        {
+          "id": 235,
+          "name": "Bottom-tab primary nav",
+          "priority": "must_have"
+        },
+        {
+          "id": 236,
+          "name": "Simple property cards",
+          "priority": "must_have"
+        },
+        {
+          "id": 237,
+          "name": "Quick capture flows for notes, photos, and calls",
+          "priority": "must_have"
+        },
+        {
+          "id": 238,
+          "name": "Offline-friendly draft capture",
+          "priority": "should_have"
+        },
+        {
+          "id": 239,
+          "name": "Autosave forms",
+          "priority": "must_have"
+        },
+        {
+          "id": 240,
+          "name": "Camera upload for documents/photos",
+          "priority": "must_have"
+        },
+        {
+          "id": 241,
+          "name": "Voice note capture",
+          "priority": "should_have"
+        },
+        {
+          "id": 242,
+          "name": "Clean timeline view",
+          "priority": "should_have"
+        },
+        {
+          "id": 243,
+          "name": "One-handed use for common actions",
+          "priority": "must_have"
+        },
+        {
+          "id": 244,
+          "name": "Minimal friction to add data immediately after inspections or calls",
+          "priority": "must_have"
+        }
+      ]
+    }
+  ],
+  "not_in_mvp": [
+    "Full real-time listing aggregation from every property portal",
+    "Automatic scraping everywhere",
+    "Native mortgage application processing",
+    "Legal advice engine",
+    "Full CRM for real-estate professionals",
+    "Complex multi-user enterprise permissions",
+    "Deep accounting integrations",
+    "Automated valuation model presented as authoritative",
+    "Full chatbot front-end as the main UX",
+    "Multi-country regulatory logic",
+    "Full document OCR pipeline for every file type on day one",
+    "Agent-to-agent autonomous negotiation"
+  ],
+  "true_first_shippable_mvp": {
+    "must_have_feature_groups": [
+      "User account and secure project setup",
+      "Sell project + buy project",
+      "Saved properties and shortlist management",
+      "Contact management",
+      "Communication log",
+      "Notes, files, and research repository",
+      "Tasks and reminders",
+      "Financial scenario modeller",
+      "Property comparison",
+      "Offer tracking",
+      "Global search",
+      "Agentic summarisation and retrieval over user-stored data"
+    ],
+    "should_have_if_capacity_allows": [
+      "Agent comparison scoring",
+      "Due diligence checklisting",
+      "Decision journal",
+      "Timeline view",
+      "Export/share summaries"
+    ],
+    "leave_for_v2": [
+      "Heavy external integrations",
+      "Advanced automation",
+      "Marketplace data ingestion at scale",
+      "Broker/solicitor collaboration portals",
+      "Predictive pricing or valuation features"
+    ]
+  },
+  "implementation_guidance": {
+    "product_principles": [
+      "The app is a control centre, not a portal clone.",
+      "Store structured data first; use agents to transform and retrieve that data.",
+      "Keep agentic flows narrow, explainable, and citation-backed.",
+      "Optimise for fast capture immediately after calls, inspections, and decisions.",
+      "Financial clarity is a first-class feature, not a nice-to-have."
+    ],
+    "langgraph_usage_rules": [
+      "Only use agentic workflows where they save real effort or reduce decision friction.",
+      "Do not let the assistant invent facts; answers should cite app records.",
+      "Keep memory scoped to project and property.",
+      "Use retrieval over user-owned notes, documents, and communication logs.",
+      "Prefer summary, extraction, comparison, and next-step recommendation workflows."
+    ]
+  },
+  "indexes": {
+    "feature_count": 242,
+    "feature_ids": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71,
+      72,
+      73,
+      74,
+      75,
+      76,
+      77,
+      78,
+      79,
+      80,
+      81,
+      82,
+      83,
+      84,
+      85,
+      86,
+      87,
+      88,
+      89,
+      90,
+      91,
+      92,
+      93,
+      94,
+      95,
+      96,
+      97,
+      98,
+      99,
+      100,
+      101,
+      102,
+      103,
+      104,
+      105,
+      106,
+      107,
+      108,
+      109,
+      110,
+      111,
+      112,
+      113,
+      114,
+      115,
+      116,
+      117,
+      118,
+      119,
+      120,
+      121,
+      122,
+      123,
+      124,
+      125,
+      126,
+      127,
+      128,
+      129,
+      130,
+      131,
+      132,
+      133,
+      134,
+      135,
+      136,
+      137,
+      138,
+      139,
+      140,
+      141,
+      142,
+      143,
+      144,
+      145,
+      146,
+      147,
+      148,
+      149,
+      150,
+      151,
+      152,
+      153,
+      154,
+      155,
+      156,
+      157,
+      158,
+      159,
+      160,
+      161,
+      162,
+      163,
+      164,
+      165,
+      166,
+      167,
+      168,
+      169,
+      170,
+      171,
+      172,
+      173,
+      174,
+      175,
+      176,
+      177,
+      178,
+      179,
+      180,
+      181,
+      182,
+      183,
+      184,
+      185,
+      186,
+      187,
+      188,
+      189,
+      190,
+      191,
+      192,
+      193,
+      194,
+      195,
+      196,
+      197,
+      198,
+      199,
+      200,
+      201,
+      202,
+      203,
+      204,
+      205,
+      206,
+      207,
+      208,
+      209,
+      210,
+      211,
+      212,
+      213,
+      214,
+      215,
+      216,
+      217,
+      218,
+      219,
+      220,
+      221,
+      222,
+      223,
+      224,
+      225,
+      226,
+      227,
+      228,
+      229,
+      230,
+      231,
+      232,
+      233,
+      234,
+      235,
+      236,
+      237,
+      238,
+      239,
+      240,
+      241,
+      242,
+      243,
+      244
+    ],
+    "must_have_feature_ids": [
+      1,
+      2,
+      7,
+      10,
+      12,
+      13,
+      14,
+      15,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      25,
+      28,
+      29,
+      30,
+      31,
+      33,
+      35,
+      36,
+      39,
+      40,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      58,
+      59,
+      60,
+      61,
+      64,
+      65,
+      66,
+      69,
+      71,
+      72,
+      73,
+      78,
+      79,
+      81,
+      83,
+      84,
+      85,
+      86,
+      87,
+      88,
+      89,
+      90,
+      91,
+      92,
+      93,
+      94,
+      96,
+      97,
+      99,
+      100,
+      101,
+      102,
+      103,
+      105,
+      106,
+      107,
+      108,
+      109,
+      110,
+      111,
+      112,
+      114,
+      115,
+      116,
+      117,
+      118,
+      119,
+      121,
+      122,
+      123,
+      124,
+      125,
+      126,
+      129,
+      130,
+      131,
+      132,
+      133,
+      134,
+      135,
+      136,
+      137,
+      138,
+      139,
+      140,
+      141,
+      142,
+      145,
+      146,
+      147,
+      148,
+      149,
+      150,
+      151,
+      152,
+      156,
+      158,
+      159,
+      161,
+      162,
+      163,
+      164,
+      165,
+      167,
+      168,
+      169,
+      171,
+      173,
+      174,
+      175,
+      177,
+      179,
+      180,
+      182,
+      185,
+      186,
+      188,
+      189,
+      190,
+      192,
+      193,
+      194,
+      195,
+      197,
+      198,
+      199,
+      200,
+      203,
+      205,
+      206,
+      207,
+      208,
+      209,
+      210,
+      211,
+      214,
+      234,
+      235,
+      236,
+      237,
+      239,
+      240,
+      243,
+      244
+    ],
+    "should_have_feature_ids": [
+      3,
+      4,
+      5,
+      6,
+      8,
+      9,
+      11,
+      16,
+      23,
+      24,
+      26,
+      27,
+      32,
+      34,
+      37,
+      38,
+      41,
+      42,
+      43,
+      44,
+      57,
+      67,
+      68,
+      70,
+      74,
+      75,
+      76,
+      77,
+      80,
+      82,
+      95,
+      98,
+      104,
+      113,
+      120,
+      127,
+      128,
+      143,
+      144,
+      153,
+      154,
+      155,
+      157,
+      160,
+      166,
+      170,
+      172,
+      176,
+      178,
+      181,
+      183,
+      184,
+      187,
+      191,
+      196,
+      201,
+      202,
+      204,
+      212,
+      213,
+      215,
+      216,
+      217,
+      218,
+      219,
+      220,
+      226,
+      227,
+      228,
+      229,
+      232,
+      233,
+      238,
+      241,
+      242
+    ],
+    "could_have_feature_ids": [
+      221,
+      222,
+      223,
+      224,
+      225,
+      230,
+      231
+    ],
+    "agentic_feature_ids": [
+      185,
+      186,
+      187,
+      188,
+      189,
+      190,
+      191,
+      192,
+      193,
+      194,
+      195,
+      196,
+      197,
+      198,
+      199,
+      200,
+      201,
+      202,
+      203,
+      204,
+      205,
+      206,
+      207,
+      208,
+      209
+    ]
+  },
+  "all_features_flat": [
+    {
+      "id": 1,
+      "name": "User sign up / login",
+      "priority": "must_have",
+      "group_id": "FG-001",
+      "group_name": "Core product structure"
+    },
+    {
+      "id": 2,
+      "name": "Secure session management",
+      "priority": "must_have",
+      "group_id": "FG-001",
+      "group_name": "Core product structure"
+    },
+    {
+      "id": 3,
+      "name": "Password reset",
+      "priority": "should_have",
+      "group_id": "FG-001",
+      "group_name": "Core product structure"
+    },
+    {
+      "id": 4,
+      "name": "Basic profile",
+      "priority": "should_have",
+      "group_id": "FG-001",
+      "group_name": "Core product structure"
+    },
+    {
+      "id": 5,
+      "name": "Household mode for two collaborators",
+      "priority": "should_have",
+      "group_id": "FG-001",
+      "group_name": "Core product structure"
+    },
+    {
+      "id": 6,
+      "name": "Role permissions: owner / partner-collaborator / read-only collaborator",
+      "priority": "should_have",
+      "group_id": "FG-001",
+      "group_name": "Core product structure"
+    },
+    {
+      "id": 7,
+      "name": "Encrypted storage for sensitive notes and financial assumptions",
+      "priority": "must_have",
+      "group_id": "FG-001",
+      "group_name": "Core product structure"
+    },
+    {
+      "id": 8,
+      "name": "Audit trail for important changes",
+      "priority": "should_have",
+      "group_id": "FG-001",
+      "group_name": "Core product structure"
+    },
+    {
+      "id": 9,
+      "name": "Backup/export of user data",
+      "priority": "should_have",
+      "group_id": "FG-001",
+      "group_name": "Core product structure"
+    },
+    {
+      "id": 10,
+      "name": "Single home screen with sale status, buy status, next tasks, saved properties, latest messages/logs, and financial snapshot",
+      "priority": "must_have",
+      "group_id": "FG-001",
+      "group_name": "Core product structure"
+    },
+    {
+      "id": 11,
+      "name": "Progress tracker for end-to-end journey",
+      "priority": "should_have",
+      "group_id": "FG-001",
+      "group_name": "Core product structure"
+    },
+    {
+      "id": 12,
+      "name": "Alerts for deadlines and follow-ups",
+      "priority": "must_have",
+      "group_id": "FG-001",
+      "group_name": "Core product structure"
+    },
+    {
+      "id": 13,
+      "name": "Quick-add actions for property, note, call log, document upload, financial scenario, and task",
+      "priority": "must_have",
+      "group_id": "FG-001",
+      "group_name": "Core product structure"
+    },
+    {
+      "id": 14,
+      "name": "Create a Sell Current Home project",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 15,
+      "name": "Store property details for the home being sold",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 16,
+      "name": "Capture ownership and basic house details",
+      "priority": "should_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 17,
+      "name": "Add expected sale timing window",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 18,
+      "name": "Store target sale price range",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 19,
+      "name": "Store minimum acceptable price",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 20,
+      "name": "Track sale strategy: auction / tender / deadline sale / price by negotiation / fixed price",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 21,
+      "name": "Add multiple agents",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 22,
+      "name": "Store each agent’s name, agency, contact details, appraisal range, proposed commission, marketing estimate, recommended sale method, and notes",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 23,
+      "name": "Compare agents side by side",
+      "priority": "should_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 24,
+      "name": "Score agents on chosen criteria",
+      "priority": "should_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 25,
+      "name": "Track appraisal appointments",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 26,
+      "name": "Store appraisal documents/photos",
+      "priority": "should_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 27,
+      "name": "Record why an agent was shortlisted or rejected",
+      "priority": "should_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 28,
+      "name": "Commission calculator",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 29,
+      "name": "Marketing package cost calculator",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 30,
+      "name": "Legal/conveyancing estimate tracker",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 31,
+      "name": "Staging / cleaning / repairs budget",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 32,
+      "name": "Mortgage discharge or break-fee assumptions",
+      "priority": "should_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 33,
+      "name": "Net proceeds estimate after fees",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 34,
+      "name": "Best case / expected / worst case sale outcome",
+      "priority": "should_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 35,
+      "name": "Pre-sale checklist",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 36,
+      "name": "Repair and improvement task list",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 37,
+      "name": "Staging and presentation checklist",
+      "priority": "should_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 38,
+      "name": "Open-home prep checklist",
+      "priority": "should_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 39,
+      "name": "Document checklist for title, LIM, builder reports, rates info, and body corporate info if applicable",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 40,
+      "name": "Track document/checklist state as not started / in progress / complete / waiting on third party",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 41,
+      "name": "Log open homes",
+      "priority": "should_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 42,
+      "name": "Record buyer feedback from agent",
+      "priority": "should_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 43,
+      "name": "Record enquiry count",
+      "priority": "should_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 44,
+      "name": "Record watch-list / interest signals",
+      "priority": "should_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 45,
+      "name": "Log offers received",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 46,
+      "name": "Record offer terms: price / conditions / settlement date / deposit",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 47,
+      "name": "Compare offers side by side",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 48,
+      "name": "Record decision and reasoning",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 49,
+      "name": "Track sale milestone: listed / open homes underway / offer received / under contract / unconditional / settled",
+      "priority": "must_have",
+      "group_id": "FG-002",
+      "group_name": "Sell-side features"
+    },
+    {
+      "id": 50,
+      "name": "Create a Buy Next Home project",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 51,
+      "name": "Set target locations",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 52,
+      "name": "Set must-have criteria",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 53,
+      "name": "Set nice-to-have criteria",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 54,
+      "name": "Set hard exclusions",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 55,
+      "name": "Set property type preferences",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 56,
+      "name": "Set budget ceiling",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 57,
+      "name": "Set target timing window",
+      "priority": "should_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 58,
+      "name": "Set financing assumptions",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 59,
+      "name": "Save candidate properties manually",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 60,
+      "name": "Add property from URL",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 61,
+      "name": "Store listing details: address, price/guide, bedrooms, bathrooms, parking, land area, floor area, property type, listing method",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 64,
+      "name": "Save listing photos / screenshots / brochure",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 65,
+      "name": "Save open-home times",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 66,
+      "name": "Watchlist status: researching / inspecting / shortlisted / offer candidate / rejected",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 67,
+      "name": "Add rejection reason",
+      "priority": "should_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 68,
+      "name": "Favourite / rank properties",
+      "priority": "should_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 69,
+      "name": "Side-by-side comparison of shortlisted homes",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 70,
+      "name": "Weighted scoring model",
+      "priority": "should_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 71,
+      "name": "Manual pros and cons list",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 72,
+      "name": "Red-flag tracker",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 73,
+      "name": "Fit against must-have criteria",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 74,
+      "name": "Commute / location notes",
+      "priority": "should_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 75,
+      "name": "School / amenity / neighbourhood notes",
+      "priority": "should_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 76,
+      "name": "Renovation risk notes",
+      "priority": "should_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 77,
+      "name": "Ongoing ownership cost notes",
+      "priority": "should_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 78,
+      "name": "Open-home visit checklist",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 79,
+      "name": "Add visit notes",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 80,
+      "name": "Add room-by-room observations",
+      "priority": "should_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 81,
+      "name": "Upload photos taken during visits",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 82,
+      "name": "Voice-note capture after inspection",
+      "priority": "should_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 83,
+      "name": "Record questions for agent/vendor",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 84,
+      "name": "Due diligence checklist",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 85,
+      "name": "Track report requests: LIM / title / builder’s report / rental appraisal / body corporate docs",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 86,
+      "name": "Store due diligence documents",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 87,
+      "name": "Highlight issues found",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 88,
+      "name": "Mark risk severity: low / medium / high",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 89,
+      "name": "Track unresolved questions before offer",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 90,
+      "name": "Create purchase scenarios for a property",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 91,
+      "name": "Offer calculator",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 92,
+      "name": "Deposit calculator",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 93,
+      "name": "Conditions selector: finance / builder’s report / LIM / sale of existing home / solicitor approval",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 94,
+      "name": "Settlement date options",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 95,
+      "name": "Offer notes and negotiation position",
+      "priority": "should_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 96,
+      "name": "Track submitted offers",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 97,
+      "name": "Track counteroffers",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 98,
+      "name": "Compare final options",
+      "priority": "should_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 99,
+      "name": "Track milestone: researching / due diligence / preparing offer / under offer / conditional / unconditional / settled",
+      "priority": "must_have",
+      "group_id": "FG-003",
+      "group_name": "Buy-side features"
+    },
+    {
+      "id": 100,
+      "name": "Single finance dashboard",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 101,
+      "name": "Current home estimated value",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 102,
+      "name": "Mortgage balance input",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 103,
+      "name": "Savings / cash available",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 104,
+      "name": "KiwiSaver / other available funds if relevant",
+      "priority": "should_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 105,
+      "name": "Estimated equity",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 106,
+      "name": "Estimated borrowing capacity input",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 107,
+      "name": "Total available budget estimate",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 108,
+      "name": "Scenario builder",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 109,
+      "name": "Model sale price assumptions",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 110,
+      "name": "Model commission assumptions",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 111,
+      "name": "Model marketing costs",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 112,
+      "name": "Model legal fees",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 113,
+      "name": "Model moving costs",
+      "priority": "should_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 114,
+      "name": "Model repairs / prep costs",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 115,
+      "name": "Model purchase price assumptions",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 116,
+      "name": "Model deposit amount",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 117,
+      "name": "Model loan amount",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 118,
+      "name": "Model interest rate assumptions",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 119,
+      "name": "Model repayment estimates",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 120,
+      "name": "Model one-off transaction costs relevant to jurisdiction",
+      "priority": "should_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 121,
+      "name": "Model contingency buffer",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 122,
+      "name": "Net cash remaining after move",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 123,
+      "name": "Cash shortfall warning",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 124,
+      "name": "Affordability warning",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 125,
+      "name": "Save named scenarios",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 126,
+      "name": "Compare scenarios side by side",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 127,
+      "name": "Best case / base case / stress case",
+      "priority": "should_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 128,
+      "name": "Sensitivity testing for sale price drops, rate rises, fee increases, and delayed sale",
+      "priority": "should_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 129,
+      "name": "Can I afford this if… modelling",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 130,
+      "name": "Decision-ready summary for each scenario",
+      "priority": "must_have",
+      "group_id": "FG-004",
+      "group_name": "Financial modelling"
+    },
+    {
+      "id": 131,
+      "name": "Store key contacts: agents, brokers, solicitors, valuers, inspectors, bank contacts, movers",
+      "priority": "must_have",
+      "group_id": "FG-005",
+      "group_name": "Communications and record-keeping"
+    },
+    {
+      "id": 132,
+      "name": "Contact profiles",
+      "priority": "must_have",
+      "group_id": "FG-005",
+      "group_name": "Communications and record-keeping"
+    },
+    {
+      "id": 133,
+      "name": "Tag contacts by role",
+      "priority": "must_have",
+      "group_id": "FG-005",
+      "group_name": "Communications and record-keeping"
+    },
+    {
+      "id": 134,
+      "name": "Link contacts to sale or purchase project",
+      "priority": "must_have",
+      "group_id": "FG-005",
+      "group_name": "Communications and record-keeping"
+    },
+    {
+      "id": 135,
+      "name": "Manual log of calls",
+      "priority": "must_have",
+      "group_id": "FG-005",
+      "group_name": "Communications and record-keeping"
+    },
+    {
+      "id": 136,
+      "name": "Manual log of emails",
+      "priority": "must_have",
+      "group_id": "FG-005",
+      "group_name": "Communications and record-keeping"
+    },
+    {
+      "id": 137,
+      "name": "Manual log of text messages / chat summaries",
+      "priority": "must_have",
+      "group_id": "FG-005",
+      "group_name": "Communications and record-keeping"
+    },
+    {
+      "id": 138,
+      "name": "Meeting notes",
+      "priority": "must_have",
+      "group_id": "FG-005",
+      "group_name": "Communications and record-keeping"
+    },
+    {
+      "id": 139,
+      "name": "Timestamped interaction history",
+      "priority": "must_have",
+      "group_id": "FG-005",
+      "group_name": "Communications and record-keeping"
+    },
+    {
+      "id": 140,
+      "name": "Attach files to communications",
+      "priority": "must_have",
+      "group_id": "FG-005",
+      "group_name": "Communications and record-keeping"
+    },
+    {
+      "id": 141,
+      "name": "Link a communication to a property, contact, task, or decision",
+      "priority": "must_have",
+      "group_id": "FG-005",
+      "group_name": "Communications and record-keeping"
+    },
+    {
+      "id": 142,
+      "name": "Follow-up reminder from a communication",
+      "priority": "must_have",
+      "group_id": "FG-005",
+      "group_name": "Communications and record-keeping"
+    },
+    {
+      "id": 143,
+      "name": "Chronological timeline across properties, contacts, offers, tasks, uploaded files, and notes",
+      "priority": "should_have",
+      "group_id": "FG-005",
+      "group_name": "Communications and record-keeping"
+    },
+    {
+      "id": 144,
+      "name": "Filter timeline by project or property",
+      "priority": "should_have",
+      "group_id": "FG-005",
+      "group_name": "Communications and record-keeping"
+    },
+    {
+      "id": 145,
+      "name": "Search all notes and logs",
+      "priority": "must_have",
+      "group_id": "FG-005",
+      "group_name": "Communications and record-keeping"
+    },
+    {
+      "id": 146,
+      "name": "Save articles, links, and references",
+      "priority": "must_have",
+      "group_id": "FG-006",
+      "group_name": "Research and knowledge capture"
+    },
+    {
+      "id": 147,
+      "name": "Save screenshots and PDFs",
+      "priority": "must_have",
+      "group_id": "FG-006",
+      "group_name": "Research and knowledge capture"
+    },
+    {
+      "id": 148,
+      "name": "Categorise research by topic: suburb research / sale process / legal / lending / property checks / market trends",
+      "priority": "must_have",
+      "group_id": "FG-006",
+      "group_name": "Research and knowledge capture"
+    },
+    {
+      "id": 149,
+      "name": "Write notes against each saved item",
+      "priority": "must_have",
+      "group_id": "FG-006",
+      "group_name": "Research and knowledge capture"
+    },
+    {
+      "id": 150,
+      "name": "Tag items",
+      "priority": "must_have",
+      "group_id": "FG-006",
+      "group_name": "Research and knowledge capture"
+    },
+    {
+      "id": 151,
+      "name": "Search research library",
+      "priority": "must_have",
+      "group_id": "FG-006",
+      "group_name": "Research and knowledge capture"
+    },
+    {
+      "id": 152,
+      "name": "Link research items to a specific property",
+      "priority": "must_have",
+      "group_id": "FG-006",
+      "group_name": "Research and knowledge capture"
+    },
+    {
+      "id": 153,
+      "name": "Link comparable sales notes to a suburb or property",
+      "priority": "should_have",
+      "group_id": "FG-006",
+      "group_name": "Research and knowledge capture"
+    },
+    {
+      "id": 154,
+      "name": "Store market commentary notes",
+      "priority": "should_have",
+      "group_id": "FG-006",
+      "group_name": "Research and knowledge capture"
+    },
+    {
+      "id": 155,
+      "name": "Store vendor/agent claims and verification notes",
+      "priority": "should_have",
+      "group_id": "FG-006",
+      "group_name": "Research and knowledge capture"
+    },
+    {
+      "id": 156,
+      "name": "Create tasks manually",
+      "priority": "must_have",
+      "group_id": "FG-007",
+      "group_name": "Tasks, reminders, and workflow"
+    },
+    {
+      "id": 157,
+      "name": "Auto-generate checklist tasks from workflow templates",
+      "priority": "should_have",
+      "group_id": "FG-007",
+      "group_name": "Tasks, reminders, and workflow"
+    },
+    {
+      "id": 158,
+      "name": "Assign due dates",
+      "priority": "must_have",
+      "group_id": "FG-007",
+      "group_name": "Tasks, reminders, and workflow"
+    },
+    {
+      "id": 159,
+      "name": "Assign priority",
+      "priority": "must_have",
+      "group_id": "FG-007",
+      "group_name": "Tasks, reminders, and workflow"
+    },
+    {
+      "id": 160,
+      "name": "Assign owner",
+      "priority": "should_have",
+      "group_id": "FG-007",
+      "group_name": "Tasks, reminders, and workflow"
+    },
+    {
+      "id": 161,
+      "name": "Mark task status: to do / in progress / waiting / done",
+      "priority": "must_have",
+      "group_id": "FG-007",
+      "group_name": "Tasks, reminders, and workflow"
+    },
+    {
+      "id": 162,
+      "name": "Sell-side checklist template",
+      "priority": "must_have",
+      "group_id": "FG-007",
+      "group_name": "Tasks, reminders, and workflow"
+    },
+    {
+      "id": 163,
+      "name": "Buy-side checklist template",
+      "priority": "must_have",
+      "group_id": "FG-007",
+      "group_name": "Tasks, reminders, and workflow"
+    },
+    {
+      "id": 164,
+      "name": "Offer preparation checklist",
+      "priority": "must_have",
+      "group_id": "FG-007",
+      "group_name": "Tasks, reminders, and workflow"
+    },
+    {
+      "id": 165,
+      "name": "Due diligence checklist",
+      "priority": "must_have",
+      "group_id": "FG-007",
+      "group_name": "Tasks, reminders, and workflow"
+    },
+    {
+      "id": 166,
+      "name": "Settlement preparation checklist",
+      "priority": "should_have",
+      "group_id": "FG-007",
+      "group_name": "Tasks, reminders, and workflow"
+    },
+    {
+      "id": 167,
+      "name": "Deadline reminders",
+      "priority": "must_have",
+      "group_id": "FG-007",
+      "group_name": "Tasks, reminders, and workflow"
+    },
+    {
+      "id": 168,
+      "name": "Follow-up reminders",
+      "priority": "must_have",
+      "group_id": "FG-007",
+      "group_name": "Tasks, reminders, and workflow"
+    },
+    {
+      "id": 169,
+      "name": "Open-home reminders",
+      "priority": "must_have",
+      "group_id": "FG-007",
+      "group_name": "Tasks, reminders, and workflow"
+    },
+    {
+      "id": 170,
+      "name": "Document expiry / missing-item reminders",
+      "priority": "should_have",
+      "group_id": "FG-007",
+      "group_name": "Tasks, reminders, and workflow"
+    },
+    {
+      "id": 171,
+      "name": "Offer deadline reminders",
+      "priority": "must_have",
+      "group_id": "FG-007",
+      "group_name": "Tasks, reminders, and workflow"
+    },
+    {
+      "id": 172,
+      "name": "Settlement countdown reminders",
+      "priority": "should_have",
+      "group_id": "FG-007",
+      "group_name": "Tasks, reminders, and workflow"
+    },
+    {
+      "id": 173,
+      "name": "Upload documents",
+      "priority": "must_have",
+      "group_id": "FG-008",
+      "group_name": "Documents and file storage"
+    },
+    {
+      "id": 174,
+      "name": "Store images",
+      "priority": "must_have",
+      "group_id": "FG-008",
+      "group_name": "Documents and file storage"
+    },
+    {
+      "id": 175,
+      "name": "Store PDFs",
+      "priority": "must_have",
+      "group_id": "FG-008",
+      "group_name": "Documents and file storage"
+    },
+    {
+      "id": 176,
+      "name": "Store spreadsheets",
+      "priority": "should_have",
+      "group_id": "FG-008",
+      "group_name": "Documents and file storage"
+    },
+    {
+      "id": 177,
+      "name": "Store brochures and contracts",
+      "priority": "must_have",
+      "group_id": "FG-008",
+      "group_name": "Documents and file storage"
+    },
+    {
+      "id": 178,
+      "name": "Preview common file types",
+      "priority": "should_have",
+      "group_id": "FG-008",
+      "group_name": "Documents and file storage"
+    },
+    {
+      "id": 179,
+      "name": "Basic file categorisation",
+      "priority": "must_have",
+      "group_id": "FG-008",
+      "group_name": "Documents and file storage"
+    },
+    {
+      "id": 180,
+      "name": "Link files to properties, contacts, or projects",
+      "priority": "must_have",
+      "group_id": "FG-008",
+      "group_name": "Documents and file storage"
+    },
+    {
+      "id": 181,
+      "name": "Folder-like views by sale / purchase / property / contact",
+      "priority": "should_have",
+      "group_id": "FG-008",
+      "group_name": "Documents and file storage"
+    },
+    {
+      "id": 182,
+      "name": "Search documents by name/tag",
+      "priority": "must_have",
+      "group_id": "FG-008",
+      "group_name": "Documents and file storage"
+    },
+    {
+      "id": 183,
+      "name": "Version notes for replaced documents",
+      "priority": "should_have",
+      "group_id": "FG-008",
+      "group_name": "Documents and file storage"
+    },
+    {
+      "id": 184,
+      "name": "Mark key documents as pinned",
+      "priority": "should_have",
+      "group_id": "FG-008",
+      "group_name": "Documents and file storage"
+    },
+    {
+      "id": 185,
+      "name": "Summarise saved articles, brochures, and reports",
+      "priority": "must_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 186,
+      "name": "Extract key points from uploaded documents",
+      "priority": "must_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 187,
+      "name": "Produce a plain-English summary of a LIM, builder report, or title",
+      "priority": "should_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 188,
+      "name": "Surface likely risks and unanswered questions",
+      "priority": "must_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 189,
+      "name": "Suggest follow-up questions for agent / solicitor / broker",
+      "priority": "must_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 190,
+      "name": "Turn rough notes into clean call summaries",
+      "priority": "must_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 191,
+      "name": "Draft follow-up emails or message replies",
+      "priority": "should_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 192,
+      "name": "Extract action items from logged communications",
+      "priority": "must_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 193,
+      "name": "Suggest next steps after a meeting or inspection",
+      "priority": "must_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 194,
+      "name": "Generate comparison summaries between shortlisted homes",
+      "priority": "must_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 195,
+      "name": "Explain trade-offs in plain English",
+      "priority": "must_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 196,
+      "name": "Highlight inconsistencies between user criteria and current preference",
+      "priority": "should_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 197,
+      "name": "Identify missing information before making an offer",
+      "priority": "must_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 198,
+      "name": "Explain scenario differences in plain English",
+      "priority": "must_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 199,
+      "name": "Identify the biggest cost drivers",
+      "priority": "must_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 200,
+      "name": "Warn when a scenario looks fragile",
+      "priority": "must_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 201,
+      "name": "Suggest cheaper or safer alternative scenarios based on saved assumptions",
+      "priority": "should_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 202,
+      "name": "Detect stalled tasks",
+      "priority": "should_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 203,
+      "name": "Recommend the next 3 highest-value actions",
+      "priority": "must_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 204,
+      "name": "Build a weekly action plan from all open tasks",
+      "priority": "should_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 205,
+      "name": "Summarise current project state for quick review",
+      "priority": "must_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 206,
+      "name": "Semantic search across notes, docs, communications, research, and saved properties",
+      "priority": "must_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 207,
+      "name": "Ask natural-language questions over stored data",
+      "priority": "must_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 208,
+      "name": "Citation-backed answers linked to original records",
+      "priority": "must_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 209,
+      "name": "Agent memory scoped to project and property",
+      "priority": "must_have",
+      "agentic": true,
+      "group_id": "FG-009",
+      "group_name": "Agentic LangGraph functionality"
+    },
+    {
+      "id": 210,
+      "name": "Global search across all app content",
+      "priority": "must_have",
+      "group_id": "FG-010",
+      "group_name": "Search and filtering"
+    },
+    {
+      "id": 211,
+      "name": "Filter by property / suburb / project / contact / tag / date",
+      "priority": "must_have",
+      "group_id": "FG-010",
+      "group_name": "Search and filtering"
+    },
+    {
+      "id": 212,
+      "name": "Saved searches",
+      "priority": "should_have",
+      "group_id": "FG-010",
+      "group_name": "Search and filtering"
+    },
+    {
+      "id": 213,
+      "name": "Recently viewed items",
+      "priority": "should_have",
+      "group_id": "FG-010",
+      "group_name": "Search and filtering"
+    },
+    {
+      "id": 214,
+      "name": "Quick filters for overdue tasks, shortlisted properties, missing documents, outstanding questions, and active financial scenarios",
+      "priority": "must_have",
+      "group_id": "FG-010",
+      "group_name": "Search and filtering"
+    },
+    {
+      "id": 215,
+      "name": "Record major decisions",
+      "priority": "should_have",
+      "group_id": "FG-011",
+      "group_name": "Decision support"
+    },
+    {
+      "id": 216,
+      "name": "Capture why the decision was made",
+      "priority": "should_have",
+      "group_id": "FG-011",
+      "group_name": "Decision support"
+    },
+    {
+      "id": 217,
+      "name": "Record assumptions used",
+      "priority": "should_have",
+      "group_id": "FG-011",
+      "group_name": "Decision support"
+    },
+    {
+      "id": 218,
+      "name": "Record risks accepted",
+      "priority": "should_have",
+      "group_id": "FG-011",
+      "group_name": "Decision support"
+    },
+    {
+      "id": 219,
+      "name": "Record alternatives considered",
+      "priority": "should_have",
+      "group_id": "FG-011",
+      "group_name": "Decision support"
+    },
+    {
+      "id": 220,
+      "name": "Timestamp each decision",
+      "priority": "should_have",
+      "group_id": "FG-011",
+      "group_name": "Decision support"
+    },
+    {
+      "id": 221,
+      "name": "Should I list now? summary",
+      "priority": "could_have",
+      "group_id": "FG-011",
+      "group_name": "Decision support"
+    },
+    {
+      "id": 222,
+      "name": "Which agent is strongest? summary",
+      "priority": "could_have",
+      "group_id": "FG-011",
+      "group_name": "Decision support"
+    },
+    {
+      "id": 223,
+      "name": "Which property is best fit? summary",
+      "priority": "could_have",
+      "group_id": "FG-011",
+      "group_name": "Decision support"
+    },
+    {
+      "id": 224,
+      "name": "Can I afford this safely? summary",
+      "priority": "could_have",
+      "group_id": "FG-011",
+      "group_name": "Decision support"
+    },
+    {
+      "id": 225,
+      "name": "What must happen before I can make an offer? summary",
+      "priority": "could_have",
+      "group_id": "FG-011",
+      "group_name": "Decision support"
+    },
+    {
+      "id": 226,
+      "name": "Export financial scenarios",
+      "priority": "should_have",
+      "group_id": "FG-012",
+      "group_name": "Reporting and export"
+    },
+    {
+      "id": 227,
+      "name": "Export property comparison summary",
+      "priority": "should_have",
+      "group_id": "FG-012",
+      "group_name": "Reporting and export"
+    },
+    {
+      "id": 228,
+      "name": "Export communication log",
+      "priority": "should_have",
+      "group_id": "FG-012",
+      "group_name": "Reporting and export"
+    },
+    {
+      "id": 229,
+      "name": "Export task list",
+      "priority": "should_have",
+      "group_id": "FG-012",
+      "group_name": "Reporting and export"
+    },
+    {
+      "id": 230,
+      "name": "Export full project pack",
+      "priority": "could_have",
+      "group_id": "FG-012",
+      "group_name": "Reporting and export"
+    },
+    {
+      "id": 231,
+      "name": "Shareable summary PDF for partner/family/adviser",
+      "priority": "could_have",
+      "group_id": "FG-012",
+      "group_name": "Reporting and export"
+    },
+    {
+      "id": 232,
+      "name": "CSV export of core records",
+      "priority": "should_have",
+      "group_id": "FG-012",
+      "group_name": "Reporting and export"
+    },
+    {
+      "id": 233,
+      "name": "Backup export of all structured data",
+      "priority": "should_have",
+      "group_id": "FG-012",
+      "group_name": "Reporting and export"
+    },
+    {
+      "id": 234,
+      "name": "Fast thumb-friendly navigation",
+      "priority": "must_have",
+      "group_id": "FG-013",
+      "group_name": "Mobile UX requirements"
+    },
+    {
+      "id": 235,
+      "name": "Bottom-tab primary nav",
+      "priority": "must_have",
+      "group_id": "FG-013",
+      "group_name": "Mobile UX requirements"
+    },
+    {
+      "id": 236,
+      "name": "Simple property cards",
+      "priority": "must_have",
+      "group_id": "FG-013",
+      "group_name": "Mobile UX requirements"
+    },
+    {
+      "id": 237,
+      "name": "Quick capture flows for notes, photos, and calls",
+      "priority": "must_have",
+      "group_id": "FG-013",
+      "group_name": "Mobile UX requirements"
+    },
+    {
+      "id": 238,
+      "name": "Offline-friendly draft capture",
+      "priority": "should_have",
+      "group_id": "FG-013",
+      "group_name": "Mobile UX requirements"
+    },
+    {
+      "id": 239,
+      "name": "Autosave forms",
+      "priority": "must_have",
+      "group_id": "FG-013",
+      "group_name": "Mobile UX requirements"
+    },
+    {
+      "id": 240,
+      "name": "Camera upload for documents/photos",
+      "priority": "must_have",
+      "group_id": "FG-013",
+      "group_name": "Mobile UX requirements"
+    },
+    {
+      "id": 241,
+      "name": "Voice note capture",
+      "priority": "should_have",
+      "group_id": "FG-013",
+      "group_name": "Mobile UX requirements"
+    },
+    {
+      "id": 242,
+      "name": "Clean timeline view",
+      "priority": "should_have",
+      "group_id": "FG-013",
+      "group_name": "Mobile UX requirements"
+    },
+    {
+      "id": 243,
+      "name": "One-handed use for common actions",
+      "priority": "must_have",
+      "group_id": "FG-013",
+      "group_name": "Mobile UX requirements"
+    },
+    {
+      "id": 244,
+      "name": "Minimal friction to add data immediately after inspections or calls",
+      "priority": "must_have",
+      "group_id": "FG-013",
+      "group_name": "Mobile UX requirements"
+    }
+  ]
+}

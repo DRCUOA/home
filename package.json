@@ -1,0 +1,19 @@
+{
+  "name": "home-control-centre",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --parallel -r run dev",
+    "dev:api": "pnpm --filter @hcc/api run dev",
+    "dev:web": "pnpm --filter @hcc/web run dev",
+    "build": "pnpm -r run build",
+    "db:generate": "pnpm --filter @hcc/api run db:generate",
+    "db:migrate": "pnpm --filter @hcc/api run db:migrate",
+    "db:studio": "pnpm --filter @hcc/api run db:studio",
+    "lint": "pnpm -r run lint",
+    "typecheck": "pnpm -r run typecheck"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  }
+}

@@ -455,7 +455,6 @@ function BuyPage() {
             onPatchEvaluation={(id, data) =>
               updateEvaluation.mutate({ id, data }, { onSuccess: () => qc.invalidateQueries({ queryKey: ["property-evaluations"] }) })
             }
-            ddNotesQueryKey={["notes-dd", buy.id]}
             onCreateIssueNote={(propertyId, body, severity) =>
               createNoteMutation.mutate({
                 project_id: buy.id,
@@ -1475,7 +1474,7 @@ function OffersTab({
   latestScenario: FinancialScenario | null;
   scenarioPropertyId: string | null;
   setScenarioPropertyId: (id: string | null) => void;
-  saveScenarioMutation: ReturnType<typeof useMutation>;
+  saveScenarioMutation: ReturnType<typeof useMutation<any, any, any, any>>;
   onEditMilestone: () => void;
   onAddOffer: () => void;
   onEditOffer: (id: string) => void;
@@ -1928,7 +1927,7 @@ function PropertyDetailModal({
           <div className="flex flex-wrap gap-2 mt-2">
             {property.watchlist_status && <StatusBadge status={property.watchlist_status} />}
             {property.listing_method && (
-              <Badge variant="outline">{capitalize(property.listing_method)}</Badge>
+              <Badge>{capitalize(property.listing_method)}</Badge>
             )}
           </div>
         </div>

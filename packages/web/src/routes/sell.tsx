@@ -855,7 +855,7 @@ function CostsTab({
   saveScenarioMutation,
 }: {
   latestScenario: FinancialScenario | null;
-  saveScenarioMutation: ReturnType<typeof useMutation>;
+  saveScenarioMutation: ReturnType<typeof useMutation<any, any, any, any>>;
 }) {
   const [salePrice, setSalePrice] = useState("");
   const [commissionRate, setCommissionRate] = useState("2.5");

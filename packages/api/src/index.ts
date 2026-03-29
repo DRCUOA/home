@@ -51,7 +51,7 @@ await app.register(fileRoutes);
 await app.register(searchRoutes);
 await app.register(assistantRoutes);
 
-app.setErrorHandler((error, _req, reply) => {
+app.setErrorHandler((error: any, _req, reply) => {
   if (error.validation) {
     return reply.status(400).send({
       error: "Validation Error",

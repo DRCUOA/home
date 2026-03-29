@@ -13,19 +13,22 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@hcc/shared": "workspace:*",
+    "@aws-sdk/client-s3": "^3.700",
+    "@aws-sdk/s3-request-presigner": "^3.700",
     "@fastify/cookie": "^11.0",
     "@fastify/cors": "^10.0",
     "@fastify/multipart": "^9.0",
+    "@hcc/shared": "workspace:*",
+    "@langchain/core": "^1.1.36",
+    "@langchain/langgraph": "^1.2.6",
+    "@langchain/openai": "^1.3.1",
     "bcrypt": "^5.1",
     "dotenv": "^16.4",
     "drizzle-orm": "^0.39",
     "fastify": "^5.2",
     "jsonwebtoken": "^9.0",
     "pg": "^8.13",
-    "zod": "^3.24",
-    "@aws-sdk/client-s3": "^3.700",
-    "@aws-sdk/s3-request-presigner": "^3.700"
+    "zod": "^3.24"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0",

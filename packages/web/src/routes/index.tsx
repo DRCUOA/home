@@ -21,7 +21,7 @@ import { PageShell } from "@/components/layout/page-shell";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Fab, defaultFabActions } from "@/components/layout/fab";
+import { QuickAddFab } from "@/components/features/quick-add";
 import { apiGet } from "@/lib/api";
 import { formatCurrency, formatDate, capitalize } from "@/lib/format";
 
@@ -422,7 +422,7 @@ function DashboardPage() {
         </section>
       </div>
 
-      <Fab actions={defaultFabActions} />
+      <QuickAddFab />
     </PageShell>
   );
 }

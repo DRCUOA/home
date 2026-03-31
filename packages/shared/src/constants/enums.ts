@@ -198,3 +198,33 @@ export const AGENT_WORKFLOW_TYPES = [
   "qa",
 ] as const;
 export type AgentWorkflowType = (typeof AGENT_WORKFLOW_TYPES)[number];
+
+export const OPENAI_MODELS = [
+  "gpt-5-nano",
+  "gpt-5-mini",
+  "gpt-5.4",
+  "gpt-4.1-nano",
+  "gpt-4.1-mini",
+  "gpt-4.1",
+  "o4-mini",
+] as const;
+export type OpenAIModel = (typeof OPENAI_MODELS)[number];
+
+export const OPENAI_MODEL_LABELS: Record<OpenAIModel, string> = {
+  "gpt-5-nano": "GPT-5 Nano",
+  "gpt-5-mini": "GPT-5 Mini",
+  "gpt-5.4": "GPT-5.4",
+  "gpt-4.1-nano": "GPT-4.1 Nano",
+  "gpt-4.1-mini": "GPT-4.1 Mini",
+  "gpt-4.1": "GPT-4.1",
+  "o4-mini": "o4 Mini (reasoning)",
+};
+
+export const ASSISTANT_TOOLS = [
+  "web_search",
+] as const;
+export type AssistantTool = (typeof ASSISTANT_TOOLS)[number];
+
+export const ASSISTANT_TOOL_LABELS: Record<AssistantTool, string> = {
+  web_search: "Web search",
+};

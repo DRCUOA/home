@@ -1,5 +1,6 @@
 import { db, schema } from "../db/index.js";
 import { eq } from "drizzle-orm";
+import { withModel } from "./llm.js";
 import { summariseWorkflow } from "./workflows/summarise.js";
 import { extractKeyPointsWorkflow } from "./workflows/extract-key-points.js";
 import { suggestQuestionsWorkflow } from "./workflows/suggest-questions.js";
@@ -11,6 +12,7 @@ import { recommendActionsWorkflow } from "./workflows/recommend-actions.js";
 import { projectSummaryWorkflow } from "./workflows/project-summary.js";
 import { qaWorkflow } from "./workflows/qa.js";
 import { semanticSearch } from "./embeddings.js";
+import type { AssistantTool, ContextMessage } from "@hcc/shared";
 
 type WorkflowType =
   | "summarise_document"
@@ -30,9 +32,12 @@ export async function runWorkflow(
   workflowType: WorkflowType,
   input: string,
   userId: string,
-  imageBase64?: string
+  imageBase64?: string,
+  model?: string,
+  tools?: AssistantTool[],
+  contextMessages?: ContextMessage[]
 ): Promise<void> {
-  try {
+  const run = async () => {
     let result: any;
 
     switch (workflowType) {
@@ -69,14 +74,25 @@ export async function runWorkflow(
         break;
       }
       case "qa":
-        result = await qaWorkflow.invoke({ input, image_base64: imageBase64 ?? "" });
+        result = await qaWorkflow.invoke({
+          input,
+          image_base64: imageBase64 ?? "",
+          tools: tools ?? [],
+          context_messages: contextMessages ?? [],
+        });
         break;
       default:
         throw new Error(`Unknown workflow type: ${workflowType}`);
     }
 
     const { input: _input, ...outputFields } = result;
-    const outputSummary = JSON.stringify(outputFields, null, 2);
+    return JSON.stringify(outputFields, null, 2);
+  };
+
+  try {
+    const outputSummary = model
+      ? await withModel(model, run)
+      : await run();
 
     await db
       .update(schema.agentRuns)

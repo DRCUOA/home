@@ -1,7 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, RotateCcw, Check, X, ImagePlus } from "lucide-react";
+import {
+  Camera,
+  RotateCcw,
+  Check,
+  X,
+  ImagePlus,
+  Images,
+  ArrowLeft,
+  Loader2,
+  ScanLine,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { apiGet } from "@/lib/api";
+import { ImageScanEditor } from "@/components/features/image-scan-editor";
+import type { FileRecord } from "@hcc/shared";
+
+type ListResponse<T> = { data: T[]; total: number };
 
 interface CameraCaptureProps {
   open: boolean;
@@ -9,6 +24,8 @@ interface CameraCaptureProps {
   onClose: () => void;
   title?: string;
 }
+
+type CameraMode = "camera" | "gallery";
 
 export function CameraCapture({
   open,
@@ -26,6 +43,16 @@ export function CameraCapture({
   );
   const [error, setError] = useState<string | null>(null);
   const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
+
+  const [mode, setMode] = useState<CameraMode>("camera");
+  const [galleryPhotos, setGalleryPhotos] = useState<FileRecord[]>([]);
+  const [galleryLoading, setGalleryLoading] = useState(false);
+  const [galleryPicking, setGalleryPicking] = useState<string | null>(null);
+
+  const [editorImage, setEditorImage] = useState<string | null>(null);
+  const [editorSource, setEditorSource] = useState<"camera" | "gallery" | null>(
+    null
+  );
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -65,14 +92,69 @@ export function CameraCapture({
 
   useEffect(() => {
     if (open) {
+      setMode("camera");
       startCamera();
     } else {
       stopCamera();
       setCaptured(null);
       setError(null);
+      setGalleryPhotos([]);
+      setGalleryPicking(null);
+      setEditorImage((prev) => {
+        if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+        return null;
+      });
+      setEditorSource(null);
     }
     return stopCamera;
   }, [open, startCamera, stopCamera]);
+
+  const loadGallery = async () => {
+    setGalleryLoading(true);
+    try {
+      const result = await apiGet<ListResponse<FileRecord>>("/files");
+      setGalleryPhotos(
+        (result.data ?? [])
+          .filter((f) => f.mime_type.startsWith("image/"))
+          .sort(
+            (a, b) =>
+              new Date(b.created_at).getTime() -
+              new Date(a.created_at).getTime()
+          )
+      );
+    } catch {
+      setGalleryPhotos([]);
+    } finally {
+      setGalleryLoading(false);
+    }
+  };
+
+  const openGallery = () => {
+    stopCamera();
+    setMode("gallery");
+    loadGallery();
+  };
+
+  const backToCamera = () => {
+    setMode("camera");
+    startCamera();
+  };
+
+  const pickGalleryImage = async (photo: FileRecord) => {
+    setGalleryPicking(photo.id);
+    try {
+      const resp = await fetch(`/api/v1/files/${photo.id}/download`, {
+        credentials: "include",
+      });
+      const blob = await resp.blob();
+      setEditorImage(URL.createObjectURL(blob));
+      setEditorSource("gallery");
+    } catch {
+      // fall through
+    } finally {
+      setGalleryPicking(null);
+    }
+  };
 
   const handleCapture = () => {
     const video = videoRef.current;
@@ -121,12 +203,98 @@ export function CameraCapture({
     onCapture(file);
   };
 
+  const openEditorFromCapture = () => {
+    if (captured) {
+      setEditorImage(captured);
+      setEditorSource("camera");
+    }
+  };
+
+  const handleEditorConfirm = (file: File) => {
+    if (editorImage?.startsWith("blob:")) URL.revokeObjectURL(editorImage);
+    setEditorImage(null);
+    setEditorSource(null);
+    setCaptured(null);
+    onCapture(file);
+  };
+
+  const handleEditorBack = () => {
+    if (editorImage?.startsWith("blob:")) URL.revokeObjectURL(editorImage);
+    setEditorImage(null);
+    const source = editorSource;
+    setEditorSource(null);
+    if (source === "gallery") {
+      // stay on gallery grid — mode is already "gallery"
+    } else {
+      // camera source: captured is still set, so preview re-appears
+    }
+  };
+
   if (!open) return null;
 
   return (
     <Modal open={open} onClose={onClose} title={title}>
       <div className="space-y-3">
-        {error ? (
+        {editorImage ? (
+          <ImageScanEditor
+            imageSrc={editorImage}
+            onConfirm={handleEditorConfirm}
+            onBack={handleEditorBack}
+          />
+        ) : mode === "gallery" ? (
+          <>
+            <div className="flex items-center gap-2 mb-1">
+              <button
+                type="button"
+                onClick={backToCamera}
+                className="p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors"
+                aria-label="Back to camera"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Gallery
+              </span>
+            </div>
+
+            {galleryLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="h-6 w-6 animate-spin text-primary-500" />
+              </div>
+            ) : galleryPhotos.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <Images className="h-10 w-10 text-slate-300 dark:text-slate-600 mb-2" />
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  No photos in your Gallery yet
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-1.5 max-h-[60vh] overflow-y-auto rounded-lg">
+                {galleryPhotos.map((photo) => (
+                  <button
+                    key={photo.id}
+                    type="button"
+                    onClick={() => pickGalleryImage(photo)}
+                    disabled={galleryPicking !== null}
+                    className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 hover:ring-2 hover:ring-primary-500 focus:ring-2 focus:ring-primary-500 transition-all"
+                  >
+                    <img
+                      src={`/api/v1/files/${photo.id}/download`}
+                      alt={photo.filename}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                    {galleryPicking === photo.id && (
+                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                        <Loader2 className="h-5 w-5 animate-spin text-white" />
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        ) : error ? (
           <div className="flex flex-col items-center justify-center py-10 text-center">
             <Camera className="h-12 w-12 text-slate-300 dark:text-slate-600 mb-3" />
             <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
@@ -139,6 +307,10 @@ export function CameraCapture({
               <Button onClick={() => fileInputRef.current?.click()}>
                 <ImagePlus className="h-4 w-4" />
                 Choose photo
+              </Button>
+              <Button variant="secondary" onClick={openGallery}>
+                <Images className="h-4 w-4" />
+                Gallery
               </Button>
             </div>
           </div>
@@ -160,6 +332,14 @@ export function CameraCapture({
                 <RotateCcw className="h-4 w-4" />
                 Retake
               </Button>
+              <Button
+                variant="secondary"
+                className="min-h-12"
+                onClick={openEditorFromCapture}
+              >
+                <ScanLine className="h-4 w-4" />
+                Scan
+              </Button>
               <Button className="flex-1 min-h-12" onClick={handleConfirm}>
                 <Check className="h-4 w-4" />
                 Use photo
@@ -177,7 +357,7 @@ export function CameraCapture({
                 className="w-full h-full object-cover"
               />
             </div>
-            <div className="flex items-center justify-center gap-4">
+            <div className="flex items-center justify-center gap-3">
               {hasMultipleCameras ? (
                 <button
                   type="button"
@@ -198,14 +378,26 @@ export function CameraCapture({
               >
                 <div className="h-12 w-12 rounded-full bg-primary-600" />
               </button>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="p-3 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 min-w-[2.75rem] min-h-[2.75rem] flex items-center justify-center"
-                aria-label="Choose from gallery"
-              >
-                <ImagePlus className="h-5 w-5" />
-              </button>
+              <div className="flex flex-col items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={openGallery}
+                  className="p-2.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center"
+                  aria-label="Choose from Gallery"
+                  title="Gallery"
+                >
+                  <Images className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-2.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center"
+                  aria-label="Choose from files"
+                  title="Files"
+                >
+                  <ImagePlus className="h-5 w-5" />
+                </button>
+              </div>
             </div>
           </>
         )}

@@ -1,14 +1,30 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { ChatOpenAI } from "@langchain/openai";
 
-let _llm: ChatOpenAI | null = null;
+interface LLMContext {
+  model: string;
+}
 
-export function getLLM(): ChatOpenAI {
-  if (!_llm) {
-    _llm = new ChatOpenAI({
-      model: process.env.LLM_MODEL || "gpt-4o-mini",
+const llmStore = new AsyncLocalStorage<LLMContext>();
+const llmCache = new Map<string, ChatOpenAI>();
+
+export function getLLM(modelOverride?: string): ChatOpenAI {
+  const ctx = llmStore.getStore();
+  const model =
+    modelOverride ?? ctx?.model ?? process.env.LLM_MODEL ?? "gpt-4o-mini";
+
+  let llm = llmCache.get(model);
+  if (!llm) {
+    llm = new ChatOpenAI({
+      model,
       temperature: 0.3,
       apiKey: process.env.OPENAI_API_KEY,
     });
+    llmCache.set(model, llm);
   }
-  return _llm;
+  return llm;
+}
+
+export function withModel<T>(model: string, fn: () => Promise<T>): Promise<T> {
+  return llmStore.run({ model }, fn);
 }

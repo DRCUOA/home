@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, gte, inArray } from "drizzle-orm";
 import { authGuard } from "../middleware/auth.js";
 import { db, schema } from "../db/index.js";
 import { runAssistantSchema, CONTACT_ROLES } from "@hcc/shared";
@@ -58,6 +58,8 @@ export default async function assistantRoutes(app: FastifyInstance) {
         user_id: req.userId,
         workflow_type: body.workflow_type,
         input_summary: body.input,
+        model: body.model,
+        tools: body.tools,
         project_id: body.project_id,
         property_id: body.property_id,
         status: "running",
@@ -69,10 +71,216 @@ export default async function assistantRoutes(app: FastifyInstance) {
       body.workflow_type as any,
       body.input,
       req.userId,
-      imageBase64
+      imageBase64,
+      body.model,
+      body.tools as any,
+      body.context_messages
     ).catch((err) => app.log.error(err, "Agent workflow failed"));
 
     return reply.status(201).send({ data: run });
+  });
+
+  app.delete("/api/v1/assistant/runs/:id/cascade", async (req, reply) => {
+    const { id } = req.params as { id: string };
+
+    const [target] = await db
+      .select()
+      .from(schema.agentRuns)
+      .where(
+        and(eq(schema.agentRuns.id, id), eq(schema.agentRuns.user_id, req.userId))
+      )
+      .limit(1);
+    if (!target) return reply.status(404).send({ error: "Not Found" });
+
+    const toDelete = await db
+      .select({ id: schema.agentRuns.id })
+      .from(schema.agentRuns)
+      .where(
+        and(
+          eq(schema.agentRuns.user_id, req.userId),
+          gte(schema.agentRuns.created_at, target.created_at)
+        )
+      );
+
+    const ids = toDelete.map((r) => r.id);
+    if (ids.length > 0) {
+      await db
+        .delete(schema.agentRuns)
+        .where(inArray(schema.agentRuns.id, ids));
+    }
+
+    return { deleted: ids.length, ids };
+  });
+
+  app.post("/api/v1/assistant/runs/:id/save", async (req, reply) => {
+    const { id } = req.params as { id: string };
+
+    const allRuns = await db
+      .select()
+      .from(schema.agentRuns)
+      .where(eq(schema.agentRuns.user_id, req.userId))
+      .orderBy(desc(schema.agentRuns.created_at));
+
+    const target = allRuns.find((r) => r.id === id);
+    if (!target) return reply.status(404).send({ error: "Not Found" });
+
+    const ancestors = allRuns
+      .filter(
+        (r) =>
+          new Date(r.created_at).getTime() <=
+          new Date(target.created_at).getTime()
+      )
+      .sort(
+        (a, b) =>
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+
+    const lines: string[] = [];
+    for (const run of ancestors) {
+      const date = new Date(run.created_at).toLocaleDateString("en-NZ", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      lines.push(`### You — ${date}`);
+      lines.push(run.input_summary);
+      lines.push("");
+      if (run.output_summary) {
+        lines.push(`### Assistant`);
+        try {
+          const parsed = JSON.parse(run.output_summary);
+          const answer =
+            parsed.answer ??
+            parsed.summary ??
+            parsed.cleaned ??
+            parsed.explanation ??
+            run.output_summary;
+          lines.push(answer);
+        } catch {
+          lines.push(run.output_summary);
+        }
+        lines.push("");
+      }
+      lines.push("---");
+      lines.push("");
+    }
+
+    const llm = getLLM();
+    const titleResponse = await llm.invoke([
+      {
+        role: "system",
+        content:
+          "Generate a short descriptive title (max 8 words) for this assistant conversation. Return ONLY the title text, nothing else.",
+      },
+      {
+        role: "user",
+        content: lines.join("\n").slice(0, 2000),
+      },
+    ]);
+    const title = (titleResponse.content as string).replace(/^["']|["']$/g, "").trim();
+
+    const markdown = `# ${title}\n\n${lines.join("\n")}`;
+
+    const [note] = await db
+      .insert(schema.notes)
+      .values({
+        user_id: req.userId,
+        body: markdown,
+        project_id: target.project_id,
+        tags: ["assistant-export"],
+      })
+      .returning();
+
+    return reply.status(201).send({ data: note, title });
+  });
+
+  app.post("/api/v1/assistant/runs/save-selected", async (req, reply) => {
+    const { run_ids } = req.body as { run_ids: string[] };
+    if (!Array.isArray(run_ids) || run_ids.length === 0) {
+      return reply.status(400).send({ error: "run_ids required" });
+    }
+
+    const allRuns = await db
+      .select()
+      .from(schema.agentRuns)
+      .where(eq(schema.agentRuns.user_id, req.userId))
+      .orderBy(desc(schema.agentRuns.created_at));
+
+    const idSet = new Set(run_ids);
+    const selected = allRuns
+      .filter((r) => idSet.has(r.id))
+      .sort(
+        (a, b) =>
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+
+    if (selected.length === 0) {
+      return reply.status(404).send({ error: "No matching runs found" });
+    }
+
+    const lines: string[] = [];
+    for (const run of selected) {
+      const date = new Date(run.created_at).toLocaleDateString("en-NZ", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      lines.push(`### You — ${date}`);
+      lines.push(run.input_summary);
+      lines.push("");
+      if (run.output_summary) {
+        lines.push(`### Assistant`);
+        try {
+          const parsed = JSON.parse(run.output_summary);
+          const answer =
+            parsed.answer ??
+            parsed.summary ??
+            parsed.cleaned ??
+            parsed.explanation ??
+            run.output_summary;
+          lines.push(answer);
+        } catch {
+          lines.push(run.output_summary);
+        }
+        lines.push("");
+      }
+      lines.push("---");
+      lines.push("");
+    }
+
+    const llm = getLLM();
+    const titleResponse = await llm.invoke([
+      {
+        role: "system",
+        content:
+          "Generate a short descriptive title (max 8 words) for this assistant conversation excerpt. Return ONLY the title text, nothing else.",
+      },
+      {
+        role: "user",
+        content: lines.join("\n").slice(0, 2000),
+      },
+    ]);
+    const title = (titleResponse.content as string).replace(/^["']|["']$/g, "").trim();
+
+    const markdown = `# ${title}\n\n${lines.join("\n")}`;
+
+    const projectId = selected.find((r) => r.project_id)?.project_id ?? null;
+
+    const [note] = await db
+      .insert(schema.notes)
+      .values({
+        user_id: req.userId,
+        body: markdown,
+        project_id: projectId,
+        tags: ["assistant-export"],
+      })
+      .returning();
+
+    return reply.status(201).send({ data: note, title });
   });
 
   app.post("/api/v1/assistant/extract-card", async (req, reply) => {

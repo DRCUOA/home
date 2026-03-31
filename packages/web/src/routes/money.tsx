@@ -49,6 +49,27 @@ const n = (v: string) => {
   return Number.isFinite(x) ? x : 0;
 };
 
+function calcMonthlyRepayment(principal: number, annualRate: number, years: number): number | null {
+  if (principal <= 0 || years <= 0) return null;
+  if (annualRate <= 0) return principal / (years * 12);
+  const r = annualRate / 100 / 12;
+  const months = years * 12;
+  return principal * (r * Math.pow(1 + r, months)) / (Math.pow(1 + r, months) - 1);
+}
+
+function calcLoanTermYears(principal: number, annualRate: number, monthly: number): number | null {
+  if (principal <= 0 || monthly <= 0) return null;
+  if (annualRate <= 0) {
+    const years = principal / monthly / 12;
+    return years > 0 ? years : null;
+  }
+  const r = annualRate / 100 / 12;
+  if (monthly <= principal * r) return null;
+  const months = -Math.log(1 - (principal * r) / monthly) / Math.log(1 + r);
+  const years = months / 12;
+  return Number.isFinite(years) && years > 0 ? years : null;
+}
+
 function MoneyPage() {
   const qc = useQueryClient();
   const [tab, setTab] = useState("dashboard");
@@ -482,7 +503,12 @@ function CompareTab({
     label: s.name,
   }));
 
-  const compareRows: { label: string; key: keyof FinancialScenario; warn?: boolean }[] = [
+  type CompareRow = { label: string; warn?: boolean } & (
+    | { key: keyof FinancialScenario; compute?: never }
+    | { compute: (s: FinancialScenario) => number | null; key?: never }
+  );
+
+  const compareRows: CompareRow[] = [
     { label: "Sale price", key: "sale_price" },
     { label: "Commission", key: "commission_amount" },
     { label: "Marketing", key: "marketing_cost" },
@@ -491,7 +517,21 @@ function CompareTab({
     { label: "Purchase price", key: "purchase_price" },
     { label: "Deposit", key: "deposit" },
     { label: "Loan amount", key: "loan_amount" },
+    { label: "Interest expense", compute: (s) => {
+      const principal = s.loan_amount ?? 0;
+      const rate = s.interest_rate ?? 0;
+      const yrs = s.loan_term_years ?? 0;
+      if (principal <= 0 || yrs <= 0) return null;
+      const months = Math.round(yrs * 12);
+      const mo = calcMonthlyRepayment(principal, rate, months / 12);
+      if (mo == null) return null;
+      return mo * months - principal;
+    }},
     { label: "Repayments/mo", key: "repayment_monthly" },
+    { label: "Repayments/wk", compute: (s) => {
+      const mo = s.repayment_monthly ?? 0;
+      return mo > 0 ? Math.round(mo * 12 / 52) : null;
+    }},
     { label: "Contingency", key: "contingency" },
     { label: "Net cash", key: "net_cash_remaining", warn: true },
   ];
@@ -539,10 +579,10 @@ function CompareTab({
               </thead>
               <tbody>
                 {compareRows.map((row) => (
-                  <tr key={row.key} className="border-b border-slate-50 dark:border-slate-800">
+                  <tr key={row.label} className="border-b border-slate-50 dark:border-slate-800">
                     <td className="py-2.5 pr-3 text-slate-500 dark:text-slate-400">{row.label}</td>
                     {comparisonData.map((s) => {
-                      const val = s[row.key] as number | undefined;
+                      const val = row.compute ? row.compute(s) : (s[row.key] as number | undefined);
                       const isNegative = row.warn && val != null && val < 0;
                       return (
                         <td
@@ -616,6 +656,8 @@ function ScenarioModal({
   const [legalBuy, setLegalBuy] = useState("");
   const [transactionCosts, setTransactionCosts] = useState("");
   const [contingency, setContingency] = useState("");
+  const [loanDriver, setLoanDriver] = useState<"term" | "repayment" | null>(null);
+  const [repaymentFreq, setRepaymentFreq] = useState<"week" | "fortnight" | "month">("month");
 
   useEffect(() => {
     if (!open) return;
@@ -668,7 +710,37 @@ function ScenarioModal({
       setTransactionCosts("");
       setContingency("");
     }
+    setLoanDriver(null);
   }, [open, existing?.id, projects]);
+
+  useEffect(() => {
+    if (loanDriver !== "term") return;
+    const result = calcMonthlyRepayment(n(loanAmount), n(interestRate), n(loanTerm));
+    setRepayment(result != null ? Math.round(result).toString() : "");
+  }, [loanDriver, loanAmount, interestRate, loanTerm]);
+
+  useEffect(() => {
+    if (loanDriver !== "repayment") return;
+    const result = calcLoanTermYears(n(loanAmount), n(interestRate), n(repayment));
+    if (result != null) {
+      const months = Math.round(result * 12);
+      setLoanTerm(parseFloat((months / 12).toFixed(2)).toString());
+    } else {
+      setLoanTerm("");
+    }
+  }, [loanDriver, loanAmount, interestRate, repayment]);
+
+  const freqMultiplier = repaymentFreq === "week" ? 12 / 52 : repaymentFreq === "fortnight" ? 12 / 26 : 1;
+  const monthlyToDisplay = (mo: string) => {
+    const v = parseFloat(mo);
+    if (!Number.isFinite(v) || v === 0) return mo;
+    return Math.round(v * freqMultiplier).toString();
+  };
+  const displayToMonthly = (disp: string) => {
+    const v = parseFloat(disp);
+    if (!Number.isFinite(v)) return disp;
+    return Math.round(v / freqMultiplier).toString();
+  };
 
   const sale = n(salePrice);
   const rate = n(commissionRate);
@@ -677,17 +749,33 @@ function ScenarioModal({
   const mkt = n(marketingCost);
   const lSell = n(legalSell);
   const rep = n(repairsCost);
-  const netProceeds = sale - commissionAmt - mkt - lSell - rep - mort - n(mortgageBreakFee);
+  const mov = n(movingCost);
+  const netProceeds = sale - commissionAmt - mkt - lSell - rep - mort - n(mortgageBreakFee) - mov;
 
   const equity = netProceeds;
-  const availFunds = equity + n(savings) + n(kiwisaver) + n(otherFunds) + n(borrowingCapacity);
+  const sav = n(savings);
+  const kiwi = n(kiwisaver);
+  const other = n(otherFunds);
+  const borrowing = n(borrowingCapacity);
+  const availFunds = equity + sav + kiwi + other + borrowing;
   const purchase = n(purchasePrice);
-  const dep = n(deposit);
   const lBuy = n(legalBuy);
   const txn = n(transactionCosts);
   const cont = n(contingency);
-  const totalCosts = purchase + dep + lBuy + txn + cont + n(movingCost);
-  const netCash = availFunds - totalCosts;
+
+  const sellCosts = commissionAmt + mkt + lSell + rep + n(mortgageBreakFee) + mov;
+  const buyCosts = lBuy + txn;
+  const allCosts = sellCosts + mort + purchase + buyCosts + cont;
+  const cashReserves = sav + kiwi + other;
+  const totalFunding = sale + cashReserves + borrowing;
+  const netCash = totalFunding - allCosts;
+
+  const loanAmt = n(loanAmount);
+  const termYears = n(loanTerm);
+  const termMonths = Math.round(termYears * 12);
+  const loanMonthly = calcMonthlyRepayment(loanAmt, n(interestRate), termMonths / 12);
+  const totalRepayments = loanMonthly != null && termMonths > 0 ? loanMonthly * termMonths : 0;
+  const totalInterest = totalRepayments > 0 ? totalRepayments - loanAmt : 0;
 
   return (
     <Modal open={open} onClose={onClose} title={existing ? "Edit scenario" : "New scenario"}>
@@ -783,8 +871,51 @@ function ScenarioModal({
           <Input label="Interest %" inputMode="decimal" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} />
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Input label="Loan term (yrs)" inputMode="decimal" value={loanTerm} onChange={(e) => setLoanTerm(e.target.value)} />
-          <Input label="Repayment/mo" inputMode="decimal" value={repayment} onChange={(e) => setRepayment(e.target.value)} />
+          <Input
+            label={`Loan term (yrs)${loanDriver === "repayment" && loanTerm ? " · auto" : ""}`}
+            inputMode="decimal"
+            value={loanTerm}
+            onChange={(e) => { setLoanTerm(e.target.value); setLoanDriver("term"); }}
+            className={loanDriver === "repayment" && loanTerm ? "bg-blue-50 dark:bg-blue-900/20" : ""}
+          />
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-1">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Repayment
+              </label>
+              <div className="flex items-center gap-1.5">
+                {([["week", "w"], ["fortnight", "f"], ["month", "m"]] as const).map(([freq, label]) => (
+                  <button
+                    key={freq}
+                    type="button"
+                    className="flex items-center gap-1 text-xs"
+                    onClick={() => setRepaymentFreq(freq)}
+                  >
+                    <span className={`h-3.5 w-3.5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                      repaymentFreq === freq
+                        ? "border-primary-500"
+                        : "border-slate-300 dark:border-slate-600"
+                    }`}>
+                      {repaymentFreq === freq && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-primary-500" />
+                      )}
+                    </span>
+                    <span className={repaymentFreq === freq ? "text-slate-900 dark:text-slate-100 font-medium" : "text-slate-400 dark:text-slate-500"}>
+                      {label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <input
+              inputMode="decimal"
+              value={monthlyToDisplay(repayment)}
+              onChange={(e) => { setRepayment(displayToMonthly(e.target.value)); setLoanDriver("repayment"); }}
+              className={`w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2.5 text-base text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 ${
+                loanDriver === "term" && repayment ? "bg-blue-50 dark:bg-blue-900/20" : ""
+              }`}
+            />
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <Input label="Legal (buy)" inputMode="decimal" value={legalBuy} onChange={(e) => setLegalBuy(e.target.value)} />
@@ -792,17 +923,91 @@ function ScenarioModal({
         </div>
         <Input label="Contingency" inputMode="decimal" value={contingency} onChange={(e) => setContingency(e.target.value)} />
 
-        <div className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-3 space-y-1 text-sm">
-          <div className="flex justify-between">
-            <span className="text-slate-500 dark:text-slate-400">Total budget</span>
-            <span className="font-medium tabular-nums">{formatCurrency(availFunds)}</span>
+        <div className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-3 space-y-3 text-sm">
+          <div className="space-y-1">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Costs</p>
+            {sellCosts > 0 && (
+              <div className="flex justify-between">
+                <span className="text-slate-500 dark:text-slate-400">Sell costs</span>
+                <span className="tabular-nums">{formatCurrency(sellCosts)}</span>
+              </div>
+            )}
+            {mort > 0 && (
+              <div className="flex justify-between">
+                <span className="text-slate-500 dark:text-slate-400">Mortgage payout</span>
+                <span className="tabular-nums">{formatCurrency(mort)}</span>
+              </div>
+            )}
+            {purchase > 0 && (
+              <div className="flex justify-between">
+                <span className="text-slate-500 dark:text-slate-400">Purchase price</span>
+                <span className="tabular-nums">{formatCurrency(purchase)}</span>
+              </div>
+            )}
+            {buyCosts > 0 && (
+              <div className="flex justify-between">
+                <span className="text-slate-500 dark:text-slate-400">Buy costs</span>
+                <span className="tabular-nums">{formatCurrency(buyCosts)}</span>
+              </div>
+            )}
+            {cont > 0 && (
+              <div className="flex justify-between">
+                <span className="text-slate-500 dark:text-slate-400">Contingency</span>
+                <span className="tabular-nums">{formatCurrency(cont)}</span>
+              </div>
+            )}
+            {totalRepayments > 0 && (
+              <>
+                <div className="flex justify-between pt-1">
+                  <span className="text-slate-500 dark:text-slate-400">Loan principal</span>
+                  <span className="tabular-nums">{formatCurrency(loanAmt)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-slate-400">
+                    Interest ({n(interestRate)}% over {termYears}yr)
+                  </span>
+                  <span className="tabular-nums">{formatCurrency(totalInterest)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 dark:text-slate-400">Total loan repayment</span>
+                  <span className="tabular-nums">{formatCurrency(totalRepayments)}</span>
+                </div>
+              </>
+            )}
+            <div className="flex justify-between border-t border-slate-100 dark:border-slate-800 pt-1">
+              <span className="font-medium text-slate-700 dark:text-slate-200">Total costs</span>
+              <span className="font-medium tabular-nums">{formatCurrency(allCosts)}</span>
+            </div>
           </div>
-          <div className="flex justify-between">
-            <span className="text-slate-500 dark:text-slate-400">Total costs</span>
-            <span className="font-medium tabular-nums">{formatCurrency(totalCosts)}</span>
+
+          <div className="space-y-1">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Funded by</p>
+            {sale > 0 && (
+              <div className="flex justify-between">
+                <span className="text-slate-500 dark:text-slate-400">Sale proceeds</span>
+                <span className="tabular-nums">{formatCurrency(sale)}</span>
+              </div>
+            )}
+            {cashReserves > 0 && (
+              <div className="flex justify-between">
+                <span className="text-slate-500 dark:text-slate-400">Cash reserves</span>
+                <span className="tabular-nums">{formatCurrency(cashReserves)}</span>
+              </div>
+            )}
+            {borrowing > 0 && (
+              <div className="flex justify-between">
+                <span className="text-slate-500 dark:text-slate-400">Borrowing</span>
+                <span className="tabular-nums">{formatCurrency(borrowing)}</span>
+              </div>
+            )}
+            <div className="flex justify-between border-t border-slate-100 dark:border-slate-800 pt-1">
+              <span className="font-medium text-slate-700 dark:text-slate-200">Total funding</span>
+              <span className="font-medium tabular-nums">{formatCurrency(totalFunding)}</span>
+            </div>
           </div>
-          <div className="flex justify-between border-t border-slate-100 dark:border-slate-800 pt-1">
-            <span className="font-semibold text-slate-900 dark:text-slate-100">Net cash</span>
+
+          <div className="flex justify-between border-t-2 border-slate-200 dark:border-slate-600 pt-2">
+            <span className="font-semibold text-slate-900 dark:text-slate-100">Net cash impact</span>
             <span className={`font-bold tabular-nums ${netCash < 0 ? "text-red-700 dark:text-red-300" : "text-emerald-700 dark:text-emerald-300"}`}>
               {formatCurrency(netCash)}
             </span>

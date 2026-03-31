@@ -28,7 +28,8 @@ function computeFields(data: Record<string, any>) {
     n(data.marketing_cost) -
     n(data.legal_fees_sell) -
     n(data.repairs_cost) -
-    n(data.mortgage_break_fee);
+    n(data.mortgage_break_fee) -
+    n(data.moving_cost);
 
   const total_available_budget =
     estimated_equity +
@@ -42,8 +43,7 @@ function computeFields(data: Record<string, any>) {
     n(data.purchase_price) -
     n(data.legal_fees_buy) -
     n(data.transaction_costs) -
-    n(data.contingency) -
-    n(data.moving_cost);
+    n(data.contingency);
 
   const is_shortfall = net_cash_remaining < 0;
 

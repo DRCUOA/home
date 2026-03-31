@@ -47,7 +47,7 @@ export function QuickAddFab() {
                 setAction(a.type);
                 setOpen(false);
               }}
-              className="flex items-center gap-2 rounded-full bg-white shadow-lg border border-slate-200 pl-3 pr-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-100"
+              className="flex items-center gap-2 rounded-full bg-white dark:bg-slate-800 shadow-lg border border-slate-200 dark:border-slate-700 pl-3 pr-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 active:bg-slate-100 dark:active:bg-slate-700"
             >
               <a.icon className="h-4 w-4" />
               {a.label}

@@ -13,7 +13,7 @@ export function PageShell({ title, showSearch, children, actions }: PageShellPro
     <div className="min-h-screen pb-20">
       <TopBar title={title} showSearch={showSearch} />
       {actions && (
-        <div className="px-4 py-2 border-b border-slate-100 bg-white max-w-lg mx-auto">
+        <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 max-w-lg mx-auto">
           {actions}
         </div>
       )}

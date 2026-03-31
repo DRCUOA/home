@@ -8,6 +8,10 @@ import { createCrudService } from "../services/crud.js";
 const service = createCrudService({
   table: schema.tasks,
   userIdColumn: schema.tasks.user_id,
+  index: {
+    sourceType: "task",
+    fields: ["title", "description", "priority", "status"],
+  },
 });
 
 const CHECKLIST_TEMPLATES: Record<string, string[]> = {

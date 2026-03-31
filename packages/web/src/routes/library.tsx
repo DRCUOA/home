@@ -19,6 +19,10 @@ import {
   PinOff,
   Search,
   Upload,
+  Download,
+  Trash2,
+  Camera,
+  Sparkles,
 } from "lucide-react";
 import type {
   Contact,
@@ -52,9 +56,10 @@ import {
   useUpdate,
   useRemove,
 } from "@/hooks/use-query-helpers";
-import { apiGet, apiPost, apiPatch } from "@/lib/api";
+import { apiGet, apiPost, apiPatch, apiUpload } from "@/lib/api";
 import { formatCurrency, formatDate, formatPercent, capitalize } from "@/lib/format";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { CameraCapture } from "@/components/features/camera-capture";
 
 type ListResponse<T> = { data: T[]; total: number };
 
@@ -137,8 +142,12 @@ function LibraryPage() {
   const updateResearch = useUpdate<ResearchItem>("research", "/research");
   const removeResearch = useRemove("research", "/research");
 
-  const createFile = useCreate<FileRecord>("files", "/files");
+  const uploadFile = useMutation({
+    mutationFn: (formData: FormData) => apiUpload<{ data: FileRecord }>("/files/upload", formData),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["files"] }),
+  });
   const updateFile = useUpdate<FileRecord>("files", "/files");
+  const removeFile = useRemove("files", "/files");
 
   const loading =
     contactsQuery.isLoading ||
@@ -165,8 +174,8 @@ function LibraryPage() {
   if (loading) {
     return (
       <PageShell title="Library">
-        <div className="flex flex-col items-center justify-center gap-3 py-20 text-slate-500">
-          <Loader2 className="h-8 w-8 animate-spin text-primary-600" />
+        <div className="flex flex-col items-center justify-center gap-3 py-20 text-slate-500 dark:text-slate-400">
+          <Loader2 className="h-8 w-8 animate-spin text-primary-600 dark:text-primary-400" />
           <p className="text-sm">Loading library…</p>
         </div>
       </PageShell>
@@ -270,6 +279,7 @@ function LibraryPage() {
             onTogglePin={(file) =>
               updateFile.mutate({ id: file.id, data: { is_pinned: !file.is_pinned } })
             }
+            onDelete={(id) => removeFile.mutate(id)}
           />
         )}
       </div>
@@ -368,15 +378,15 @@ function LibraryPage() {
         submitting={createResearch.isPending || updateResearch.isPending}
       />
 
-      <FileMetadataModal
+      <FileUploadModal
         open={fileModalOpen}
         onClose={() => setFileModalOpen(false)}
-        onSubmit={(payload) => {
-          createFile.mutate(payload, {
+        onSubmit={(formData) => {
+          uploadFile.mutate(formData, {
             onSuccess: () => setFileModalOpen(false),
           });
         }}
-        submitting={createFile.isPending}
+        submitting={uploadFile.isPending}
       />
     </PageShell>
   );
@@ -384,7 +394,7 @@ function LibraryPage() {
 
 function ErrorBanner({ text }: { text: string }) {
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+    <div className="flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 px-3 py-2.5 text-sm text-amber-900 dark:text-amber-200">
       <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
       <span>{text}</span>
     </div>
@@ -409,7 +419,7 @@ function ContactsTab({
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center gap-2">
-        <h2 className="text-sm font-semibold text-slate-800">Contacts</h2>
+        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Contacts</h2>
         <Button size="md" className="min-h-11 shrink-0" onClick={onAdd}>
           <Plus className="h-4 w-4" />
           Add contact
@@ -441,9 +451,9 @@ function ContactsTab({
                   className="w-full text-left"
                   onClick={() => onSelect(c.id)}
                 >
-                  <p className="font-semibold text-slate-900">{c.name}</p>
+                  <p className="font-semibold text-slate-900 dark:text-slate-100">{c.name}</p>
                   {c.organisation && (
-                    <p className="text-xs text-slate-500">{c.organisation}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{c.organisation}</p>
                   )}
                 </button>
 
@@ -455,16 +465,16 @@ function ContactsTab({
                   </div>
                 )}
 
-                <div className="text-sm text-slate-600 space-y-1">
+                <div className="text-sm text-slate-600 dark:text-slate-400 space-y-1">
                   {c.phone && (
                     <p className="flex items-center gap-2">
-                      <Phone className="h-3.5 w-3.5 text-slate-400" />
+                      <Phone className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />
                       <a href={`tel:${c.phone}`} className="hover:underline">{c.phone}</a>
                     </p>
                   )}
                   {c.email && (
                     <p className="flex items-center gap-2">
-                      <Mail className="h-3.5 w-3.5 text-slate-400" />
+                      <Mail className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />
                       <a href={`mailto:${c.email}`} className="hover:underline truncate">{c.email}</a>
                     </p>
                   )}
@@ -521,25 +531,25 @@ function ContactDetail({
         <CardContent className="space-y-3 text-sm">
           {contact.organisation && (
             <div className="flex justify-between gap-4">
-              <span className="text-slate-500">Organisation</span>
-              <span className="font-medium text-slate-900">{contact.organisation}</span>
+              <span className="text-slate-500 dark:text-slate-400">Organisation</span>
+              <span className="font-medium text-slate-900 dark:text-slate-100">{contact.organisation}</span>
             </div>
           )}
           {contact.phone && (
             <div className="flex justify-between gap-4">
-              <span className="text-slate-500">Phone</span>
-              <a href={`tel:${contact.phone}`} className="font-medium text-slate-900 hover:underline">{contact.phone}</a>
+              <span className="text-slate-500 dark:text-slate-400">Phone</span>
+              <a href={`tel:${contact.phone}`} className="font-medium text-slate-900 dark:text-slate-100 hover:underline">{contact.phone}</a>
             </div>
           )}
           {contact.email && (
             <div className="flex justify-between gap-4">
-              <span className="text-slate-500">Email</span>
-              <a href={`mailto:${contact.email}`} className="font-medium text-slate-900 hover:underline truncate">{contact.email}</a>
+              <span className="text-slate-500 dark:text-slate-400">Email</span>
+              <a href={`mailto:${contact.email}`} className="font-medium text-slate-900 dark:text-slate-100 hover:underline truncate">{contact.email}</a>
             </div>
           )}
           {contact.role_tags.length > 0 && (
             <div className="flex justify-between gap-4">
-              <span className="text-slate-500">Roles</span>
+              <span className="text-slate-500 dark:text-slate-400">Roles</span>
               <div className="flex flex-wrap gap-1 justify-end">
                 {contact.role_tags.map((r) => (
                   <Badge key={r} variant="default">{capitalize(r)}</Badge>
@@ -548,9 +558,9 @@ function ContactDetail({
             </div>
           )}
           {contact.notes && (
-            <div className="pt-2 border-t border-slate-100">
-              <p className="text-xs text-slate-500 mb-1">Notes</p>
-              <p className="text-slate-700 whitespace-pre-wrap">{contact.notes}</p>
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Notes</p>
+              <p className="text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{contact.notes}</p>
             </div>
           )}
         </CardContent>
@@ -559,13 +569,13 @@ function ContactDetail({
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <MessageCircle className="h-4 w-4 text-slate-500" />
+            <MessageCircle className="h-4 w-4 text-slate-500 dark:text-slate-400" />
             Communications ({sorted.length})
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-0 divide-y divide-slate-100">
+        <CardContent className="space-y-0 divide-y divide-slate-100 dark:divide-slate-800">
           {sorted.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-500">
+            <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">
               No communications logged for this contact.
             </p>
           ) : (
@@ -574,14 +584,14 @@ function ContactDetail({
               return (
                 <div key={c.id} className="py-3 first:pt-0 last:pb-0">
                   <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className="flex items-center gap-1.5 text-xs text-slate-500">
+                    <span className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
                       <Icon className="h-3.5 w-3.5" />
                       {capitalize(c.type)}
                     </span>
-                    <span className="text-xs text-slate-400">{formatDate(c.occurred_at)}</span>
+                    <span className="text-xs text-slate-400 dark:text-slate-500">{formatDate(c.occurred_at)}</span>
                   </div>
-                  {c.subject && <p className="text-sm font-medium text-slate-900">{c.subject}</p>}
-                  <p className="text-sm text-slate-600 line-clamp-2 mt-0.5">{c.body}</p>
+                  {c.subject && <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{c.subject}</p>}
+                  <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2 mt-0.5">{c.body}</p>
                 </div>
               );
             })
@@ -628,7 +638,7 @@ function CommsTab({
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center gap-2">
-        <h2 className="text-sm font-semibold text-slate-800">Communications</h2>
+        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Communications</h2>
         <Button size="md" className="min-h-11 shrink-0" onClick={onAdd}>
           <Plus className="h-4 w-4" />
           Log communication
@@ -677,21 +687,21 @@ function CommsTab({
                 <CardContent className="pt-3 pb-3 space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <span className="flex items-center gap-2 text-sm">
-                      <Icon className="h-4 w-4 text-slate-400" />
-                      <span className="font-medium text-slate-900">
+                      <Icon className="h-4 w-4 text-slate-400 dark:text-slate-500" />
+                      <span className="font-medium text-slate-900 dark:text-slate-100">
                         {contact ? contact.name : "Unknown"}
                       </span>
                     </span>
-                    <span className="text-xs text-slate-400 whitespace-nowrap">
+                    <span className="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">
                       {formatDate(c.occurred_at)}
                     </span>
                   </div>
                   {c.subject && (
-                    <p className="text-sm font-medium text-slate-800">{c.subject}</p>
+                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{c.subject}</p>
                   )}
-                  <p className="text-sm text-slate-600 line-clamp-2">{c.body}</p>
+                  <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2">{c.body}</p>
                   {c.follow_up_date && (
-                    <p className="text-xs text-amber-700">
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
                       Follow-up: {formatDate(c.follow_up_date)}
                     </p>
                   )}
@@ -735,7 +745,7 @@ function NotesTab({
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center gap-2">
-        <h2 className="text-sm font-semibold text-slate-800">Notes</h2>
+        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Notes</h2>
         <Button size="md" className="min-h-11 shrink-0" onClick={onAdd}>
           <Plus className="h-4 w-4" />
           Add note
@@ -743,13 +753,13 @@ function NotesTab({
       </div>
 
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 dark:text-slate-500" />
         <input
           type="text"
           placeholder="Search notes…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full rounded-lg border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+          className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 py-2.5 pl-10 pr-3 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
         />
       </div>
 
@@ -773,7 +783,7 @@ function NotesTab({
           {filtered.map((n) => (
             <Card key={n.id}>
               <CardContent className="pt-3 pb-3 space-y-2">
-                <p className="text-sm text-slate-800 line-clamp-3 whitespace-pre-wrap">
+                <p className="text-sm text-slate-800 dark:text-slate-200 line-clamp-3 whitespace-pre-wrap">
                   {n.body}
                 </p>
                 {n.tags.length > 0 && (
@@ -783,12 +793,12 @@ function NotesTab({
                     ))}
                   </div>
                 )}
-                <div className="flex items-center justify-between text-xs text-slate-400">
+                <div className="flex items-center justify-between text-xs text-slate-400 dark:text-slate-500">
                   <span>{formatDate(n.created_at)}</span>
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      className="hover:text-slate-700 min-w-[2.5rem] min-h-[2.5rem] flex items-center justify-center"
+                      className="hover:text-slate-700 dark:hover:text-slate-300 min-w-[2.5rem] min-h-[2.5rem] flex items-center justify-center"
                       onClick={() => onEdit(n.id)}
                     >
                       <Pencil className="h-3.5 w-3.5" />
@@ -829,7 +839,7 @@ function ResearchTab({
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center gap-2">
-        <h2 className="text-sm font-semibold text-slate-800">Research</h2>
+        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Research</h2>
         <Button size="md" className="min-h-11 shrink-0" onClick={onAdd}>
           <Plus className="h-4 w-4" />
           Add item
@@ -865,7 +875,7 @@ function ResearchTab({
             <Card key={r.id}>
               <CardContent className="pt-3 pb-3 space-y-2">
                 <div className="flex items-start justify-between gap-2">
-                  <p className="font-semibold text-slate-900">{r.title}</p>
+                  <p className="font-semibold text-slate-900 dark:text-slate-100">{r.title}</p>
                   <Badge variant="primary">{capitalize(r.category)}</Badge>
                 </div>
                 {r.url && (
@@ -873,14 +883,14 @@ function ResearchTab({
                     href={r.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sm text-primary-600 hover:underline flex items-center gap-1 truncate"
+                    className="text-sm text-primary-600 dark:text-primary-400 hover:underline flex items-center gap-1 truncate"
                   >
                     <ExternalLink className="h-3.5 w-3.5 shrink-0" />
                     {r.url}
                   </a>
                 )}
                 {r.notes && (
-                  <p className="text-sm text-slate-600 line-clamp-2">{r.notes}</p>
+                  <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2">{r.notes}</p>
                 )}
                 {r.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
@@ -912,12 +922,14 @@ function FilesTab({
   setFilterCategory,
   onAdd,
   onTogglePin,
+  onDelete,
 }: {
   files: FileRecord[];
   filterCategory: string;
   setFilterCategory: (v: string) => void;
   onAdd: () => void;
   onTogglePin: (file: FileRecord) => void;
+  onDelete: (id: string) => void;
 }) {
   const filtered = useMemo(() => {
     if (!filterCategory) return files;
@@ -935,13 +947,20 @@ function FilesTab({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  const handleDownload = async (file: FileRecord) => {
+    const link = document.createElement("a");
+    link.href = `/api/v1/files/${file.id}/download`;
+    link.download = file.filename;
+    link.click();
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center gap-2">
-        <h2 className="text-sm font-semibold text-slate-800">Files</h2>
+        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Files</h2>
         <Button size="md" className="min-h-11 shrink-0" onClick={onAdd}>
           <Upload className="h-4 w-4" />
-          Add file
+          Upload file
         </Button>
       </div>
 
@@ -962,7 +981,7 @@ function FilesTab({
               description="Upload documents, reports, and other files."
               action={
                 <Button className="min-h-11" onClick={onAdd}>
-                  Add file
+                  Upload file
                 </Button>
               }
             />
@@ -971,29 +990,47 @@ function FilesTab({
       ) : (
         <div className="space-y-2">
           {sorted.map((f) => (
-            <Card key={f.id} className={f.is_pinned ? "border-primary-200" : ""}>
+            <Card key={f.id} className={f.is_pinned ? "border-primary-200 dark:border-primary-700" : ""}>
               <CardContent className="pt-3 pb-3">
                 <div className="flex items-center gap-3">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-900 truncate">
+                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
                       {f.is_pinned && <Pin className="inline h-3 w-3 text-primary-500 mr-1" />}
                       {f.filename}
                     </p>
                     <div className="flex items-center gap-2 mt-1">
                       <Badge variant="default">{capitalize(f.category)}</Badge>
-                      <span className="text-xs text-slate-400 tabular-nums">
+                      <span className="text-xs text-slate-400 dark:text-slate-500 tabular-nums">
                         {formatSize(f.size_bytes)}
                       </span>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => onTogglePin(f)}
-                    className="shrink-0 min-w-[2.5rem] min-h-[2.5rem] flex items-center justify-center text-slate-400 hover:text-primary-600"
-                    aria-label={f.is_pinned ? "Unpin" : "Pin"}
-                  >
-                    {f.is_pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleDownload(f)}
+                      className="min-w-[2.5rem] min-h-[2.5rem] flex items-center justify-center text-slate-400 dark:text-slate-500 hover:text-primary-600 dark:hover:text-primary-400"
+                      aria-label="Download"
+                    >
+                      <Download className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onTogglePin(f)}
+                      className="min-w-[2.5rem] min-h-[2.5rem] flex items-center justify-center text-slate-400 dark:text-slate-500 hover:text-primary-600 dark:hover:text-primary-400"
+                      aria-label={f.is_pinned ? "Unpin" : "Pin"}
+                    >
+                      {f.is_pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDelete(f.id)}
+                      className="min-w-[2.5rem] min-h-[2.5rem] flex items-center justify-center text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400"
+                      aria-label="Delete"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -1025,6 +1062,9 @@ function ContactModal({
   const [organisation, setOrganisation] = useState("");
   const [roleTags, setRoleTags] = useState<string[]>([]);
   const [notes, setNotes] = useState("");
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const [extractError, setExtractError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -1043,12 +1083,49 @@ function ContactModal({
       setRoleTags([]);
       setNotes("");
     }
+    setExtractError(null);
   }, [open, existing?.id]);
 
   const toggleRole = (role: string) => {
     setRoleTags((prev) =>
       prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]
     );
+  };
+
+  const handleCardCapture = async (file: File) => {
+    setCameraOpen(false);
+    setExtracting(true);
+    setExtractError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await apiUpload<{
+        data: {
+          name?: string;
+          email?: string;
+          phone?: string;
+          organisation?: string;
+          role_tags?: string[];
+          notes?: string;
+        };
+      }>("/assistant/extract-card", formData);
+      const d = res.data;
+      if (d.name) setName(d.name);
+      if (d.email) setEmail(d.email);
+      if (d.phone) setPhone(d.phone);
+      if (d.organisation) setOrganisation(d.organisation);
+      if (d.role_tags?.length) {
+        const valid = d.role_tags.filter((r) =>
+          (CONTACT_ROLES as readonly string[]).includes(r)
+        );
+        if (valid.length) setRoleTags(valid);
+      }
+      if (d.notes) setNotes(d.notes);
+    } catch {
+      setExtractError("Could not extract details. Please fill in manually.");
+    } finally {
+      setExtracting(false);
+    }
   };
 
   return (
@@ -1067,6 +1144,34 @@ function ContactModal({
           });
         }}
       >
+        {!existing && (
+          <button
+            type="button"
+            onClick={() => setCameraOpen(true)}
+            disabled={extracting}
+            className="w-full flex items-center justify-center gap-2 rounded-lg border-2 border-dashed border-primary-300 dark:border-primary-700 bg-primary-50/50 dark:bg-primary-900/20 px-4 py-3 text-sm font-medium text-primary-700 dark:text-primary-300 hover:bg-primary-50 dark:hover:bg-primary-900/30 active:bg-primary-100 dark:active:bg-primary-900/40 transition-colors disabled:opacity-50"
+          >
+            {extracting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Extracting details…
+              </>
+            ) : (
+              <>
+                <Camera className="h-4 w-4" />
+                <Sparkles className="h-3.5 w-3.5" />
+                Scan business card
+              </>
+            )}
+          </button>
+        )}
+
+        {extractError && (
+          <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2">
+            {extractError}
+          </p>
+        )}
+
         <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
         <Input label="Organisation" value={organisation} onChange={(e) => setOrganisation(e.target.value)} />
         <div className="grid grid-cols-2 gap-3">
@@ -1075,7 +1180,7 @@ function ContactModal({
         </div>
 
         <div>
-          <p className="text-sm font-medium text-slate-700 mb-2">Roles</p>
+          <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Roles</p>
           <div className="flex flex-wrap gap-2">
             {CONTACT_ROLES.map((role) => (
               <button
@@ -1084,8 +1189,8 @@ function ContactModal({
                 onClick={() => toggleRole(role)}
                 className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors min-h-[2.25rem] ${
                   roleTags.includes(role)
-                    ? "bg-primary-100 text-primary-700 border border-primary-300"
-                    : "bg-slate-100 text-slate-600 border border-slate-200"
+                    ? "bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 border border-primary-300 dark:border-primary-600"
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700"
                 }`}
               >
                 {capitalize(role)}
@@ -1105,6 +1210,13 @@ function ContactModal({
           </Button>
         </div>
       </form>
+
+      <CameraCapture
+        open={cameraOpen}
+        onCapture={handleCardCapture}
+        onClose={() => setCameraOpen(false)}
+        title="Scan business card"
+      />
     </Modal>
   );
 }
@@ -1362,7 +1474,7 @@ function ResearchModal({
   );
 }
 
-function FileMetadataModal({
+function FileUploadModal({
   open,
   onClose,
   onSubmit,
@@ -1370,54 +1482,118 @@ function FileMetadataModal({
 }: {
   open: boolean;
   onClose: () => void;
-  onSubmit: (data: Record<string, unknown>) => void;
+  onSubmit: (formData: FormData) => void;
   submitting: boolean;
 }) {
-  const [filename, setFilename] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [category, setCategory] = useState("other");
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [preview, setPreview] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
-    setFilename("");
+    setFile(null);
     setCategory("other");
+    setPreview(null);
   }, [open]);
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files?.[0] ?? null;
+    setFile(selected);
+    setPreview(null);
+    if (selected?.type.startsWith("image/")) {
+      setCategory("photo");
+    }
+  };
+
+  const handleCameraCapture = (capturedFile: File) => {
+    setCameraOpen(false);
+    setFile(capturedFile);
+    setCategory("photo");
+    const url = URL.createObjectURL(capturedFile);
+    setPreview(url);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (preview) URL.revokeObjectURL(preview);
+    };
+  }, [preview]);
+
   return (
-    <Modal open={open} onClose={onClose} title="Add file record">
+    <Modal open={open} onClose={onClose} title="Upload file">
       <form
         className="space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
-          onSubmit({
-            filename: filename.trim(),
-            category,
-            s3_key: "",
-            mime_type: "application/octet-stream",
-            size_bytes: 0,
-            is_pinned: false,
-          });
+          if (!file) return;
+          const formData = new FormData();
+          formData.append("file", file);
+          formData.append("category", category);
+          onSubmit(formData);
         }}
       >
-        <Input label="Filename" value={filename} onChange={(e) => setFilename(e.target.value)} required />
+        <div>
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">File</label>
+          <div className="flex gap-2 mb-2">
+            <button
+              type="button"
+              onClick={() => setCameraOpen(true)}
+              className="flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 active:bg-slate-100 dark:active:bg-slate-700 transition-colors"
+            >
+              <Camera className="h-4 w-4" />
+              Take photo
+            </button>
+          </div>
+          <input
+            type="file"
+            onChange={handleFileChange}
+            className="block w-full text-sm text-slate-600 dark:text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-primary-50 dark:file:bg-primary-900/30 file:px-4 file:py-2.5 file:text-sm file:font-medium file:text-primary-700 dark:file:text-primary-300 hover:file:bg-primary-100 dark:hover:file:bg-primary-800 file:cursor-pointer cursor-pointer"
+          />
+          {preview && (
+            <div className="mt-2 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700">
+              <img src={preview} alt="Captured" className="w-full max-h-48 object-cover" />
+            </div>
+          )}
+          {file && !preview && (
+            <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+              {file.name} — {file.size < 1024 * 1024
+                ? `${(file.size / 1024).toFixed(1)} KB`
+                : `${(file.size / (1024 * 1024)).toFixed(1)} MB`}
+            </p>
+          )}
+          {file && preview && (
+            <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+              {file.name} — {file.size < 1024 * 1024
+                ? `${(file.size / 1024).toFixed(1)} KB`
+                : `${(file.size / (1024 * 1024)).toFixed(1)} MB`}
+            </p>
+          )}
+        </div>
+
         <Select
           label="Category"
           value={category}
           onChange={(e) => setCategory(e.target.value)}
           options={FILE_CATEGORIES.map((c) => ({ value: c, label: capitalize(c) }))}
         />
-        <p className="text-xs text-slate-500">
-          This creates a metadata record. File upload will be available in a future update.
-        </p>
 
         <div className="flex gap-2 pt-2">
           <Button type="button" variant="secondary" className="flex-1 min-h-12" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" className="flex-1 min-h-12" disabled={submitting || !filename.trim()}>
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+          <Button type="submit" className="flex-1 min-h-12" disabled={submitting || !file}>
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Upload"}
           </Button>
         </div>
       </form>
+
+      <CameraCapture
+        open={cameraOpen}
+        onCapture={handleCameraCapture}
+        onClose={() => setCameraOpen(false)}
+        title="Take photo"
+      />
     </Modal>
   );
 }

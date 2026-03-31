@@ -8,6 +8,10 @@ import { createCrudService } from "../services/crud.js";
 const service = createCrudService({
   table: schema.contacts,
   userIdColumn: schema.contacts.user_id,
+  index: {
+    sourceType: "contact",
+    fields: ["name", "email", "phone", "organisation", "role_tags", "notes"],
+  },
 });
 
 export default async function contactRoutes(app: FastifyInstance) {

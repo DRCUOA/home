@@ -29,7 +29,8 @@ export async function runWorkflow(
   runId: string,
   workflowType: WorkflowType,
   input: string,
-  userId: string
+  userId: string,
+  imageBase64?: string
 ): Promise<void> {
   try {
     let result: any;
@@ -68,7 +69,7 @@ export async function runWorkflow(
         break;
       }
       case "qa":
-        result = await qaWorkflow.invoke({ input });
+        result = await qaWorkflow.invoke({ input, image_base64: imageBase64 ?? "" });
         break;
       default:
         throw new Error(`Unknown workflow type: ${workflowType}`);

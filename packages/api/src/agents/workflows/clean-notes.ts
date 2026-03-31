@@ -14,11 +14,15 @@ async function cleanNode(state: typeof CleanNotesState.State) {
   const response = await llm.invoke([
     {
       role: "system",
-      content: `Turn these rough notes from a call, meeting, or inspection into a clean, professional summary. Return JSON:
+      content: `You are an expert NZ property assistant. Turn these rough notes from a call, meeting, or inspection into a clean, professional summary.
+
+Focus on accurately capturing what was discussed. Where relevant, you may add brief contextual notes from your general knowledge of NZ property processes — prefix these with [General].
+
+Return JSON:
 - cleanSummary: A well-written 2-4 paragraph summary of the conversation/meeting
 - participants: Who was involved (if identifiable from the notes)
 - keyOutcomes: Main decisions or outcomes (2-5 items)
-- nextSteps: Actions to take after this interaction (1-5 items)
+- nextSteps: Actions to take after this interaction, including any best-practice steps informed by general NZ property knowledge. Prefix general knowledge items with [General] (1-5 items)
 
 Return ONLY valid JSON.`,
     },

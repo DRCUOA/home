@@ -25,15 +25,15 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
       <div className="fixed inset-0 bg-black/40" onClick={onClose} />
       <div
         className={cn(
-          "relative z-10 w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white shadow-xl",
+          "relative z-10 w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-900 shadow-xl",
           className
         )}
       >
         {title && (
-          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3 rounded-t-2xl">
-            <h2 className="text-lg font-semibold">{title}</h2>
-            <button onClick={onClose} className="p-1.5 rounded-full hover:bg-slate-100 active:bg-slate-200">
-              <X className="h-5 w-5" />
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-3 rounded-t-2xl">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{title}</h2>
+            <button onClick={onClose} className="p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 active:bg-slate-200 dark:active:bg-slate-700">
+              <X className="h-5 w-5 text-slate-500 dark:text-slate-400" />
             </button>
           </div>
         )}

@@ -3,10 +3,10 @@ import { cn } from "@/lib/cn";
 
 const variants = {
   primary: "bg-primary-600 text-white hover:bg-primary-700 active:bg-primary-800",
-  secondary: "bg-slate-100 text-slate-700 hover:bg-slate-200 active:bg-slate-300",
+  secondary: "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 active:bg-slate-300 dark:active:bg-slate-600",
   danger: "bg-red-600 text-white hover:bg-red-700 active:bg-red-800",
-  ghost: "text-slate-600 hover:bg-slate-100 active:bg-slate-200",
-  outline: "border border-slate-300 text-slate-700 hover:bg-slate-50 active:bg-slate-100",
+  ghost: "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 active:bg-slate-200 dark:active:bg-slate-700",
+  outline: "border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 active:bg-slate-100 dark:active:bg-slate-700",
 };
 
 const sizes = {

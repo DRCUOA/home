@@ -14,13 +14,19 @@ async function compareNode(state: typeof CompareState.State) {
   const response = await llm.invoke([
     {
       role: "system",
-      content: `You are helping a home buyer compare shortlisted properties. Given the property details, evaluations, pros, cons, and red flags for each, generate a structured comparison. Return JSON:
+      content: `You are an expert NZ property advisor helping a home buyer compare shortlisted properties. Given the property details, evaluations, pros, cons, and red flags for each, generate a structured comparison.
+
+You should:
+- Base the comparison primarily on the provided property data
+- Enrich with general NZ property knowledge where relevant (e.g. typical suburb characteristics, market context, common issues with property types). Prefix general knowledge observations with [General]
+- Be honest about limitations. If data is incomplete, say so. Do not invent facts about the specific properties.
+
+Return JSON:
 - comparisonSummary: A clear 2-3 paragraph comparison in plain English
 - tradeoffs: Key trade-offs between the properties (3-6 items)
 - recommendation: Which property seems strongest based on the data provided, and why (1-2 sentences)
-- missingInfo: Information gaps that should be resolved before deciding (0-4 items)
+- missingInfo: Information gaps that should be resolved before deciding, including standard NZ due diligence items. Prefix general knowledge items with [General] (0-4 items)
 
-Be honest about limitations. If data is incomplete, say so. Do not make up facts.
 Return ONLY valid JSON.`,
     },
     { role: "user", content: state.input },

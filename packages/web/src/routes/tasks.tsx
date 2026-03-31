@@ -157,7 +157,7 @@ function TasksPage() {
   if (loading) {
     return (
       <PageShell title="Tasks">
-        <div className="flex flex-col items-center justify-center gap-3 py-20 text-slate-500">
+        <div className="flex flex-col items-center justify-center gap-3 py-20 text-slate-500 dark:text-slate-400">
           <Loader2 className="h-8 w-8 animate-spin text-primary-600" />
           <p className="text-sm">Loading tasks…</p>
         </div>
@@ -271,7 +271,7 @@ function TasksPage() {
 
 function ErrorBanner({ text }: { text: string }) {
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+    <div className="flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 px-3 py-2.5 text-sm text-amber-900 dark:text-amber-200">
       <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
       <span>{text}</span>
     </div>
@@ -291,45 +291,45 @@ function RemindersCard({
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
-          <Clock className="h-4 w-4 text-slate-500" />
+          <Clock className="h-4 w-4 text-slate-500 dark:text-slate-400" />
           Reminders
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         {overdue.length > 0 && (
-          <div className="rounded-lg bg-red-50 border border-red-100 px-3 py-2">
-            <p className="font-semibold text-red-800 mb-1">
+          <div className="rounded-lg bg-red-50 dark:bg-red-900/30 border border-red-100 dark:border-red-800 px-3 py-2">
+            <p className="font-semibold text-red-800 dark:text-red-200 mb-1">
               <AlertTriangle className="inline h-3.5 w-3.5 mr-1" />
               Overdue ({overdue.length})
             </p>
             <ul className="space-y-1">
               {overdue.slice(0, 5).map((t) => (
-                <li key={t.id} className="text-red-700 truncate">
+                <li key={t.id} className="text-red-700 dark:text-red-300 truncate">
                   {t.title} — due {formatDate(t.due_date)}
                 </li>
               ))}
               {overdue.length > 5 && (
-                <li className="text-red-600 text-xs">+{overdue.length - 5} more</li>
+                <li className="text-red-600 dark:text-red-400 text-xs">+{overdue.length - 5} more</li>
               )}
             </ul>
           </div>
         )}
         {today.length > 0 && (
-          <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
-            <p className="font-semibold text-amber-800 mb-1">Due today ({today.length})</p>
+          <div className="rounded-lg bg-amber-50 dark:bg-amber-900/30 border border-amber-100 dark:border-amber-800 px-3 py-2">
+            <p className="font-semibold text-amber-800 dark:text-amber-200 mb-1">Due today ({today.length})</p>
             <ul className="space-y-1">
               {today.map((t) => (
-                <li key={t.id} className="text-amber-700 truncate">{t.title}</li>
+                <li key={t.id} className="text-amber-700 dark:text-amber-300 truncate">{t.title}</li>
               ))}
             </ul>
           </div>
         )}
         {week.length > 0 && (
-          <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
-            <p className="font-semibold text-blue-800 mb-1">Due this week ({week.length})</p>
+          <div className="rounded-lg bg-blue-50 dark:bg-blue-900/30 border border-blue-100 dark:border-blue-800 px-3 py-2">
+            <p className="font-semibold text-blue-800 dark:text-blue-200 mb-1">Due this week ({week.length})</p>
             <ul className="space-y-1">
               {week.slice(0, 5).map((t) => (
-                <li key={t.id} className="text-blue-700 truncate">
+                <li key={t.id} className="text-blue-700 dark:text-blue-300 truncate">
                   {t.title} — {formatDate(t.due_date)}
                 </li>
               ))}
@@ -408,7 +408,7 @@ function AllTasksTab({
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center gap-2">
-        <h2 className="text-sm font-semibold text-slate-800">All tasks</h2>
+        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">All tasks</h2>
         <Button size="md" className="min-h-11 shrink-0" onClick={onAdd}>
           <Plus className="h-4 w-4" />
           Add task
@@ -467,7 +467,7 @@ function AllTasksTab({
           if (group.length === 0) return null;
           return (
             <div key={status} className="space-y-2">
-              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
+              <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
                 <StatusBadge status={status} />
                 {capitalize(status)} ({group.length})
               </h3>
@@ -476,13 +476,13 @@ function AllTasksTab({
                   const overdue = isOverdue(task);
                   const project = projects.find((p) => p.id === task.project_id);
                   return (
-                    <Card key={task.id} className={overdue ? "border-red-200" : ""}>
+                    <Card key={task.id} className={overdue ? "border-red-200 dark:border-red-700" : ""}>
                       <CardContent className="pt-3 pb-3 space-y-2">
                         <div className="flex items-start gap-3">
                           <button
                             type="button"
                             onClick={() => onCycleStatus(task)}
-                            className="mt-0.5 p-1 rounded-lg hover:bg-slate-100 text-slate-500 shrink-0 min-w-[2.5rem] min-h-[2.5rem] flex items-center justify-center"
+                            className="mt-0.5 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 shrink-0 min-w-[2.5rem] min-h-[2.5rem] flex items-center justify-center"
                             aria-label="Cycle status"
                           >
                             {(() => {
@@ -491,12 +491,12 @@ function AllTasksTab({
                             })()}
                           </button>
                           <div className="flex-1 min-w-0">
-                            <p className={`font-medium text-slate-900 ${task.status === "done" ? "line-through text-slate-400" : ""}`}>
+                            <p className={`font-medium text-slate-900 dark:text-slate-100 ${task.status === "done" ? "line-through text-slate-400 dark:text-slate-500" : ""}`}>
                               {task.title}
                             </p>
                             <div className="flex flex-wrap items-center gap-2 mt-1">
                               {task.due_date && (
-                                <span className={`text-xs ${overdue ? "text-red-600 font-semibold" : "text-slate-500"}`}>
+                                <span className={`text-xs ${overdue ? "text-red-600 dark:text-red-400 font-semibold" : "text-slate-500 dark:text-slate-400"}`}>
                                   {overdue ? "Overdue: " : "Due: "}
                                   {formatDate(task.due_date)}
                                 </span>
@@ -505,7 +505,7 @@ function AllTasksTab({
                                 {capitalize(task.priority)}
                               </Badge>
                               {project && (
-                                <span className="text-xs text-slate-500">{project.name}</span>
+                                <span className="text-xs text-slate-500 dark:text-slate-400">{project.name}</span>
                               )}
                             </div>
                           </div>
@@ -585,15 +585,15 @@ function ChecklistsTab({
           <Card key={type}>
             <CardHeader className="flex flex-row items-center justify-between gap-2">
               <CardTitle className="text-base flex items-center gap-2">
-                <ListChecks className="h-4 w-4 text-slate-500" />
+                <ListChecks className="h-4 w-4 text-slate-500 dark:text-slate-400" />
                 {capitalize(type)}
               </CardTitle>
-              <span className="text-xs text-slate-500 tabular-nums">
+              <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
                 {completed}/{items.length} · {pct}%
               </span>
             </CardHeader>
             <CardContent className="space-y-2">
-              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                 <div
                   className="h-full rounded-full bg-emerald-500 transition-all"
                   style={{ width: `${pct}%` }}
@@ -602,7 +602,7 @@ function ChecklistsTab({
               {items.map((item) => (
                 <div
                   key={item.id}
-                  className="flex items-center gap-3 rounded-lg border border-slate-100 bg-white p-3"
+                  className="flex items-center gap-3 rounded-lg border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-3"
                 >
                   <button
                     type="button"
@@ -617,10 +617,10 @@ function ChecklistsTab({
                   >
                     <span className={`inline-block h-3.5 w-3.5 rounded-full ${stateIndicator[item.state] ?? "bg-slate-300"}`} />
                   </button>
-                  <p className={`text-sm font-medium flex-1 ${item.state === "complete" ? "line-through text-slate-400" : "text-slate-900"}`}>
+                  <p className={`text-sm font-medium flex-1 ${item.state === "complete" ? "line-through text-slate-400 dark:text-slate-500" : "text-slate-900 dark:text-slate-100"}`}>
                     {item.label || "(untitled)"}
                   </p>
-                  <span className="text-xs text-slate-500">{capitalize(item.state)}</span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">{capitalize(item.state)}</span>
                 </div>
               ))}
             </CardContent>
@@ -649,7 +649,7 @@ function TemplatesTab({
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <LayoutTemplate className="h-4 w-4 text-slate-500" />
+            <LayoutTemplate className="h-4 w-4 text-slate-500 dark:text-slate-400" />
             Generate tasks from template
           </CardTitle>
         </CardHeader>
@@ -668,12 +668,12 @@ function TemplatesTab({
               return (
                 <div
                   key={t.value}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-white p-3"
+                  className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-3"
                 >
                   <div className="flex-1">
-                    <p className="text-sm font-medium text-slate-900">{t.label}</p>
+                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{t.label}</p>
                     {applied && (
-                      <p className="text-xs text-emerald-600 mt-0.5">Already applied</p>
+                      <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-0.5">Already applied</p>
                     )}
                   </div>
                   <Button

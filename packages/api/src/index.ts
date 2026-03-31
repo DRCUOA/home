@@ -60,7 +60,7 @@ app.setErrorHandler((error: any, _req, reply) => {
     });
   }
 
-  if (error.name === "ZodError") {
+  if (error.name === "ZodError" || error.issues) {
     return reply.status(400).send({
       error: "Validation Error",
       message: error.message,

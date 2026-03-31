@@ -7,6 +7,10 @@ import { createCrudService } from "../services/crud.js";
 const service = createCrudService({
   table: schema.projects,
   userIdColumn: schema.projects.user_id,
+  index: {
+    sourceType: "project",
+    fields: ["name", "type", "sale_strategy", "sell_milestone", "buy_milestone"],
+  },
 });
 
 export default async function projectRoutes(app: FastifyInstance) {

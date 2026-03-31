@@ -9,5 +9,8 @@ coverage/
 .vite/
 
 
+# uploads (local dev file storage)
+uploads/
+
 #history
 .history/

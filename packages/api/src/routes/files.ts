@@ -1,30 +1,15 @@
 import { FastifyInstance } from "fastify";
-import { eq } from "drizzle-orm";
-import {
-  S3Client,
-  PutObjectCommand,
-  GetObjectCommand,
-  DeleteObjectCommand,
-} from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "crypto";
+import { mkdir, rm, stat } from "fs/promises";
+import { createWriteStream, createReadStream } from "fs";
+import { pipeline } from "stream/promises";
+import path from "path";
 import { authGuard } from "../middleware/auth.js";
 import { db, schema } from "../db/index.js";
-import { createFileSchema, updateFileSchema } from "@hcc/shared";
+import { updateFileSchema, FILE_CATEGORIES } from "@hcc/shared";
 import { createCrudService } from "../services/crud.js";
 
-const s3 = new S3Client({
-  endpoint: process.env.S3_ENDPOINT,
-  region: process.env.S3_REGION || "auto",
-  credentials: {
-    accessKeyId: process.env.S3_ACCESS_KEY!,
-    secretAccessKey: process.env.S3_SECRET_KEY!,
-  },
-  forcePathStyle: true,
-});
-
-const BUCKET = process.env.S3_BUCKET || "hcc-files";
-const PRESIGN_EXPIRY = 3600; // 1 hour
+const UPLOADS_DIR = path.resolve(process.cwd(), "uploads");
 
 const service = createCrudService({
   table: schema.files,
@@ -45,53 +30,76 @@ export default async function fileRoutes(app: FastifyInstance) {
     return { data: row };
   });
 
-  app.post("/api/v1/files/upload-url", async (req, reply) => {
-    const body = createFileSchema.parse(req.body);
-    const s3Key = `${req.userId}/${randomUUID()}/${body.filename}`;
+  app.post("/api/v1/files/upload", async (req, reply) => {
+    const data = await req.file();
+    if (!data) {
+      return reply.status(400).send({ error: "No file provided" });
+    }
 
-    const command = new PutObjectCommand({
-      Bucket: BUCKET,
-      Key: s3Key,
-      ContentType: body.mime_type,
-    });
-    const uploadUrl = await getSignedUrl(s3, command, {
-      expiresIn: PRESIGN_EXPIRY,
-    });
+    const fields: Record<string, string> = {};
+    for (const [key, field] of Object.entries(data.fields)) {
+      if (field && typeof field === "object" && "value" in field) {
+        fields[key] = (field as any).value;
+      }
+    }
+
+    const filename = data.filename;
+    const mimeType = data.mimetype || "application/octet-stream";
+    const category = fields.category && FILE_CATEGORIES.includes(fields.category as any)
+      ? fields.category
+      : "other";
+
+    const fileId = randomUUID();
+    const storagePath = path.join(req.userId, fileId, filename);
+    const fullDir = path.join(UPLOADS_DIR, req.userId, fileId);
+    const fullPath = path.join(fullDir, filename);
+
+    await mkdir(fullDir, { recursive: true });
+    await pipeline(data.file, createWriteStream(fullPath));
+
+    const fileStat = await stat(fullPath);
 
     const [row] = await db
       .insert(schema.files)
       .values({
         user_id: req.userId,
-        filename: body.filename,
-        s3_key: s3Key,
-        mime_type: body.mime_type,
-        size_bytes: body.size_bytes,
-        category: body.category,
-        project_id: body.project_id,
-        property_id: body.property_id,
-        contact_id: body.contact_id,
-        communication_id: body.communication_id,
-        is_pinned: body.is_pinned,
+        filename,
+        s3_key: storagePath,
+        mime_type: mimeType,
+        size_bytes: fileStat.size,
+        category,
+        project_id: fields.project_id || undefined,
+        property_id: fields.property_id || undefined,
+        contact_id: fields.contact_id || undefined,
+        communication_id: fields.communication_id || undefined,
+        is_pinned: fields.is_pinned === "true",
       })
       .returning();
 
-    return reply.status(201).send({ data: { ...row, uploadUrl } });
+    return reply.status(201).send({ data: row });
   });
 
-  app.get("/api/v1/files/:id/download-url", async (req, reply) => {
+  app.get("/api/v1/files/:id/download", async (req, reply) => {
     const { id } = req.params as { id: string };
     const row = await service.getById(id, req.userId);
     if (!row) return reply.status(404).send({ error: "Not Found" });
 
-    const command = new GetObjectCommand({
-      Bucket: BUCKET,
-      Key: (row as any).s3_key,
-    });
-    const downloadUrl = await getSignedUrl(s3, command, {
-      expiresIn: PRESIGN_EXPIRY,
-    });
+    const filePath = path.join(UPLOADS_DIR, (row as any).s3_key);
 
-    return { data: { downloadUrl } };
+    try {
+      await stat(filePath);
+    } catch {
+      return reply.status(404).send({ error: "File not found on disk" });
+    }
+
+    const stream = createReadStream(filePath);
+    return reply
+      .header("Content-Type", (row as any).mime_type)
+      .header(
+        "Content-Disposition",
+        `attachment; filename="${encodeURIComponent((row as any).filename)}"`
+      )
+      .send(stream);
   });
 
   app.patch("/api/v1/files/:id", async (req, reply) => {
@@ -108,14 +116,11 @@ export default async function fileRoutes(app: FastifyInstance) {
     if (!row) return reply.status(404).send({ error: "Not Found" });
 
     try {
-      await s3.send(
-        new DeleteObjectCommand({
-          Bucket: BUCKET,
-          Key: (row as any).s3_key,
-        })
-      );
+      const filePath = path.join(UPLOADS_DIR, (row as any).s3_key);
+      const dir = path.dirname(filePath);
+      await rm(dir, { recursive: true, force: true });
     } catch {
-      // S3 deletion failure is non-fatal; record still removed from DB
+      // Disk deletion failure is non-fatal
     }
 
     await service.remove(id, req.userId);

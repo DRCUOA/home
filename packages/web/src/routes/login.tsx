@@ -29,11 +29,11 @@ function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 bg-slate-50">
+    <div className="min-h-screen flex items-center justify-center px-4 bg-slate-50 dark:bg-slate-950">
       <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-slate-900">Home Control Centre</h1>
-          <p className="text-sm text-slate-500 mt-1">Sign in to manage your journey</p>
+        <div className="flex flex-col items-center mb-8">
+          <img src="/logo.png" alt="Homelhar" className="h-44 w-auto mb-2" />
+          <p className="text-sm text-slate-500 dark:text-slate-400">Sign in to manage your journey</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input
@@ -54,14 +54,14 @@ function LoginPage() {
             required
             autoComplete="current-password"
           />
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "Signing in..." : "Sign in"}
           </Button>
         </form>
-        <p className="text-center text-sm text-slate-500 mt-6">
+        <p className="text-center text-sm text-slate-500 dark:text-slate-400 mt-6">
           Don't have an account?{" "}
-          <Link to="/register" className="text-primary-600 font-medium hover:underline">
+          <Link to="/register" className="text-primary-600 dark:text-primary-400 font-medium hover:underline">
             Create one
           </Link>
         </p>

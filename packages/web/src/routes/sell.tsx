@@ -276,7 +276,7 @@ function SellPage() {
   if (loading && !sell) {
     return (
       <PageShell title="Sell">
-        <div className="flex flex-col items-center justify-center gap-3 py-20 text-slate-500">
+        <div className="flex flex-col items-center justify-center gap-3 py-20 text-slate-500 dark:text-slate-400">
           <Loader2 className="h-8 w-8 animate-spin text-primary-600" />
           <p className="text-sm">Loading sell workspace…</p>
         </div>
@@ -534,7 +534,7 @@ function SellPage() {
 
 function ErrorBanner({ text }: { text: string }) {
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+    <div className="flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 px-3 py-2.5 text-sm text-amber-900 dark:text-amber-200">
       <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
       <span>{text}</span>
     </div>
@@ -564,7 +564,7 @@ function OverviewTab({
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-2">
           <CardTitle className="flex items-center gap-2 text-base">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-50 text-primary-700">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300">
               <Home className="h-5 w-5" />
             </span>
             Property & pricing
@@ -576,16 +576,16 @@ function OverviewTab({
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           {propertiesLoading ? (
-            <div className="flex items-center gap-2 text-slate-500 py-4">
+            <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 py-4">
               <Loader2 className="h-5 w-5 animate-spin" />
               Loading property…
             </div>
           ) : ownProperty ? (
             <>
-              <p className="font-medium text-slate-900 leading-snug">{ownProperty.address}</p>
+              <p className="font-medium text-slate-900 dark:text-slate-100 leading-snug">{ownProperty.address}</p>
               <div className="grid gap-2">
                 {[ownProperty.suburb, ownProperty.city].filter(Boolean).length > 0 && (
-                  <p className="text-slate-600">
+                  <p className="text-slate-600 dark:text-slate-400">
                     {[ownProperty.suburb, ownProperty.city].filter(Boolean).join(", ")}
                   </p>
                 )}
@@ -595,14 +595,14 @@ function OverviewTab({
               </Button>
             </>
           ) : (
-            <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 p-4 text-center">
-              <p className="text-slate-600 mb-3">No home record linked to this sale yet.</p>
+            <div className="rounded-lg border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/80 p-4 text-center">
+              <p className="text-slate-600 dark:text-slate-400 mb-3">No home record linked to this sale yet.</p>
               <Button className="min-h-11 w-full" onClick={onEditProperty}>
                 Add property being sold
               </Button>
             </div>
           )}
-          <div className="border-t border-slate-100 pt-3 space-y-2.5">
+          <div className="border-t border-slate-100 dark:border-slate-800 pt-3 space-y-2.5">
             <Row label="Target price range" value={
               sell.target_sale_price_low != null || sell.target_sale_price_high != null ? (
                 <>
@@ -640,13 +640,13 @@ function OverviewTab({
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+            <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
               <div
                 className="h-full rounded-full bg-primary-600 transition-all"
                 style={{ width: `${progress}%` }}
               />
             </div>
-            <p className="mt-2 text-xs text-slate-500">
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
               {sell.sell_milestone ? (
                 <>
                   {MILESTONE_LABEL[sell.sell_milestone] ?? capitalize(sell.sell_milestone)} · Step{" "}
@@ -666,20 +666,20 @@ function OverviewTab({
                   key={m}
                   className={`flex min-w-[7.5rem] flex-col items-center gap-1.5 rounded-xl border px-2 py-3 text-center ${
                     active
-                      ? "border-primary-400 bg-primary-50"
+                      ? "border-primary-400 dark:border-primary-500 bg-primary-50 dark:bg-primary-900/30"
                       : done
-                        ? "border-emerald-200 bg-emerald-50/60"
-                        : "border-slate-100 bg-slate-50/80"
+                        ? "border-emerald-200 dark:border-emerald-700 bg-emerald-50/60 dark:bg-emerald-900/20"
+                        : "border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/80"
                   }`}
                 >
                   <div
                     className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${
-                      done ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-600"
+                      done ? "bg-emerald-600 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400"
                     }`}
                   >
                     {done ? <Check className="h-4 w-4" /> : i + 1}
                   </div>
-                  <span className="text-[11px] font-medium leading-tight text-slate-700">
+                  <span className="text-[11px] font-medium leading-tight text-slate-700 dark:text-slate-300">
                     {MILESTONE_LABEL[m] ?? capitalize(m)}
                   </span>
                 </div>
@@ -695,8 +695,8 @@ function OverviewTab({
 function Row({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex justify-between gap-4">
-      <span className="text-slate-500">{label}</span>
-      <span className="text-right font-medium text-slate-900 tabular-nums">{value}</span>
+      <span className="text-slate-500 dark:text-slate-400">{label}</span>
+      <span className="text-right font-medium text-slate-900 dark:text-slate-100 tabular-nums">{value}</span>
     </div>
   );
 }
@@ -721,7 +721,7 @@ function AgentsTab({
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center gap-2">
-        <h2 className="text-sm font-semibold text-slate-800">Selling agents</h2>
+        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Selling agents</h2>
         <Button size="md" className="min-h-11 shrink-0" onClick={onAdd}>
           <Plus className="h-4 w-4" />
           Add agent
@@ -729,7 +729,7 @@ function AgentsTab({
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12 text-slate-500">
+        <div className="flex justify-center py-12 text-slate-500 dark:text-slate-400">
           <Loader2 className="h-7 w-7 animate-spin" />
         </div>
       ) : agents.length === 0 ? (
@@ -749,14 +749,14 @@ function AgentsTab({
               <CardContent className="pt-4 space-y-3">
                 <div className="flex justify-between gap-2">
                   <div>
-                    <p className="font-semibold text-slate-900">{a.name}</p>
-                    {a.agency && <p className="text-sm text-slate-500">{a.agency}</p>}
+                    <p className="font-semibold text-slate-900 dark:text-slate-100">{a.name}</p>
+                    {a.agency && <p className="text-sm text-slate-500 dark:text-slate-400">{a.agency}</p>}
                   </div>
                   <StatusBadge status={a.status} />
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div>
-                    <p className="text-xs text-slate-500">Appraisal</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Appraisal</p>
                     <p className="font-medium tabular-nums">
                       {a.appraisal_low != null || a.appraisal_high != null ? (
                         <>
@@ -768,17 +768,17 @@ function AgentsTab({
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-500">Commission</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Commission</p>
                     <p className="font-medium tabular-nums">
                       {a.commission_rate != null ? formatPercent(a.commission_rate) : "—"}
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-500">Marketing est.</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Marketing est.</p>
                     <p className="font-medium tabular-nums">{formatCurrency(a.marketing_estimate)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-500">Method</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Method</p>
                     <p className="font-medium">
                       {a.recommended_method ? capitalize(a.recommended_method) : "—"}
                     </p>
@@ -790,7 +790,7 @@ function AgentsTab({
                   </Button>
                   <Button
                     variant="outline"
-                    className="min-h-11 text-red-700 border-red-200"
+                    className="min-h-11 text-red-700 dark:text-red-300 border-red-200 dark:border-red-700"
                     disabled={deletePending}
                     onClick={() => onDelete(a.id)}
                   >
@@ -807,14 +807,14 @@ function AgentsTab({
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <GitCompare className="h-4 w-4 text-slate-500" />
+              <GitCompare className="h-4 w-4 text-slate-500 dark:text-slate-400" />
               Shortlist comparison
             </CardTitle>
           </CardHeader>
           <CardContent className="overflow-x-auto">
             <table className="w-full text-sm min-w-[520px]">
               <thead>
-                <tr className="border-b border-slate-100 text-left text-xs text-slate-500">
+                <tr className="border-b border-slate-100 dark:border-slate-800 text-left text-xs text-slate-500 dark:text-slate-400">
                   <th className="pb-2 pr-3 font-medium">Agent</th>
                   <th className="pb-2 pr-3 font-medium">Appraisal</th>
                   <th className="pb-2 pr-3 font-medium">Commission</th>
@@ -824,11 +824,11 @@ function AgentsTab({
               </thead>
               <tbody>
                 {shortlistedAgents.map((a) => (
-                  <tr key={a.id} className="border-b border-slate-50">
-                    <td className="py-2.5 pr-3 font-medium text-slate-900">
+                  <tr key={a.id} className="border-b border-slate-50 dark:border-slate-800">
+                    <td className="py-2.5 pr-3 font-medium text-slate-900 dark:text-slate-100">
                       {a.name}
                       {a.agency && (
-                        <span className="block text-xs font-normal text-slate-500">{a.agency}</span>
+                        <span className="block text-xs font-normal text-slate-500 dark:text-slate-400">{a.agency}</span>
                       )}
                     </td>
                     <td className="py-2.5 pr-3 tabular-nums">
@@ -894,7 +894,7 @@ function CostsTab({
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <Calculator className="h-4 w-4 text-slate-500" />
+            <Calculator className="h-4 w-4 text-slate-500 dark:text-slate-400" />
             Cost calculators
           </CardTitle>
         </CardHeader>
@@ -912,9 +912,9 @@ function CostsTab({
             value={commissionRate}
             onChange={(e) => setCommissionRate(e.target.value)}
           />
-          <div className="rounded-lg bg-slate-50 px-3 py-2.5 text-sm">
-            <span className="text-slate-500">Commission estimate · </span>
-            <span className="font-semibold tabular-nums text-slate-900">
+          <div className="rounded-lg bg-slate-50 dark:bg-slate-800 px-3 py-2.5 text-sm">
+            <span className="text-slate-500 dark:text-slate-400">Commission estimate · </span>
+            <span className="font-semibold tabular-nums text-slate-900 dark:text-slate-100">
               {formatCurrency(commissionAmt)}
             </span>
           </div>
@@ -952,32 +952,32 @@ function CostsTab({
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           <div className="flex justify-between">
-            <span className="text-slate-500">Sale price</span>
+            <span className="text-slate-500 dark:text-slate-400">Sale price</span>
             <span className="font-medium tabular-nums">{formatCurrency(sale || undefined)}</span>
           </div>
-          <div className="flex justify-between text-red-700">
+          <div className="flex justify-between text-red-700 dark:text-red-300">
             <span>− Commission ({formatPercent(rate)})</span>
             <span className="tabular-nums">−{formatCurrency(commissionAmt || undefined)}</span>
           </div>
-          <div className="flex justify-between text-red-700">
+          <div className="flex justify-between text-red-700 dark:text-red-300">
             <span>− Marketing</span>
             <span className="tabular-nums">−{formatCurrency(mkt || undefined)}</span>
           </div>
-          <div className="flex justify-between text-red-700">
+          <div className="flex justify-between text-red-700 dark:text-red-300">
             <span>− Legal</span>
             <span className="tabular-nums">−{formatCurrency(leg || undefined)}</span>
           </div>
-          <div className="flex justify-between text-red-700">
+          <div className="flex justify-between text-red-700 dark:text-red-300">
             <span>− Staging / repairs</span>
             <span className="tabular-nums">−{formatCurrency(rep || undefined)}</span>
           </div>
-          <div className="flex justify-between text-red-700">
+          <div className="flex justify-between text-red-700 dark:text-red-300">
             <span>− Mortgage</span>
             <span className="tabular-nums">−{formatCurrency(mort || undefined)}</span>
           </div>
-          <div className="border-t border-slate-200 pt-3 flex justify-between text-base font-semibold">
-            <span className="text-slate-900">Net estimate</span>
-            <span className={`tabular-nums ${netProceeds < 0 ? "text-red-700" : "text-emerald-700"}`}>
+          <div className="border-t border-slate-200 dark:border-slate-700 pt-3 flex justify-between text-base font-semibold">
+            <span className="text-slate-900 dark:text-slate-100">Net estimate</span>
+            <span className={`tabular-nums ${netProceeds < 0 ? "text-red-700 dark:text-red-300" : "text-emerald-700 dark:text-emerald-300"}`}>
               {formatCurrency(netProceeds || undefined)}
             </span>
           </div>
@@ -1006,7 +1006,7 @@ function CostsTab({
             )}
           </Button>
           {latestScenario && (
-            <p className="text-xs text-slate-400 text-center">
+            <p className="text-xs text-slate-400 dark:text-slate-500 text-center">
               Last saved {formatDate(latestScenario.updated_at)}
             </p>
           )}
@@ -1067,7 +1067,7 @@ function ChecklistsTab({
 
   if (loading) {
     return (
-      <div className="flex justify-center py-16 text-slate-500">
+      <div className="flex justify-center py-16 text-slate-500 dark:text-slate-400">
         <Loader2 className="h-7 w-7 animate-spin" />
       </div>
     );
@@ -1088,21 +1088,21 @@ function ChecklistsTab({
             </Button>
           </CardHeader>
           <CardContent className="space-y-2">
-            <p className="text-xs text-slate-500 mb-2">{s.hint}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">{s.hint}</p>
             {s.items.length === 0 ? (
-              <p className="text-sm text-slate-500 py-2">No items yet.</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 py-2">No items yet.</p>
             ) : (
               s.items.map((item) => (
                 <div
                   key={item.id}
-                  className="flex flex-col gap-2 rounded-lg border border-slate-100 bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-2 rounded-lg border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 sm:flex-row sm:items-center sm:justify-between"
                 >
-                  <p className="text-sm font-medium text-slate-900 flex-1">{item.label}</p>
+                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100 flex-1">{item.label}</p>
                   <div className="flex items-center gap-2 w-full sm:w-auto">
                     <select
                       value={item.state}
                       onChange={(e) => onChangeState(item.id, e.target.value)}
-                      className="flex-1 rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm min-h-10"
+                      className="flex-1 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-2 text-sm min-h-10"
                     >
                       {checklistStateOptions.map((o) => (
                         <option key={o.value} value={o.value}>
@@ -1113,7 +1113,7 @@ function ChecklistsTab({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="text-red-600 min-h-10"
+                      className="text-red-600 dark:text-red-400 min-h-10"
                       disabled={removePending}
                       onClick={() => onRemove(item.id)}
                     >
@@ -1157,7 +1157,7 @@ function OffersTab({
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center gap-2">
-        <h2 className="text-sm font-semibold text-slate-800">Offers received</h2>
+        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Offers received</h2>
         <Button
           size="md"
           className="min-h-11 shrink-0"
@@ -1169,13 +1169,13 @@ function OffersTab({
         </Button>
       </div>
       {!ownProperty && (
-        <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+        <p className="text-sm text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/30 border border-amber-100 dark:border-amber-800 rounded-lg px-3 py-2">
           Add the property you are selling (Overview tab) before recording offers.
         </p>
       )}
 
       {loading ? (
-        <div className="flex justify-center py-12 text-slate-500">
+        <div className="flex justify-center py-12 text-slate-500 dark:text-slate-400">
           <Loader2 className="h-7 w-7 animate-spin" />
         </div>
       ) : offers.length === 0 ? (
@@ -1194,12 +1194,12 @@ function OffersTab({
             <Card key={o.id}>
               <CardContent className="pt-4 space-y-2">
                 <div className="flex justify-between gap-2">
-                  <p className="text-lg font-semibold tabular-nums text-slate-900">
+                  <p className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">
                     {formatCurrency(o.price)}
                   </p>
                   <StatusBadge status={o.status} />
                 </div>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                   Settlement {o.settlement_date ? formatDate(o.settlement_date) : "—"}
                 </p>
                 {o.conditions?.length > 0 && (
@@ -1217,7 +1217,7 @@ function OffersTab({
                   </Button>
                   <Button
                     variant="outline"
-                    className="min-h-11 text-red-700 border-red-200"
+                    className="min-h-11 text-red-700 dark:text-red-300 border-red-200 dark:border-red-700"
                     disabled={deletePending}
                     onClick={() => onDelete(o.id)}
                   >
@@ -1234,7 +1234,7 @@ function OffersTab({
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <GitCompare className="h-4 w-4 text-slate-500" />
+              <GitCompare className="h-4 w-4 text-slate-500 dark:text-slate-400" />
               Compare offers
             </CardTitle>
           </CardHeader>
@@ -1266,7 +1266,7 @@ function OffersTab({
               />
             </div>
             {a && b && (
-              <div className="grid grid-cols-2 gap-3 text-sm border-t border-slate-100 pt-3">
+              <div className="grid grid-cols-2 gap-3 text-sm border-t border-slate-100 dark:border-slate-800 pt-3">
                 <CompareCol offer={a} />
                 <CompareCol offer={b} />
               </div>
@@ -1280,12 +1280,12 @@ function OffersTab({
 
 function CompareCol({ offer }: { offer: Offer }) {
   return (
-    <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3 space-y-2">
-      <p className="text-lg font-bold tabular-nums text-slate-900">{formatCurrency(offer.price)}</p>
-      <p className="text-xs text-slate-500">
+    <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/80 p-3 space-y-2">
+      <p className="text-lg font-bold tabular-nums text-slate-900 dark:text-slate-100">{formatCurrency(offer.price)}</p>
+      <p className="text-xs text-slate-500 dark:text-slate-400">
         Settlement: {offer.settlement_date ? formatDate(offer.settlement_date) : "—"}
       </p>
-      <p className="text-xs text-slate-500">Deposit: {formatCurrency(offer.deposit)}</p>
+      <p className="text-xs text-slate-500 dark:text-slate-400">Deposit: {formatCurrency(offer.deposit)}</p>
       <div className="flex flex-wrap gap-1">
         {offer.conditions?.map((c) => (
           <Badge key={c} variant="default">
@@ -1592,7 +1592,7 @@ function AgentModal({
     <Modal open={open} onClose={onClose} title={agent ? "Edit agent" : "Add agent"}>
       {detailLoading ? (
         <div className="flex justify-center py-10">
-          <Loader2 className="h-7 w-7 animate-spin text-slate-400" />
+          <Loader2 className="h-7 w-7 animate-spin text-slate-400 dark:text-slate-500" />
         </div>
       ) : (
         <form
@@ -1761,7 +1761,7 @@ function OfferModal({
           onChange={(e) => setDeposit(e.target.value)}
         />
         <div>
-          <p className="text-sm font-medium text-slate-700 mb-2">Conditions</p>
+          <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Conditions</p>
           <div className="flex flex-wrap gap-2">
             {OFFER_CONDITIONS.map((c) => (
               <button
@@ -1770,8 +1770,8 @@ function OfferModal({
                 onClick={() => toggleCondition(c)}
                 className={`rounded-full px-3 py-1.5 text-xs font-medium border min-h-9 ${
                   conditions.includes(c)
-                    ? "border-primary-600 bg-primary-50 text-primary-800"
-                    : "border-slate-200 bg-white text-slate-600"
+                    ? "border-primary-600 bg-primary-50 dark:bg-primary-900/30 text-primary-800 dark:text-primary-200"
+                    : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400"
                 }`}
               >
                 {capitalize(c)}

@@ -1,6 +1,7 @@
 import { createRootRoute, Outlet, useLocation, Navigate } from "@tanstack/react-router";
 import { BottomNav } from "@/components/layout/bottom-nav";
 import { useAuthStore } from "@/stores/auth";
+import { useThemeStore } from "@/stores/theme";
 import { useEffect } from "react";
 
 export const Route = createRootRoute({
@@ -11,6 +12,8 @@ function RootLayout() {
   const { isAuthenticated, isLoading, checkAuth } = useAuthStore();
   const location = useLocation();
   const isAuthPage = location.pathname === "/login" || location.pathname === "/register";
+
+  useThemeStore();
 
   useEffect(() => {
     checkAuth();

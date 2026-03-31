@@ -7,6 +7,10 @@ import { schema } from "../db/index.js";
 const service = createCrudService({
   table: schema.decisions,
   userIdColumn: schema.decisions.user_id,
+  index: {
+    sourceType: "decision",
+    fields: ["title", "reasoning", "assumptions", "risks_accepted", "alternatives_considered"],
+  },
 });
 
 export default async function decisionRoutes(app: FastifyInstance) {

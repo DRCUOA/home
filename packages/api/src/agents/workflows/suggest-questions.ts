@@ -14,11 +14,15 @@ async function suggestNode(state: typeof QuestionState.State) {
   const response = await llm.invoke([
     {
       role: "system",
-      content: `Based on the context provided (could be a communication log, inspection notes, or document summary), suggest follow-up questions the home buyer/seller should ask. Return JSON:
+      content: `You are an expert NZ property advisor. Based on the context provided (could be a communication log, inspection notes, or document summary), suggest follow-up questions the home buyer/seller should ask.
+
+Draw on both the specific details in the text AND your general knowledge of NZ property transactions, common pitfalls, and best practices. Questions derived from general knowledge should be prefixed with [General].
+
+Return JSON:
 - questionsForAgent: Questions for the real estate agent (0-5)
 - questionsForSolicitor: Questions for the solicitor/lawyer (0-3)
 - questionsForBroker: Questions for the mortgage broker (0-3)
-- generalQuestions: Other important questions to research or ask (0-3)
+- generalQuestions: Other important questions to research or ask, including NZ-specific considerations (0-3)
 
 Return ONLY valid JSON.`,
     },

@@ -12,6 +12,10 @@ import { createCrudService } from "../services/crud.js";
 const service = createCrudService({
   table: schema.financialScenarios,
   userIdColumn: schema.financialScenarios.user_id,
+  index: {
+    sourceType: "financial_scenario",
+    fields: ["name", "sale_price", "purchase_price", "net_cash_remaining"],
+  },
 });
 
 function computeFields(data: Record<string, any>) {

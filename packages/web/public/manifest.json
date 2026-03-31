@@ -1,9 +1,16 @@
 {
-  "name": "Home Control Centre",
-  "short_name": "HCC",
+  "name": "Homelhar",
+  "short_name": "Homelhar",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f8fafc",
   "theme_color": "#0f172a",
-  "icons": []
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
 }

@@ -7,6 +7,10 @@ import { schema } from "../db/index.js";
 const service = createCrudService({
   table: schema.offers,
   userIdColumn: schema.offers.user_id,
+  index: {
+    sourceType: "offer",
+    fields: ["direction", "price", "conditions_detail", "status", "notes"],
+  },
 });
 
 export default async function offerRoutes(app: FastifyInstance) {

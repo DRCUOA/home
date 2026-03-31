@@ -95,3 +95,6 @@ export const apiPut = <T = any>(path: string, data: any) =>
 
 export const apiDelete = <T = any>(path: string) =>
   api<T>(path, { method: "DELETE" });
+
+export const apiUpload = <T = any>(path: string, formData: FormData) =>
+  api<T>(path, { method: "POST", body: formData });

@@ -314,8 +314,8 @@ function BuyPage() {
   if (loading && !buy) {
     return (
       <PageShell title="Buy">
-        <div className="flex flex-col items-center justify-center gap-3 py-20 text-slate-500">
-          <Loader2 className="h-8 w-8 animate-spin text-primary-600" />
+        <div className="flex flex-col items-center justify-center gap-3 py-20 text-slate-500 dark:text-slate-400">
+          <Loader2 className="h-8 w-8 animate-spin text-primary-600 dark:text-primary-400" />
           <p className="text-sm">Loading buy workspace…</p>
         </div>
       </PageShell>
@@ -597,7 +597,7 @@ function BuyPage() {
 
 function ErrorBanner({ text }: { text: string }) {
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+    <div className="flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 px-3 py-2.5 text-sm text-amber-900 dark:text-amber-200">
       <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
       <span>{text}</span>
     </div>
@@ -624,7 +624,7 @@ function StringListEditor({
   };
   return (
     <div className="space-y-2">
-      <p className="text-sm font-medium text-slate-800">{label}</p>
+      <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{label}</p>
       <div className="flex gap-2">
         <Input
           value={draft}
@@ -647,12 +647,12 @@ function StringListEditor({
           {items.map((s, i) => (
             <li
               key={`${s}-${i}`}
-              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm"
+              className="inline-flex items-center gap-1 rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-sm"
             >
               <span className="max-w-[220px] truncate">{s}</span>
               <button
                 type="button"
-                className="text-slate-400 hover:text-red-600 p-1 min-w-[2rem] min-h-[2rem] flex items-center justify-center"
+                className="text-slate-400 dark:text-slate-500 hover:text-red-600 dark:hover:text-red-400 p-1 min-w-[2rem] min-h-[2rem] flex items-center justify-center"
                 aria-label="Remove"
                 onClick={() => onChange(items.filter((_, j) => j !== i))}
               >
@@ -731,7 +731,7 @@ function CriteriaTab({
 
   if (loading) {
     return (
-      <div className="flex justify-center py-16 text-slate-500">
+      <div className="flex justify-center py-16 text-slate-500 dark:text-slate-400">
         <Loader2 className="h-8 w-8 animate-spin" />
       </div>
     );
@@ -742,7 +742,7 @@ function CriteriaTab({
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <Home className="h-4 w-4 text-slate-500" />
+            <Home className="h-4 w-4 text-slate-500 dark:text-slate-400" />
             Buy criteria
           </CardTitle>
         </CardHeader>
@@ -753,7 +753,7 @@ function CriteriaTab({
           <StringListEditor label="Hard exclusions" items={exclusions} onChange={setExclusions} />
 
           <div>
-            <p className="text-sm font-medium text-slate-800 mb-2">Property type preferences</p>
+            <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-2">Property type preferences</p>
             <div className="flex flex-wrap gap-2">
               {PROPERTY_TYPES.map((t) => (
                 <button
@@ -762,8 +762,8 @@ function CriteriaTab({
                   onClick={() => toggleType(t)}
                   className={`rounded-full px-3 py-2 text-xs font-medium border min-h-10 ${
                     propertyTypes.includes(t)
-                      ? "border-primary-600 bg-primary-50 text-primary-800"
-                      : "border-slate-200 bg-white text-slate-600"
+                      ? "border-primary-600 dark:border-primary-400 bg-primary-50 dark:bg-primary-900/30 text-primary-800 dark:text-primary-200"
+                      : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400"
                   }`}
                 >
                   {capitalize(t)}
@@ -780,8 +780,8 @@ function CriteriaTab({
             placeholder="e.g. 950000"
           />
 
-          <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4 space-y-3">
-            <p className="text-sm font-semibold text-slate-800">Financing assumptions</p>
+          <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/80 p-4 space-y-3">
+            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">Financing assumptions</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Input
                 label="Deposit %"
@@ -821,7 +821,7 @@ function CriteriaTab({
             )}
           </Button>
           {!criteria && (
-            <p className="text-xs text-center text-slate-500">
+            <p className="text-xs text-center text-slate-500 dark:text-slate-400">
               First save creates your criteria record for this project.
             </p>
           )}
@@ -874,7 +874,7 @@ function PropertiesTab({
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12 text-slate-500">
+        <div className="flex justify-center py-12 text-slate-500 dark:text-slate-400">
           <Loader2 className="h-7 w-7 animate-spin" />
         </div>
       ) : properties.length === 0 ? (
@@ -901,13 +901,13 @@ function PropertiesTab({
                 key={p.id}
                 type="button"
                 onClick={() => onOpenDetail(p.id)}
-                className="text-left rounded-xl border border-slate-200 bg-white p-4 shadow-sm active:scale-[0.99] transition-transform"
+                className="text-left rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-sm active:scale-[0.99] transition-transform"
               >
                 <div className="flex justify-between gap-2 mb-2">
-                  <p className="font-semibold text-slate-900 leading-snug pr-2">{p.address}</p>
+                  <p className="font-semibold text-slate-900 dark:text-slate-100 leading-snug pr-2">{p.address}</p>
                   <button
                     type="button"
-                    className="shrink-0 p-2 -m-2 rounded-lg hover:bg-amber-50 text-amber-500"
+                    className="shrink-0 p-2 -m-2 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-900/20 text-amber-500"
                     onClick={(e) => {
                       e.stopPropagation();
                       onToggleFavourite(p, rank > 0 ? undefined : 1);
@@ -918,10 +918,10 @@ function PropertiesTab({
                     <Star className={`h-5 w-5 ${rank ? "fill-amber-400 text-amber-500" : ""}`} />
                   </button>
                 </div>
-                <p className="text-lg font-bold tabular-nums text-slate-900 mb-2">
+                <p className="text-lg font-bold tabular-nums text-slate-900 dark:text-slate-100 mb-2">
                   {formatCurrency(p.price_asking ?? p.price_guide_high ?? p.price_guide_low)}
                 </p>
-                <div className="flex flex-wrap gap-2 text-sm text-slate-600 mb-2">
+                <div className="flex flex-wrap gap-2 text-sm text-slate-600 dark:text-slate-400 mb-2">
                   <span>{p.bedrooms != null ? `${p.bedrooms} bed` : "— bed"}</span>
                   <span>·</span>
                   <span>{p.bathrooms != null ? `${p.bathrooms} bath` : "— bath"}</span>
@@ -950,7 +950,7 @@ function PropertiesTab({
                       href={p.listing_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-primary-600"
+                      className="inline-flex items-center gap-1 text-xs text-primary-600 dark:text-primary-400"
                       onClick={(e) => e.stopPropagation()}
                     >
                       Listing <ExternalLink className="h-3 w-3" />
@@ -958,7 +958,7 @@ function PropertiesTab({
                   )}
                 </div>
                 {ev?.visit_notes && (
-                  <p className="mt-2 text-xs text-slate-500 line-clamp-2">{ev.visit_notes}</p>
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 line-clamp-2">{ev.visit_notes}</p>
                 )}
               </button>
             );
@@ -1012,7 +1012,7 @@ function CompareTab({
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <GitCompare className="h-4 w-4 text-slate-500" />
+            <GitCompare className="h-4 w-4 text-slate-500 dark:text-slate-400" />
             Choose 2–3 homes
           </CardTitle>
         </CardHeader>
@@ -1087,7 +1087,7 @@ function CompareColumn({
           <CardTitle className="text-sm leading-tight">{property.address}</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-slate-500">No evaluation yet — open the property from Properties to create one.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">No evaluation yet — open the property from Properties to create one.</p>
         </CardContent>
       </Card>
     );
@@ -1107,26 +1107,26 @@ function CompareColumn({
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <div className="space-y-1">
-          <p className="text-xs text-slate-500">Price</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Price</p>
           <p className="font-semibold tabular-nums">
             {formatCurrency(property.price_asking ?? property.price_guide_high)}
           </p>
         </div>
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div>
-            <span className="text-slate-500">Beds</span>
+            <span className="text-slate-500 dark:text-slate-400">Beds</span>
             <p className="font-medium">{property.bedrooms ?? "—"}</p>
           </div>
           <div>
-            <span className="text-slate-500">Baths</span>
+            <span className="text-slate-500 dark:text-slate-400">Baths</span>
             <p className="font-medium">{property.bathrooms ?? "—"}</p>
           </div>
           <div>
-            <span className="text-slate-500">Land m²</span>
+            <span className="text-slate-500 dark:text-slate-400">Land m²</span>
             <p className="font-medium tabular-nums">{property.land_area_sqm ?? "—"}</p>
           </div>
           <div>
-            <span className="text-slate-500">Floor m²</span>
+            <span className="text-slate-500 dark:text-slate-400">Floor m²</span>
             <p className="font-medium tabular-nums">{property.floor_area_sqm ?? "—"}</p>
           </div>
         </div>
@@ -1134,7 +1134,7 @@ function CompareColumn({
         <StringListEditor label="Cons" items={cons} onChange={setCons} />
         <StringListEditor label="Red flags" items={flags} onChange={setFlags} />
         <div>
-          <p className="text-sm font-medium text-slate-800 mb-1">Criteria fit (JSON)</p>
+          <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-1">Criteria fit (JSON)</p>
           <Textarea
             value={fit}
             onChange={(e) => setFit(e.target.value)}
@@ -1206,7 +1206,7 @@ function DueDiligenceTab({
 
   if (loading) {
     return (
-      <div className="flex justify-center py-16 text-slate-500">
+      <div className="flex justify-center py-16 text-slate-500 dark:text-slate-400">
         <Loader2 className="h-8 w-8 animate-spin" />
       </div>
     );
@@ -1296,7 +1296,7 @@ function DueDiligencePropertyCard({
       <CardContent className="space-y-5">
         <div>
           <div className="flex justify-between items-center gap-2 mb-2">
-            <p className="text-sm font-semibold text-slate-800">Report requests</p>
+            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">Report requests</p>
             {items.length === 0 && (
               <Button variant="secondary" size="sm" className="min-h-10" onClick={onSeedReports}>
                 Add standard set
@@ -1304,19 +1304,19 @@ function DueDiligencePropertyCard({
             )}
           </div>
           {items.length === 0 ? (
-            <p className="text-sm text-slate-500">No rows yet. Tap “Add standard set” for LIM, title, and more.</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">No rows yet. Tap “Add standard set” for LIM, title, and more.</p>
           ) : (
             <div className="space-y-2">
               {items.map((c) => (
                 <div
                   key={c.id}
-                  className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-lg border border-slate-100 p-3"
+                  className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-lg border border-slate-100 dark:border-slate-800 p-3"
                 >
                   <p className="text-sm font-medium flex-1">{c.label}</p>
                   <select
                     value={c.state}
                     onChange={(e) => onChangeChecklistState(c.id, e.target.value)}
-                    className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm min-h-10 flex-1 sm:flex-none sm:min-w-[10rem]"
+                    className="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-2 text-sm min-h-10 flex-1 sm:flex-none sm:min-w-[10rem]"
                   >
                     {checklistStateOptions.map((o) => (
                       <option key={o.value} value={o.value}>
@@ -1327,7 +1327,7 @@ function DueDiligencePropertyCard({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-red-600 min-h-10"
+                    className="text-red-600 dark:text-red-400 min-h-10"
                     disabled={removeChecklistPending}
                     onClick={() => onRemoveChecklist(c.id)}
                   >
@@ -1340,7 +1340,7 @@ function DueDiligencePropertyCard({
         </div>
 
         <div>
-          <p className="text-sm font-semibold text-slate-800 mb-2">Issues found</p>
+          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">Issues found</p>
           <div className="flex flex-col sm:flex-row gap-2 mb-2">
             <div className="sm:w-36 shrink-0">
               <Select
@@ -1373,9 +1373,9 @@ function DueDiligencePropertyCard({
             </div>
           </div>
           {notesQuery.isLoading ? (
-            <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+            <Loader2 className="h-5 w-5 animate-spin text-slate-400 dark:text-slate-500" />
           ) : issueNotes.length === 0 ? (
-            <p className="text-xs text-slate-500">No issues logged.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">No issues logged.</p>
           ) : (
             <ul className="space-y-2">
               {issueNotes.map((n) => {
@@ -1384,7 +1384,7 @@ function DueDiligencePropertyCard({
                 return (
                   <li
                     key={n.id}
-                    className="flex justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm"
+                    className="flex justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
                   >
                     <div>
                       <Badge variant="default" className="mb-1">
@@ -1403,7 +1403,7 @@ function DueDiligencePropertyCard({
         </div>
 
         <div>
-          <p className="text-sm font-semibold text-slate-800 mb-2">Unresolved questions before offer</p>
+          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">Unresolved questions before offer</p>
           <StringListEditor
             label="Open questions"
             items={questions}
@@ -1424,7 +1424,7 @@ function DueDiligencePropertyCard({
         </div>
 
         <div>
-          <p className="text-sm font-semibold text-slate-800 mb-2 flex items-center gap-1">
+          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2 flex items-center gap-1">
             <Flag className="h-4 w-4" /> Red flag tracker
           </p>
           <StringListEditor
@@ -1506,13 +1506,13 @@ function OffersTab({
           </Button>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+          <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
             <div
               className="h-full rounded-full bg-emerald-600 transition-all"
               style={{ width: `${progress}%` }}
             />
           </div>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
             {project.buy_milestone ? (
               <>
                 {MILESTONE_LABEL[project.buy_milestone] ?? capitalize(project.buy_milestone)} · Step{" "}
@@ -1531,20 +1531,20 @@ function OffersTab({
                   key={m}
                   className={`flex min-w-[6.5rem] flex-col items-center gap-1.5 rounded-xl border px-2 py-3 text-center ${
                     active
-                      ? "border-emerald-400 bg-emerald-50"
+                      ? "border-emerald-400 dark:border-emerald-500 bg-emerald-50 dark:bg-emerald-900/30"
                       : done
-                        ? "border-emerald-200 bg-emerald-50/60"
-                        : "border-slate-100 bg-slate-50/80"
+                        ? "border-emerald-200 dark:border-emerald-700 bg-emerald-50/60 dark:bg-emerald-900/20"
+                        : "border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/80"
                   }`}
                 >
                   <div
                     className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${
-                      done ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-600"
+                      done ? "bg-emerald-600 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400"
                     }`}
                   >
                     {done ? <Check className="h-4 w-4" /> : i + 1}
                   </div>
-                  <span className="text-[10px] font-medium leading-tight text-slate-700">
+                  <span className="text-[10px] font-medium leading-tight text-slate-700 dark:text-slate-300">
                     {MILESTONE_LABEL[m] ?? capitalize(m)}
                   </span>
                 </div>
@@ -1557,7 +1557,7 @@ function OffersTab({
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <CircleDot className="h-4 w-4 text-slate-500" />
+            <CircleDot className="h-4 w-4 text-slate-500 dark:text-slate-400" />
             Offer calculator & scenarios
           </CardTitle>
         </CardHeader>
@@ -1583,7 +1583,7 @@ function OffersTab({
             value={deposit}
             onChange={(e) => setDeposit(e.target.value)}
           />
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
             Use “New offer” below to record conditions, settlement date, and counteroffer links.
           </p>
           <Button
@@ -1603,7 +1603,7 @@ function OffersTab({
             )}
           </Button>
           {latestScenario && (
-            <p className="text-xs text-slate-400 text-center">
+            <p className="text-xs text-slate-400 dark:text-slate-500 text-center">
               Last updated {formatDate(latestScenario.updated_at)}
             </p>
           )}
@@ -1611,21 +1611,21 @@ function OffersTab({
       </Card>
 
       <div className="flex justify-between items-center gap-2">
-        <h2 className="text-sm font-semibold text-slate-800">Submitted offers</h2>
+        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Submitted offers</h2>
         <Button size="md" className="min-h-11" onClick={onAddOffer} disabled={properties.length === 0}>
           <Plus className="h-4 w-4" />
           New offer
         </Button>
       </div>
       {properties.length === 0 && (
-        <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+        <p className="text-sm text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/30 border border-amber-100 dark:border-amber-800 rounded-lg px-3 py-2">
           Add a property before recording an offer.
         </p>
       )}
 
       {loading ? (
         <div className="flex justify-center py-12">
-          <Loader2 className="h-7 w-7 animate-spin text-slate-400" />
+          <Loader2 className="h-7 w-7 animate-spin text-slate-400 dark:text-slate-500" />
         </div>
       ) : offers.length === 0 ? (
         <Card>
@@ -1647,11 +1647,11 @@ function OffersTab({
                   <div className="flex justify-between gap-2">
                     <div>
                       <p className="text-lg font-semibold tabular-nums">{formatCurrency(o.price)}</p>
-                      {prop && <p className="text-xs text-slate-500 line-clamp-2">{prop.address}</p>}
+                      {prop && <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">{prop.address}</p>}
                     </div>
                     <StatusBadge status={o.status} />
                   </div>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     Settlement {o.settlement_date ? formatDate(o.settlement_date) : "—"} · Deposit{" "}
                     {formatCurrency(o.deposit)}
                   </p>
@@ -1665,7 +1665,7 @@ function OffersTab({
                     </div>
                   )}
                   {o.counter_offer_parent_id && (
-                    <p className="text-xs text-amber-800">Counteroffer thread</p>
+                    <p className="text-xs text-amber-800 dark:text-amber-200">Counteroffer thread</p>
                   )}
                   <div className="flex gap-2 pt-1">
                     <Button variant="secondary" className="flex-1 min-h-11" onClick={() => onEditOffer(o.id)}>
@@ -1673,7 +1673,7 @@ function OffersTab({
                     </Button>
                     <Button
                       variant="outline"
-                      className="min-h-11 text-red-700 border-red-200"
+                      className="min-h-11 text-red-700 dark:text-red-300 border-red-200 dark:border-red-700"
                       disabled={deleteOfferPending}
                       onClick={() => onDeleteOffer(o.id)}
                     >
@@ -1923,7 +1923,7 @@ function PropertyDetailModal({
     <Modal open={open} onClose={onClose} title="Property detail">
       <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
         <div>
-          <p className="font-semibold text-slate-900 leading-snug">{property.address}</p>
+          <p className="font-semibold text-slate-900 dark:text-slate-100 leading-snug">{property.address}</p>
           <div className="flex flex-wrap gap-2 mt-2">
             {property.watchlist_status && <StatusBadge status={property.watchlist_status} />}
             {property.listing_method && (
@@ -1934,13 +1934,13 @@ function PropertyDetailModal({
 
         <div className="grid grid-cols-2 gap-2 text-sm">
           <div>
-            <span className="text-slate-500">Price</span>
+            <span className="text-slate-500 dark:text-slate-400">Price</span>
             <p className="font-semibold tabular-nums">
               {formatCurrency(property.price_asking ?? property.price_guide_high)}
             </p>
           </div>
           <div>
-            <span className="text-slate-500">Beds / baths</span>
+            <span className="text-slate-500 dark:text-slate-400">Beds / baths</span>
             <p className="font-medium">
               {property.bedrooms ?? "—"} / {property.bathrooms ?? "—"}
             </p>
@@ -1949,8 +1949,8 @@ function PropertyDetailModal({
 
         {property.listing_description && (
           <div>
-            <p className="text-xs font-semibold text-slate-700 mb-1">Listing</p>
-            <p className="text-sm text-slate-600 whitespace-pre-wrap">{property.listing_description}</p>
+            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Listing</p>
+            <p className="text-sm text-slate-600 dark:text-slate-400 whitespace-pre-wrap">{property.listing_description}</p>
           </div>
         )}
 
@@ -1959,22 +1959,22 @@ function PropertyDetailModal({
             href={property.listing_url}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1 text-sm text-primary-600"
+            className="inline-flex items-center gap-1 text-sm text-primary-600 dark:text-primary-400"
           >
             Open listing <ExternalLink className="h-4 w-4" />
           </a>
         )}
 
         <div>
-          <p className="text-sm font-semibold text-slate-800 mb-2 flex items-center gap-1">
+          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2 flex items-center gap-1">
             <Camera className="h-4 w-4" /> Photos
           </p>
           {filesQuery.isLoading ? (
-            <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+            <Loader2 className="h-5 w-5 animate-spin text-slate-400 dark:text-slate-500" />
           ) : photos.length === 0 ? (
-            <p className="text-xs text-slate-500">No photo files linked yet.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">No photo files linked yet.</p>
           ) : (
-            <ul className="text-sm text-slate-700 space-y-1">
+            <ul className="text-sm text-slate-700 dark:text-slate-300 space-y-1">
               {photos.map((f) => (
                 <li key={f.id} className="truncate">
                   {f.filename}
@@ -1985,8 +1985,8 @@ function PropertyDetailModal({
         </div>
 
         {!evaluation ? (
-          <div className="rounded-lg border border-dashed border-slate-200 p-4 text-center">
-            <p className="text-sm text-slate-600 mb-3">Create an evaluation to add visit notes and questions.</p>
+          <div className="rounded-lg border border-dashed border-slate-200 dark:border-slate-700 p-4 text-center">
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">Create an evaluation to add visit notes and questions.</p>
             <Button className="min-h-11" onClick={onCreateEvaluation} disabled={creatingEval}>
               {creatingEval ? <Loader2 className="h-4 w-4 animate-spin" /> : "Start evaluation"}
             </Button>
@@ -2139,7 +2139,7 @@ function BuyOfferModal({
           placeholder="UUID of prior offer"
         />
         <div>
-          <p className="text-sm font-medium text-slate-700 mb-2">Conditions</p>
+          <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Conditions</p>
           <div className="flex flex-wrap gap-2">
             {OFFER_CONDITIONS.map((c) => (
               <button
@@ -2148,8 +2148,8 @@ function BuyOfferModal({
                 onClick={() => toggleCondition(c)}
                 className={`rounded-full px-3 py-2 text-xs font-medium border min-h-9 ${
                   conditions.includes(c)
-                    ? "border-primary-600 bg-primary-50 text-primary-800"
-                    : "border-slate-200 bg-white text-slate-600"
+                    ? "border-primary-600 dark:border-primary-400 bg-primary-50 dark:bg-primary-900/30 text-primary-800 dark:text-primary-200"
+                    : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400"
                 }`}
               >
                 {capitalize(c)}

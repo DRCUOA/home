@@ -92,7 +92,7 @@ function MoneyPage() {
   if (loading) {
     return (
       <PageShell title="Money">
-        <div className="flex flex-col items-center justify-center gap-3 py-20 text-slate-500">
+        <div className="flex flex-col items-center justify-center gap-3 py-20 text-slate-500 dark:text-slate-400">
           <Loader2 className="h-8 w-8 animate-spin text-primary-600" />
           <p className="text-sm">Loading financial data…</p>
         </div>
@@ -177,7 +177,7 @@ function MoneyPage() {
 
 function ErrorBanner({ text }: { text: string }) {
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+    <div className="flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 px-3 py-2.5 text-sm text-amber-900 dark:text-amber-200">
       <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
       <span>{text}</span>
     </div>
@@ -187,8 +187,8 @@ function ErrorBanner({ text }: { text: string }) {
 function Row({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex justify-between gap-4">
-      <span className="text-slate-500">{label}</span>
-      <span className="text-right font-medium text-slate-900 tabular-nums">{value}</span>
+      <span className="text-slate-500 dark:text-slate-400">{label}</span>
+      <span className="text-right font-medium text-slate-900 dark:text-slate-100 tabular-nums">{value}</span>
     </div>
   );
 }
@@ -241,7 +241,7 @@ function DashboardTab({
   return (
     <div className="space-y-4">
       {hasShortfall && (
-        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-900">
+        <div className="flex items-start gap-2 rounded-lg border border-red-200 dark:border-red-700 bg-red-50 dark:bg-red-900/30 px-3 py-2.5 text-sm text-red-900 dark:text-red-200">
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
           <span>
             {shortfallScenarios.length} scenario{shortfallScenarios.length > 1 ? "s" : ""} show
@@ -253,7 +253,7 @@ function DashboardTab({
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <Home className="h-4 w-4 text-slate-500" />
+            <Home className="h-4 w-4 text-slate-500 dark:text-slate-400" />
             Current position
           </CardTitle>
         </CardHeader>
@@ -263,7 +263,7 @@ function DashboardTab({
           <Row
             label="Estimated equity"
             value={
-              <span className={estimatedEquity < 0 ? "text-red-700" : "text-emerald-700"}>
+              <span className={estimatedEquity < 0 ? "text-red-700 dark:text-red-300" : "text-emerald-700 dark:text-emerald-300"}>
                 {formatCurrency(estimatedEquity)}
               </span>
             }
@@ -274,7 +274,7 @@ function DashboardTab({
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <PiggyBank className="h-4 w-4 text-slate-500" />
+            <PiggyBank className="h-4 w-4 text-slate-500 dark:text-slate-400" />
             Available funds
           </CardTitle>
         </CardHeader>
@@ -289,18 +289,18 @@ function DashboardTab({
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <Wallet className="h-4 w-4 text-slate-500" />
+            <Wallet className="h-4 w-4 text-slate-500 dark:text-slate-400" />
             Total available budget
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <p className="text-2xl font-bold tabular-nums text-slate-900">
+          <p className="text-2xl font-bold tabular-nums text-slate-900 dark:text-slate-100">
             {formatCurrency(totalBudget)}
           </p>
 
           {budgetParts.length > 0 && (
             <>
-              <div className="flex h-4 w-full overflow-hidden rounded-full bg-slate-100">
+              <div className="flex h-4 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                 {budgetParts.map((p) => (
                   <div
                     key={p.label}
@@ -309,7 +309,7 @@ function DashboardTab({
                   />
                 ))}
               </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600 dark:text-slate-400">
                 {budgetParts.map((p) => (
                   <span key={p.label} className="flex items-center gap-1.5">
                     <span className={`inline-block h-2.5 w-2.5 rounded-full ${p.color}`} />
@@ -323,7 +323,7 @@ function DashboardTab({
       </Card>
 
       {s.net_cash_remaining != null && s.net_cash_remaining < 0 && (
-        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-900">
+        <div className="flex items-start gap-2 rounded-lg border border-red-200 dark:border-red-700 bg-red-50 dark:bg-red-900/30 px-3 py-2.5 text-sm text-red-900 dark:text-red-200">
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
           <span>
             Cash shortfall of{" "}
@@ -354,7 +354,7 @@ function ScenariosTab({
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center gap-2">
-        <h2 className="text-sm font-semibold text-slate-800">Financial scenarios</h2>
+        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Financial scenarios</h2>
         <Button size="md" className="min-h-11 shrink-0" onClick={onAdd}>
           <Plus className="h-4 w-4" />
           New scenario
@@ -385,8 +385,8 @@ function ScenariosTab({
                 <CardContent className="pt-4 space-y-3">
                   <div className="flex justify-between gap-2">
                     <div>
-                      <p className="font-semibold text-slate-900">{s.name}</p>
-                      <p className="text-xs text-slate-500">Updated {formatDate(s.updated_at)}</p>
+                      <p className="font-semibold text-slate-900 dark:text-slate-100">{s.name}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Updated {formatDate(s.updated_at)}</p>
                     </div>
                     {s.is_shortfall ? (
                       <Badge variant="danger">Shortfall</Badge>
@@ -396,19 +396,19 @@ function ScenariosTab({
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>
-                      <p className="text-xs text-slate-500">Sale price</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Sale price</p>
                       <p className="font-medium tabular-nums">{formatCurrency(s.sale_price)}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-slate-500">Purchase price</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Purchase price</p>
                       <p className="font-medium tabular-nums">{formatCurrency(s.purchase_price)}</p>
                     </div>
                   </div>
-                  <div className="border-t border-slate-100 pt-2 flex justify-between text-sm">
-                    <span className="text-slate-500">Net cash remaining</span>
+                  <div className="border-t border-slate-100 dark:border-slate-800 pt-2 flex justify-between text-sm">
+                    <span className="text-slate-500 dark:text-slate-400">Net cash remaining</span>
                     <span
                       className={`font-semibold tabular-nums ${
-                        netCash != null && netCash < 0 ? "text-red-700" : "text-emerald-700"
+                        netCash != null && netCash < 0 ? "text-red-700 dark:text-red-300" : "text-emerald-700 dark:text-emerald-300"
                       }`}
                     >
                       {formatCurrency(netCash)}
@@ -420,7 +420,7 @@ function ScenariosTab({
                     </Button>
                     <Button
                       variant="outline"
-                      className="min-h-11 text-red-700 border-red-200"
+                      className="min-h-11 text-red-700 dark:text-red-300 border-red-200 dark:border-red-700"
                       disabled={deletePending}
                       onClick={() => onDelete(s.id)}
                     >
@@ -501,7 +501,7 @@ function CompareTab({
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
-            <GitCompare className="h-4 w-4 text-slate-500" />
+            <GitCompare className="h-4 w-4 text-slate-500 dark:text-slate-400" />
             Select scenarios
           </CardTitle>
         </CardHeader>
@@ -528,7 +528,7 @@ function CompareTab({
           <CardContent className="overflow-x-auto pt-4">
             <table className="w-full text-sm min-w-[480px]">
               <thead>
-                <tr className="border-b border-slate-100 text-left text-xs text-slate-500">
+                <tr className="border-b border-slate-100 dark:border-slate-800 text-left text-xs text-slate-500 dark:text-slate-400">
                   <th className="pb-2 pr-3 font-medium" />
                   {comparisonData.map((s) => (
                     <th key={s.id} className="pb-2 pr-3 font-medium">
@@ -539,8 +539,8 @@ function CompareTab({
               </thead>
               <tbody>
                 {compareRows.map((row) => (
-                  <tr key={row.key} className="border-b border-slate-50">
-                    <td className="py-2.5 pr-3 text-slate-500">{row.label}</td>
+                  <tr key={row.key} className="border-b border-slate-50 dark:border-slate-800">
+                    <td className="py-2.5 pr-3 text-slate-500 dark:text-slate-400">{row.label}</td>
                     {comparisonData.map((s) => {
                       const val = s[row.key] as number | undefined;
                       const isNegative = row.warn && val != null && val < 0;
@@ -548,7 +548,7 @@ function CompareTab({
                         <td
                           key={s.id}
                           className={`py-2.5 pr-3 tabular-nums font-medium ${
-                            isNegative ? "text-red-700" : ""
+                            isNegative ? "text-red-700 dark:text-red-300" : ""
                           }`}
                         >
                           {formatCurrency(val)}
@@ -558,7 +558,7 @@ function CompareTab({
                   </tr>
                 ))}
                 <tr>
-                  <td className="py-2.5 pr-3 text-slate-500">Status</td>
+                  <td className="py-2.5 pr-3 text-slate-500 dark:text-slate-400">Status</td>
                   {comparisonData.map((s) => (
                     <td key={s.id} className="py-2.5 pr-3">
                       {s.is_shortfall ? (
@@ -738,7 +738,7 @@ function ScenarioModal({
           />
         )}
 
-        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide pt-2">Sale side</p>
+        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide pt-2">Sale side</p>
         <div className="grid grid-cols-2 gap-3">
           <Input label="Sale price" inputMode="decimal" value={salePrice} onChange={(e) => setSalePrice(e.target.value)} />
           <Input label="Commission %" inputMode="decimal" value={commissionRate} onChange={(e) => setCommissionRate(e.target.value)} />
@@ -756,14 +756,14 @@ function ScenarioModal({
           <Input label="Moving cost" inputMode="decimal" value={movingCost} onChange={(e) => setMovingCost(e.target.value)} />
         </div>
 
-        <div className="rounded-lg bg-slate-50 px-3 py-2.5 text-sm">
-          <span className="text-slate-500">Net sale proceeds · </span>
-          <span className={`font-semibold tabular-nums ${netProceeds < 0 ? "text-red-700" : "text-emerald-700"}`}>
+        <div className="rounded-lg bg-slate-50 dark:bg-slate-800 px-3 py-2.5 text-sm">
+          <span className="text-slate-500 dark:text-slate-400">Net sale proceeds · </span>
+          <span className={`font-semibold tabular-nums ${netProceeds < 0 ? "text-red-700 dark:text-red-300" : "text-emerald-700 dark:text-emerald-300"}`}>
             {formatCurrency(netProceeds)}
           </span>
         </div>
 
-        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide pt-2">Available funds</p>
+        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide pt-2">Available funds</p>
         <div className="grid grid-cols-2 gap-3">
           <Input label="Savings" inputMode="decimal" value={savings} onChange={(e) => setSavings(e.target.value)} />
           <Input label="KiwiSaver" inputMode="decimal" value={kiwisaver} onChange={(e) => setKiwisaver(e.target.value)} />
@@ -773,7 +773,7 @@ function ScenarioModal({
           <Input label="Borrowing capacity" inputMode="decimal" value={borrowingCapacity} onChange={(e) => setBorrowingCapacity(e.target.value)} />
         </div>
 
-        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide pt-2">Buy side</p>
+        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide pt-2">Buy side</p>
         <div className="grid grid-cols-2 gap-3">
           <Input label="Purchase price" inputMode="decimal" value={purchasePrice} onChange={(e) => setPurchasePrice(e.target.value)} />
           <Input label="Deposit" inputMode="decimal" value={deposit} onChange={(e) => setDeposit(e.target.value)} />
@@ -792,18 +792,18 @@ function ScenarioModal({
         </div>
         <Input label="Contingency" inputMode="decimal" value={contingency} onChange={(e) => setContingency(e.target.value)} />
 
-        <div className="rounded-lg border border-slate-200 px-3 py-3 space-y-1 text-sm">
+        <div className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-3 space-y-1 text-sm">
           <div className="flex justify-between">
-            <span className="text-slate-500">Total budget</span>
+            <span className="text-slate-500 dark:text-slate-400">Total budget</span>
             <span className="font-medium tabular-nums">{formatCurrency(availFunds)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-500">Total costs</span>
+            <span className="text-slate-500 dark:text-slate-400">Total costs</span>
             <span className="font-medium tabular-nums">{formatCurrency(totalCosts)}</span>
           </div>
-          <div className="flex justify-between border-t border-slate-100 pt-1">
-            <span className="font-semibold text-slate-900">Net cash</span>
-            <span className={`font-bold tabular-nums ${netCash < 0 ? "text-red-700" : "text-emerald-700"}`}>
+          <div className="flex justify-between border-t border-slate-100 dark:border-slate-800 pt-1">
+            <span className="font-semibold text-slate-900 dark:text-slate-100">Net cash</span>
+            <span className={`font-bold tabular-nums ${netCash < 0 ? "text-red-700 dark:text-red-300" : "text-emerald-700 dark:text-emerald-300"}`}>
               {formatCurrency(netCash)}
             </span>
           </div>

@@ -16,15 +16,21 @@ async function summaryNode(state: typeof ProjectSummaryState.State) {
   const response = await llm.invoke([
     {
       role: "system",
-      content: `You are summarising the current state of someone's home sale and purchase journey. Based on the project data provided, create a comprehensive status summary. Return JSON:
+      content: `You are an expert NZ property advisor summarising the current state of someone's home sale and purchase journey.
+
+You should:
+- Base the summary primarily on the specific project data provided
+- Where relevant, add context from general NZ property knowledge — typical timelines for the current stage, common considerations, regulatory requirements. Prefix general knowledge observations with [General]
+- Be concise and factual about the user's specific situation; clearly label any general knowledge additions.
+
+Based on the project data provided, create a comprehensive status summary. Return JSON:
 - overallStatus: A 1-2 sentence executive summary of where things stand
 - sellSummary: Current state of the sale (2-3 sentences), or "No active sale" if not applicable
 - buySummary: Current state of the purchase search (2-3 sentences), or "No active purchase" if not applicable
 - financialSummary: Financial position summary (2-3 sentences)
-- keyDecisionsPending: Decisions that need to be made soon (0-4 items)
-- risksSummary: Key risks or concerns across the whole project (0-4 items)
+- keyDecisionsPending: Decisions that need to be made soon, including standard NZ process decisions for the current stage. Prefix general knowledge items with [General] (0-4 items)
+- risksSummary: Key risks or concerns across the whole project, including common NZ-specific risks for the current stage. Prefix general knowledge items with [General] (0-4 items)
 
-Be concise and factual. Base everything on the data provided.
 Return ONLY valid JSON.`,
     },
     { role: "user", content: state.input },

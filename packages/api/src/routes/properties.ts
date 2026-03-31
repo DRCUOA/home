@@ -3,6 +3,25 @@ import { eq, and } from "drizzle-orm";
 import { authGuard } from "../middleware/auth.js";
 import { db, schema } from "../db/index.js";
 import { createPropertySchema, updatePropertySchema } from "@hcc/shared";
+import { indexRecord } from "../agents/embeddings.js";
+
+const PROPERTY_INDEX_FIELDS = [
+  "address", "suburb", "city", "property_type", "listing_method",
+  "listing_description", "watchlist_status",
+] as const;
+
+function indexProperty(row: Record<string, any>) {
+  const fields: Record<string, any> = {};
+  for (const f of PROPERTY_INDEX_FIELDS) {
+    if (row[f] != null) fields[f] = row[f];
+  }
+  if (row.bedrooms) fields.bedrooms = `${row.bedrooms} bedrooms`;
+  if (row.bathrooms) fields.bathrooms = `${row.bathrooms} bathrooms`;
+  if (row.price_asking) fields.price_asking = `$${row.price_asking}`;
+  indexRecord("property", row.id, fields).catch((err) =>
+    console.error(`[Embeddings] Failed to index property/${row.id}:`, err.message)
+  );
+}
 
 export default async function propertyRoutes(app: FastifyInstance) {
   app.addHook("preHandler", authGuard);
@@ -48,6 +67,7 @@ export default async function propertyRoutes(app: FastifyInstance) {
       .insert(schema.properties)
       .values(body)
       .returning();
+    indexProperty(row);
     return reply.status(201).send({ data: row });
   });
 
@@ -60,6 +80,7 @@ export default async function propertyRoutes(app: FastifyInstance) {
       .where(eq(schema.properties.id, id))
       .returning();
     if (!row) return reply.status(404).send({ error: "Not Found" });
+    indexProperty(row);
     return { data: row };
   });
 

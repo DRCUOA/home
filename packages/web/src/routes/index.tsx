@@ -145,7 +145,7 @@ function DashboardPage() {
   if (loading) {
     return (
       <PageShell title="Home">
-        <div className="flex flex-col items-center justify-center gap-3 py-20 text-slate-500">
+        <div className="flex flex-col items-center justify-center gap-3 py-20 text-slate-500 dark:text-slate-400">
           <Loader2 className="h-8 w-8 animate-spin text-primary-600" />
           <p className="text-sm">Loading your dashboard…</p>
         </div>
@@ -157,7 +157,7 @@ function DashboardPage() {
     <PageShell title="Home">
       <div className="space-y-5">
         {hasError && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200">
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
             <span>
               Some data could not be loaded. Pull to refresh or try again shortly.
@@ -166,7 +166,7 @@ function DashboardPage() {
         )}
 
         <section className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Sale
           </h2>
           {!sellProject ? (
@@ -183,7 +183,7 @@ function DashboardPage() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-2">
                 <CardTitle className="flex items-center gap-2 text-left">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-50 text-primary-700">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
                     <TrendingDown className="h-5 w-5" />
                   </span>
                   Sale status
@@ -194,14 +194,14 @@ function DashboardPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <p className="text-xs font-medium text-slate-500 mb-1.5">Progress</p>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">Progress</p>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                     <div
                       className="h-full rounded-full bg-primary-600 transition-all"
                       style={{ width: `${sellProgress}%` }}
                     />
                   </div>
-                  <p className="mt-1.5 text-xs text-slate-500">
+                  <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
                     Step{" "}
                     {sellProject.sell_milestone
                       ? SELL_MILESTONES.indexOf(
@@ -213,8 +213,8 @@ function DashboardPage() {
                 </div>
                 <div className="grid gap-1 text-sm">
                   <div className="flex justify-between gap-4">
-                    <span className="text-slate-500">Target range</span>
-                    <span className="text-right font-medium text-slate-900 tabular-nums">
+                    <span className="text-slate-500 dark:text-slate-400">Target range</span>
+                    <span className="text-right font-medium text-slate-900 dark:text-slate-100 tabular-nums">
                       {sellProject.target_sale_price_low != null ||
                       sellProject.target_sale_price_high != null ? (
                         <>
@@ -227,8 +227,8 @@ function DashboardPage() {
                     </span>
                   </div>
                   <div className="flex justify-between gap-4">
-                    <span className="text-slate-500">Strategy</span>
-                    <span className="text-right font-medium text-slate-900">
+                    <span className="text-slate-500 dark:text-slate-400">Strategy</span>
+                    <span className="text-right font-medium text-slate-900 dark:text-slate-100">
                       {sellProject.sale_strategy
                         ? capitalize(sellProject.sale_strategy)
                         : "Not set"}
@@ -241,7 +241,7 @@ function DashboardPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Buy
           </h2>
           {!buyProject ? (
@@ -258,7 +258,7 @@ function DashboardPage() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-2">
                 <CardTitle className="flex items-center gap-2 text-left">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
                     <ShoppingCart className="h-5 w-5" />
                   </span>
                   Buy status
@@ -269,14 +269,14 @@ function DashboardPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <p className="text-xs font-medium text-slate-500 mb-1.5">Progress</p>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">Progress</p>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                     <div
                       className="h-full rounded-full bg-emerald-600 transition-all"
                       style={{ width: `${buyProgress}%` }}
                     />
                   </div>
-                  <p className="mt-1.5 text-xs text-slate-500">
+                  <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
                     Step{" "}
                     {buyProject.buy_milestone
                       ? BUY_MILESTONES.indexOf(
@@ -287,15 +287,15 @@ function DashboardPage() {
                   </p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-lg bg-slate-50 px-3 py-2">
-                    <p className="text-xs text-slate-500">Saved</p>
-                    <p className="text-lg font-semibold tabular-nums text-slate-900">
+                  <div className="rounded-lg bg-slate-50 dark:bg-slate-800 px-3 py-2">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Saved</p>
+                    <p className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">
                       {savedCount}
                     </p>
                   </div>
-                  <div className="rounded-lg bg-slate-50 px-3 py-2">
-                    <p className="text-xs text-slate-500">Shortlisted</p>
-                    <p className="text-lg font-semibold tabular-nums text-slate-900">
+                  <div className="rounded-lg bg-slate-50 dark:bg-slate-800 px-3 py-2">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Shortlisted</p>
+                    <p className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">
                       {shortlistedCount}
                     </p>
                   </div>
@@ -306,31 +306,31 @@ function DashboardPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Next tasks
           </h2>
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <CalendarClock className="h-4 w-4 text-slate-500" />
+                <CalendarClock className="h-4 w-4 text-slate-500 dark:text-slate-400" />
                 Upcoming
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-0 divide-y divide-slate-100">
+            <CardContent className="space-y-0 divide-y divide-slate-100 dark:divide-slate-800">
               {upcomingTasks.length === 0 ? (
-                <p className="py-6 text-center text-sm text-slate-500">
+                <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">
                   No open tasks. You are all caught up.
                 </p>
               ) : (
                 upcomingTasks.map((task) => (
                   <div key={task.id} className="flex flex-col gap-0.5 py-3 first:pt-0 last:pb-0">
                     <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-medium text-slate-900 leading-snug">
+                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100 leading-snug">
                         {task.title}
                       </p>
                       <StatusBadge status={task.status} />
                     </div>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
                       Due {task.due_date ? formatDate(task.due_date) : "No date"}
                     </p>
                   </div>
@@ -341,42 +341,42 @@ function DashboardPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Money
           </h2>
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Wallet className="h-4 w-4 text-slate-500" />
+                <Wallet className="h-4 w-4 text-slate-500 dark:text-slate-400" />
                 Financial snapshot
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {!recentScenario ? (
-                <p className="text-sm text-slate-500">
+                <p className="text-sm text-slate-500 dark:text-slate-400">
                   No scenarios yet. Create a financial scenario to see net cash and affordability here.
                 </p>
               ) : (
                 <>
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm text-slate-500">Net cash remaining</span>
-                    <span className="text-lg font-semibold tabular-nums text-slate-900">
+                    <span className="text-sm text-slate-500 dark:text-slate-400">Net cash remaining</span>
+                    <span className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">
                       {formatCurrency(recentScenario.net_cash_remaining)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm text-slate-500">Affordability</span>
+                    <span className="text-sm text-slate-500 dark:text-slate-400">Affordability</span>
                     <span
                       className={
                         recentScenario.is_shortfall
-                          ? "text-sm font-medium text-red-700"
-                          : "text-sm font-medium text-emerald-700"
+                          ? "text-sm font-medium text-red-700 dark:text-red-300"
+                          : "text-sm font-medium text-emerald-700 dark:text-emerald-300"
                       }
                     >
                       {recentScenario.is_shortfall ? "Shortfall risk" : "Within budget"}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400 border-t border-slate-100 pt-2">
+                  <p className="text-xs text-slate-400 dark:text-slate-500 border-t border-slate-100 dark:border-slate-800 pt-2">
                     From “{recentScenario.name}” · updated {formatDate(recentScenario.updated_at)}
                   </p>
                 </>
@@ -386,19 +386,19 @@ function DashboardPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Activity
           </h2>
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <MessageSquare className="h-4 w-4 text-slate-500" />
+                <MessageSquare className="h-4 w-4 text-slate-500 dark:text-slate-400" />
                 Recent communications
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-0 divide-y divide-slate-100">
+            <CardContent className="space-y-0 divide-y divide-slate-100 dark:divide-slate-800">
               {recentComms.length === 0 ? (
-                <p className="py-6 text-center text-sm text-slate-500">
+                <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">
                   No communication logs yet.
                 </p>
               ) : (
@@ -406,14 +406,14 @@ function DashboardPage() {
                   <div key={c.id} className="py-3 first:pt-0 last:pb-0">
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <StatusBadge status={c.type} />
-                      <span className="text-xs text-slate-400 whitespace-nowrap">
+                      <span className="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">
                         {formatDate(c.occurred_at)}
                       </span>
                     </div>
                     {c.subject && (
-                      <p className="text-sm font-medium text-slate-900">{c.subject}</p>
+                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{c.subject}</p>
                     )}
-                    <p className="text-sm text-slate-600 line-clamp-2 mt-0.5">{c.body}</p>
+                    <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2 mt-0.5">{c.body}</p>
                   </div>
                 ))
               )}

@@ -1,16 +1,34 @@
 import { eq, and, ilike, or, desc, SQL } from "drizzle-orm";
 import { PgTable } from "drizzle-orm/pg-core";
 import { db } from "../db/index.js";
+import { indexRecord } from "../agents/embeddings.js";
 
 type AnyColumn = any;
+
+interface IndexConfig {
+  sourceType: string;
+  fields: string[];
+}
 
 interface CrudOptions {
   table: PgTable;
   userIdColumn?: AnyColumn;
   orderBy?: AnyColumn;
+  index?: IndexConfig;
 }
 
-export function createCrudService({ table, userIdColumn, orderBy }: CrudOptions) {
+function tryIndex(config: IndexConfig | undefined, row: Record<string, any>) {
+  if (!config || !row) return;
+  const fieldData: Record<string, any> = {};
+  for (const f of config.fields) {
+    if (row[f] != null) fieldData[f] = row[f];
+  }
+  indexRecord(config.sourceType, row.id, fieldData).catch((err) =>
+    console.error(`[Embeddings] Failed to index ${config.sourceType}/${row.id}:`, err.message)
+  );
+}
+
+export function createCrudService({ table, userIdColumn, orderBy, index }: CrudOptions) {
   const cols = (table as any);
 
   return {
@@ -52,6 +70,7 @@ export function createCrudService({ table, userIdColumn, orderBy }: CrudOptions)
     async create(data: Record<string, any>, userId?: string) {
       const values = userId && userIdColumn ? { ...data, user_id: userId } : data;
       const [row] = await (db.insert(table).values(values) as any).returning();
+      tryIndex(index, row);
       return row;
     },
 
@@ -66,6 +85,7 @@ export function createCrudService({ table, userIdColumn, orderBy }: CrudOptions)
           .where(and(...conditions)) as any
       ).returning();
 
+      if (row) tryIndex(index, row);
       return row || null;
     },
 

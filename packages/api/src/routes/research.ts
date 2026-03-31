@@ -10,6 +10,10 @@ import { schema } from "../db/index.js";
 const service = createCrudService({
   table: schema.researchItems,
   userIdColumn: schema.researchItems.user_id,
+  index: {
+    sourceType: "research",
+    fields: ["title", "notes", "category", "tags", "url"],
+  },
 });
 
 export default async function researchRoutes(app: FastifyInstance) {

@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   TrendingDown,
@@ -8,12 +9,14 @@ import {
   MessageSquare,
   Loader2,
   AlertCircle,
+  Pencil,
 } from "lucide-react";
 import type {
   Project,
   Task,
   FinancialScenario,
   CommunicationLog,
+  Contact,
   Property,
 } from "@hcc/shared";
 import { SELL_MILESTONES, BUY_MILESTONES } from "@hcc/shared";
@@ -22,6 +25,8 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { QuickAddFab } from "@/components/features/quick-add";
+import { CommModal } from "@/components/features/comm-modal";
+import { useUpdate } from "@/hooks/use-query-helpers";
 import { apiGet } from "@/lib/api";
 import { formatCurrency, formatDate, capitalize } from "@/lib/format";
 
@@ -75,6 +80,9 @@ function latestScenario(scenarios: FinancialScenario[]): FinancialScenario | nul
 }
 
 function DashboardPage() {
+  const [editingCommId, setEditingCommId] = useState<string | null>(null);
+  const [commModalOpen, setCommModalOpen] = useState(false);
+
   const projectsQuery = useQuery({
     queryKey: ["projects"],
     queryFn: () => apiGet<ListResponse<Project>>("/projects"),
@@ -97,6 +105,13 @@ function DashboardPage() {
     queryKey: ["communications"],
     queryFn: () => apiGet<ListResponse<CommunicationLog>>("/communications"),
   });
+
+  const contactsQuery = useQuery({
+    queryKey: ["contacts"],
+    queryFn: () => apiGet<ListResponse<Contact>>("/contacts"),
+  });
+
+  const updateComm = useUpdate<CommunicationLog>("communications", "/communications");
 
   const propertiesQuery = useQuery({
     queryKey: ["properties", buyProject?.id],
@@ -125,6 +140,7 @@ function DashboardPage() {
     ? sortTasksUpcoming(tasksQuery.data.data)
     : [];
 
+  const allComms = communicationsQuery.data?.data ?? [];
   const recentComms = communicationsQuery.data
     ? sortCommunicationsRecent(communicationsQuery.data.data)
     : [];
@@ -403,18 +419,29 @@ function DashboardPage() {
                 </p>
               ) : (
                 recentComms.map((c) => (
-                  <div key={c.id} className="py-3 first:pt-0 last:pb-0">
+                  <button
+                    key={c.id}
+                    type="button"
+                    className="w-full text-left py-3 first:pt-0 last:pb-0 group cursor-pointer"
+                    onClick={() => {
+                      setEditingCommId(c.id);
+                      setCommModalOpen(true);
+                    }}
+                  >
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <StatusBadge status={c.type} />
-                      <span className="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">
-                        {formatDate(c.occurred_at)}
+                      <span className="flex items-center gap-1.5">
+                        <Pencil className="h-3 w-3 text-slate-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <span className="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">
+                          {formatDate(c.occurred_at)}
+                        </span>
                       </span>
                     </div>
                     {c.subject && (
                       <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{c.subject}</p>
                     )}
                     <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2 mt-0.5">{c.body}</p>
-                  </div>
+                  </button>
                 ))
               )}
             </CardContent>
@@ -423,6 +450,26 @@ function DashboardPage() {
       </div>
 
       <QuickAddFab />
+
+      <CommModal
+        key={editingCommId ?? "new-comm"}
+        open={commModalOpen}
+        onClose={() => {
+          setCommModalOpen(false);
+          setEditingCommId(null);
+        }}
+        contacts={contactsQuery.data?.data ?? []}
+        existing={editingCommId ? allComms.find((c) => c.id === editingCommId) : undefined}
+        onSubmit={(payload) => {
+          if (editingCommId) {
+            updateComm.mutate(
+              { id: editingCommId, data: payload },
+              { onSuccess: () => { setCommModalOpen(false); setEditingCommId(null); } }
+            );
+          }
+        }}
+        submitting={updateComm.isPending}
+      />
     </PageShell>
   );
 }

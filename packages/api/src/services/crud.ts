@@ -2,6 +2,7 @@ import { eq, and, ilike, or, desc, SQL } from "drizzle-orm";
 import { PgTable } from "drizzle-orm/pg-core";
 import { db } from "../db/index.js";
 import { indexRecord } from "../agents/embeddings.js";
+import { writeAuditLog, diffRecord } from "./audit.js";
 
 type AnyColumn = any;
 
@@ -10,11 +11,16 @@ interface IndexConfig {
   fields: string[];
 }
 
+interface AuditConfig {
+  entityType: string;
+}
+
 interface CrudOptions {
   table: PgTable;
   userIdColumn?: AnyColumn;
   orderBy?: AnyColumn;
   index?: IndexConfig;
+  audit?: AuditConfig;
 }
 
 function tryIndex(config: IndexConfig | undefined, row: Record<string, any>) {
@@ -28,7 +34,26 @@ function tryIndex(config: IndexConfig | undefined, row: Record<string, any>) {
   );
 }
 
-export function createCrudService({ table, userIdColumn, orderBy, index }: CrudOptions) {
+function tryAudit(
+  config: AuditConfig | undefined,
+  action: "create" | "update" | "delete",
+  entityId: string,
+  userId: string,
+  changes: Record<string, unknown>
+) {
+  if (!config || !userId) return;
+  writeAuditLog({
+    entityType: config.entityType,
+    entityId,
+    action,
+    userId,
+    changes,
+  }).catch((err) =>
+    console.error(`[Audit] Failed to write ${config.entityType}/${entityId}:`, err.message)
+  );
+}
+
+export function createCrudService({ table, userIdColumn, orderBy, index, audit }: CrudOptions) {
   const cols = (table as any);
 
   return {
@@ -71,12 +96,23 @@ export function createCrudService({ table, userIdColumn, orderBy, index }: CrudO
       const values = userId && userIdColumn ? { ...data, user_id: userId } : data;
       const [row] = await (db.insert(table).values(values) as any).returning();
       tryIndex(index, row);
+      if (userId) tryAudit(audit, "create", row.id, userId, row);
       return row;
     },
 
     async update(id: string, data: Record<string, any>, userId?: string) {
       const conditions: SQL[] = [eq(cols.id, id)];
       if (userIdColumn && userId) conditions.push(eq(userIdColumn, userId));
+
+      let oldRow: Record<string, any> | null = null;
+      if (audit) {
+        const [existing] = await db
+          .select()
+          .from(table)
+          .where(and(...conditions))
+          .limit(1);
+        oldRow = existing || null;
+      }
 
       const [row] = await (
         db
@@ -85,7 +121,12 @@ export function createCrudService({ table, userIdColumn, orderBy, index }: CrudO
           .where(and(...conditions)) as any
       ).returning();
 
-      if (row) tryIndex(index, row);
+      if (row) {
+        tryIndex(index, row);
+        if (userId && oldRow) {
+          tryAudit(audit, "update", row.id, userId, diffRecord(oldRow, row));
+        }
+      }
       return row || null;
     },
 
@@ -97,6 +138,9 @@ export function createCrudService({ table, userIdColumn, orderBy, index }: CrudO
         db.delete(table).where(and(...conditions)) as any
       ).returning();
 
+      if (row && userId) {
+        tryAudit(audit, "delete", row.id, userId, row);
+      }
       return row || null;
     },
   };

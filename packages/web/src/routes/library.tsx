@@ -60,6 +60,7 @@ import { apiGet, apiPost, apiPatch, apiUpload } from "@/lib/api";
 import { formatCurrency, formatDate, formatPercent, capitalize } from "@/lib/format";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CameraCapture } from "@/components/features/camera-capture";
+import { CommModal } from "@/components/features/comm-modal";
 
 type ListResponse<T> = { data: T[]; total: number };
 
@@ -231,6 +232,10 @@ function LibraryPage() {
             setFilterContact={setCommFilterContact}
             onAdd={() => {
               setEditingCommId(null);
+              setCommModalOpen(true);
+            }}
+            onEdit={(id) => {
+              setEditingCommId(id);
               setCommModalOpen(true);
             }}
           />
@@ -612,6 +617,7 @@ function CommsTab({
   filterContact,
   setFilterContact,
   onAdd,
+  onEdit,
 }: {
   comms: CommunicationLog[];
   contacts: Contact[];
@@ -620,6 +626,7 @@ function CommsTab({
   filterContact: string;
   setFilterContact: (v: string) => void;
   onAdd: () => void;
+  onEdit: (id: string) => void;
 }) {
   const filtered = useMemo(() => {
     let result = [...comms];
@@ -692,8 +699,17 @@ function CommsTab({
                         {contact ? contact.name : "Unknown"}
                       </span>
                     </span>
-                    <span className="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">
-                      {formatDate(c.occurred_at)}
+                    <span className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onEdit(c.id)}
+                        className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <span className="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">
+                        {formatDate(c.occurred_at)}
+                      </span>
                     </span>
                   </div>
                   {c.subject && (
@@ -1217,98 +1233,6 @@ function ContactModal({
         onClose={() => setCameraOpen(false)}
         title="Scan business card"
       />
-    </Modal>
-  );
-}
-
-function CommModal({
-  open,
-  onClose,
-  contacts,
-  existing,
-  onSubmit,
-  submitting,
-}: {
-  open: boolean;
-  onClose: () => void;
-  contacts: Contact[];
-  existing: CommunicationLog | undefined;
-  onSubmit: (data: Record<string, unknown>) => void;
-  submitting: boolean;
-}) {
-  const [type, setType] = useState("call");
-  const [contactId, setContactId] = useState("");
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
-  const [occurredAt, setOccurredAt] = useState("");
-  const [followUpDate, setFollowUpDate] = useState("");
-
-  useEffect(() => {
-    if (!open) return;
-    if (existing) {
-      setType(existing.type);
-      setContactId(existing.contact_id ?? "");
-      setSubject(existing.subject ?? "");
-      setBody(existing.body);
-      setOccurredAt(existing.occurred_at?.slice(0, 10) ?? "");
-      setFollowUpDate(existing.follow_up_date?.slice(0, 10) ?? "");
-    } else {
-      setType("call");
-      setContactId("");
-      setSubject("");
-      setBody("");
-      setOccurredAt(new Date().toISOString().slice(0, 10));
-      setFollowUpDate("");
-    }
-  }, [open, existing?.id]);
-
-  return (
-    <Modal open={open} onClose={onClose} title={existing ? "Edit communication" : "Log communication"}>
-      <form
-        className="space-y-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          onSubmit({
-            type,
-            contact_id: contactId || undefined,
-            subject: subject || undefined,
-            body,
-            occurred_at: occurredAt || new Date().toISOString(),
-            follow_up_date: followUpDate || undefined,
-          });
-        }}
-      >
-        <div className="grid grid-cols-2 gap-3">
-          <Select
-            label="Type"
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-            options={COMMUNICATION_TYPES.map((t) => ({ value: t, label: capitalize(t) }))}
-          />
-          <Select
-            label="Contact"
-            value={contactId}
-            onChange={(e) => setContactId(e.target.value)}
-            options={contacts.map((c) => ({ value: c.id, label: c.name }))}
-            placeholder="Select…"
-          />
-        </div>
-        <Input label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
-        <Textarea label="Body" value={body} onChange={(e) => setBody(e.target.value)} rows={4} required />
-        <div className="grid grid-cols-2 gap-3">
-          <Input type="date" label="Date" value={occurredAt} onChange={(e) => setOccurredAt(e.target.value)} />
-          <Input type="date" label="Follow-up date" value={followUpDate} onChange={(e) => setFollowUpDate(e.target.value)} />
-        </div>
-
-        <div className="flex gap-2 pt-2">
-          <Button type="button" variant="secondary" className="flex-1 min-h-12" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" className="flex-1 min-h-12" disabled={submitting || !body.trim()}>
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
-          </Button>
-        </div>
-      </form>
     </Modal>
   );
 }

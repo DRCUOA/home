@@ -438,6 +438,26 @@ export const tags = pgTable("tags", {
   ...timestamps(),
 });
 
+export const auditLogs = pgTable(
+  "audit_logs",
+  {
+    id: id(),
+    entity_type: varchar("entity_type", { length: 50 }).notNull(),
+    entity_id: uuid("entity_id").notNull(),
+    action: varchar("action", { length: 20 }).notNull(),
+    user_id: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    user_name: varchar("user_name", { length: 200 }).notNull(),
+    changes: jsonb("changes").notNull(),
+    created_at: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [
+    index("audit_entity_idx").on(t.entity_type, t.entity_id),
+    index("audit_user_idx").on(t.user_id),
+  ]
+);
+
 export const agentRuns = pgTable(
   "agent_runs",
   {

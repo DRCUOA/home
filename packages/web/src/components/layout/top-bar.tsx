@@ -30,7 +30,7 @@ export function TopBar({ title, showSearch = true }: TopBarProps) {
       <div className="relative flex items-center h-14 px-4 max-w-lg mx-auto">
         {/* Left-aligned logo */}
         <Link to="/" className="shrink-0">
-          <img src="/logo.png" alt="Homelhar" className="h-9 w-auto" />
+          <img src="/logo.png" alt="Homelhar" className="h-16 mt-5 w-auto" />
         </Link>
 
         {/* Center-aligned title (absolute so it's truly viewport-centered) */}

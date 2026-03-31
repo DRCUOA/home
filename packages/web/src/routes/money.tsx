@@ -6,6 +6,7 @@ import {
   Plus,
   Pencil,
   Trash2,
+  Copy,
   DollarSign,
   BarChart3,
   GitCompare,
@@ -75,6 +76,7 @@ function MoneyPage() {
   const [tab, setTab] = useState("dashboard");
   const [scenarioModalOpen, setScenarioModalOpen] = useState(false);
   const [editingScenarioId, setEditingScenarioId] = useState<string | null>(null);
+  const [copyingScenarioId, setCopyingScenarioId] = useState<string | null>(null);
   const [compareIds, setCompareIds] = useState<(string | null)[]>([null, null, null]);
 
   const projectsQuery = useList<Project>("projects", "/projects");
@@ -144,10 +146,17 @@ function MoneyPage() {
             projects={projects}
             onAdd={() => {
               setEditingScenarioId(null);
+              setCopyingScenarioId(null);
               setScenarioModalOpen(true);
             }}
             onEdit={(id) => {
               setEditingScenarioId(id);
+              setCopyingScenarioId(null);
+              setScenarioModalOpen(true);
+            }}
+            onCopy={(id) => {
+              setEditingScenarioId(null);
+              setCopyingScenarioId(id);
               setScenarioModalOpen(true);
             }}
             onDelete={(id) => removeScenario.mutate(id)}
@@ -165,14 +174,25 @@ function MoneyPage() {
       </div>
 
       <ScenarioModal
-        key={editingScenarioId ?? "new-scenario"}
+        key={editingScenarioId ?? (copyingScenarioId ? `copy-${copyingScenarioId}` : "new-scenario")}
         open={scenarioModalOpen}
         onClose={() => {
           setScenarioModalOpen(false);
           setEditingScenarioId(null);
+          setCopyingScenarioId(null);
         }}
         projects={projects}
-        existing={editingScenarioId ? scenarios.find((s) => s.id === editingScenarioId) : undefined}
+        existing={
+          editingScenarioId
+            ? scenarios.find((s) => s.id === editingScenarioId)
+            : copyingScenarioId
+              ? (() => {
+                  const src = scenarios.find((s) => s.id === copyingScenarioId);
+                  return src ? { ...src, name: `${src.name} (copy)` } : undefined;
+                })()
+              : undefined
+        }
+        isEditing={!!editingScenarioId}
         onSubmit={(payload) => {
           if (editingScenarioId) {
             updateScenario.mutate(
@@ -186,7 +206,10 @@ function MoneyPage() {
             );
           } else {
             createScenario.mutate(payload, {
-              onSuccess: () => setScenarioModalOpen(false),
+              onSuccess: () => {
+                setScenarioModalOpen(false);
+                setCopyingScenarioId(null);
+              },
             });
           }
         }}
@@ -362,6 +385,7 @@ function ScenariosTab({
   projects,
   onAdd,
   onEdit,
+  onCopy,
   onDelete,
   deletePending,
 }: {
@@ -369,6 +393,7 @@ function ScenariosTab({
   projects: Project[];
   onAdd: () => void;
   onEdit: (id: string) => void;
+  onCopy: (id: string) => void;
   onDelete: (id: string) => void;
   deletePending: boolean;
 }) {
@@ -438,6 +463,10 @@ function ScenariosTab({
                   <div className="flex gap-2 pt-1">
                     <Button variant="secondary" className="flex-1 min-h-11" onClick={() => onEdit(s.id)}>
                       Edit
+                    </Button>
+                    <Button variant="outline" className="min-h-11" onClick={() => onCopy(s.id)}>
+                      <Copy className="h-4 w-4" />
+                      Copy
                     </Button>
                     <Button
                       variant="outline"
@@ -623,6 +652,7 @@ function ScenarioModal({
   onClose,
   projects,
   existing,
+  isEditing,
   onSubmit,
   submitting,
 }: {
@@ -630,6 +660,7 @@ function ScenarioModal({
   onClose: () => void;
   projects: Project[];
   existing: FinancialScenario | undefined;
+  isEditing: boolean;
   onSubmit: (data: Record<string, unknown>) => void;
   submitting: boolean;
 }) {
@@ -765,10 +796,7 @@ function ScenarioModal({
 
   const sellCosts = commissionAmt + mkt + lSell + rep + n(mortgageBreakFee) + mov;
   const buyCosts = lBuy + txn;
-  const allCosts = sellCosts + mort + purchase + buyCosts + cont;
   const cashReserves = sav + kiwi + other;
-  const totalFunding = sale + cashReserves + borrowing;
-  const netCash = totalFunding - allCosts;
 
   const loanAmt = n(loanAmount);
   const termYears = n(loanTerm);
@@ -777,8 +805,12 @@ function ScenarioModal({
   const totalRepayments = loanMonthly != null && termMonths > 0 ? loanMonthly * termMonths : 0;
   const totalInterest = totalRepayments > 0 ? totalRepayments - loanAmt : 0;
 
+  const allCosts = sellCosts + mort + purchase + buyCosts + cont + totalInterest;
+  const totalFunding = sale + cashReserves + borrowing + totalInterest;
+  const netCash = totalFunding - allCosts;
+
   return (
-    <Modal open={open} onClose={onClose} title={existing ? "Edit scenario" : "New scenario"}>
+    <Modal open={open} onClose={onClose} title={isEditing ? "Edit scenario" : existing ? "Copy scenario" : "New scenario"}>
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -998,6 +1030,12 @@ function ScenarioModal({
               <div className="flex justify-between">
                 <span className="text-slate-500 dark:text-slate-400">Borrowing</span>
                 <span className="tabular-nums">{formatCurrency(borrowing)}</span>
+              </div>
+            )}
+            {totalInterest > 0 && (
+              <div className="flex justify-between">
+                <span className="text-slate-500 dark:text-slate-400">Future interest payments</span>
+                <span className="tabular-nums">{formatCurrency(totalInterest)}</span>
               </div>
             )}
             <div className="flex justify-between border-t border-slate-100 dark:border-slate-800 pt-1">

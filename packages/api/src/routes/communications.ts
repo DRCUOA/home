@@ -14,6 +14,9 @@ const service = createCrudService({
     sourceType: "communication",
     fields: ["type", "subject", "body"],
   },
+  audit: {
+    entityType: "communication",
+  },
 });
 
 export default async function communicationRoutes(app: FastifyInstance) {

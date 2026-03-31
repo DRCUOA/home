@@ -22,6 +22,7 @@ import propertyCriteriaRoutes from "./routes/property-criteria.js";
 import fileRoutes from "./routes/files.js";
 import searchRoutes from "./routes/search.js";
 import assistantRoutes from "./routes/assistant.js";
+import auditLogRoutes from "./routes/audit-logs.js";
 
 const app = Fastify({ logger: true });
 
@@ -50,6 +51,7 @@ await app.register(propertyCriteriaRoutes);
 await app.register(fileRoutes);
 await app.register(searchRoutes);
 await app.register(assistantRoutes);
+await app.register(auditLogRoutes);
 
 app.setErrorHandler((error: any, _req, reply) => {
   if (error.validation) {

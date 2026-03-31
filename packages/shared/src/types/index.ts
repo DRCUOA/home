@@ -242,6 +242,17 @@ export interface PropertyCriteria extends BaseEntity {
   };
 }
 
+export interface AuditLog {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  action: string;
+  user_id: string;
+  user_name: string;
+  changes: Record<string, { old?: unknown; new?: unknown }>;
+  created_at: string;
+}
+
 export interface AgentRun extends BaseEntity {
   user_id: string;
   workflow_type: string;

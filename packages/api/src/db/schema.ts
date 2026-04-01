@@ -468,6 +468,8 @@ export const agentRuns = pgTable(
     workflow_type: varchar("workflow_type", { length: 50 }).notNull(),
     input_summary: text("input_summary").notNull(),
     output_summary: text("output_summary"),
+    model: varchar("model", { length: 50 }),
+    tools: jsonb("tools").$type<string[]>().default([]),
     project_id: uuid("project_id").references(() => projects.id),
     property_id: uuid("property_id").references(() => properties.id),
     status: varchar("status", { length: 20 }).default("running").notNull(),

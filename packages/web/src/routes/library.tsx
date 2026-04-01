@@ -23,6 +23,7 @@ import {
   Trash2,
   Camera,
   Sparkles,
+  Eye,
 } from "lucide-react";
 import type {
   Contact,
@@ -61,6 +62,7 @@ import { formatCurrency, formatDate, formatPercent, capitalize } from "@/lib/for
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CameraCapture } from "@/components/features/camera-capture";
 import { CommModal } from "@/components/features/comm-modal";
+import { FilePreviewModal } from "@/components/features/file-preview";
 
 type ListResponse<T> = { data: T[]; total: number };
 
@@ -98,6 +100,7 @@ function LibraryPage() {
 
   const [fileModalOpen, setFileModalOpen] = useState(false);
   const [fileFilterCategory, setFileFilterCategory] = useState("");
+  const [previewFile, setPreviewFile] = useState<FileRecord | null>(null);
 
   const contactsQuery = useQuery({
     queryKey: ["contacts"],
@@ -281,6 +284,7 @@ function LibraryPage() {
             filterCategory={fileFilterCategory}
             setFilterCategory={setFileFilterCategory}
             onAdd={() => setFileModalOpen(true)}
+            onPreview={(file) => setPreviewFile(file)}
             onTogglePin={(file) =>
               updateFile.mutate({ id: file.id, data: { is_pinned: !file.is_pinned } })
             }
@@ -392,6 +396,12 @@ function LibraryPage() {
           });
         }}
         submitting={uploadFile.isPending}
+      />
+
+      <FilePreviewModal
+        file={previewFile}
+        open={!!previewFile}
+        onClose={() => setPreviewFile(null)}
       />
     </PageShell>
   );
@@ -937,6 +947,7 @@ function FilesTab({
   filterCategory,
   setFilterCategory,
   onAdd,
+  onPreview,
   onTogglePin,
   onDelete,
 }: {
@@ -944,6 +955,7 @@ function FilesTab({
   filterCategory: string;
   setFilterCategory: (v: string) => void;
   onAdd: () => void;
+  onPreview: (file: FileRecord) => void;
   onTogglePin: (file: FileRecord) => void;
   onDelete: (id: string) => void;
 }) {
@@ -1010,10 +1022,16 @@ function FilesTab({
               <CardContent className="pt-3 pb-3">
                 <div className="flex items-center gap-3">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
-                      {f.is_pinned && <Pin className="inline h-3 w-3 text-primary-500 mr-1" />}
-                      {f.filename}
-                    </p>
+                    <button
+                      type="button"
+                      onClick={() => onPreview(f)}
+                      className="text-left w-full"
+                    >
+                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate hover:text-primary-600 dark:hover:text-primary-400 transition-colors">
+                        {f.is_pinned && <Pin className="inline h-3 w-3 text-primary-500 mr-1" />}
+                        {f.filename}
+                      </p>
+                    </button>
                     <div className="flex items-center gap-2 mt-1">
                       <Badge variant="default">{capitalize(f.category)}</Badge>
                       <span className="text-xs text-slate-400 dark:text-slate-500 tabular-nums">
@@ -1022,6 +1040,14 @@ function FilesTab({
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => onPreview(f)}
+                      className="min-w-[2.5rem] min-h-[2.5rem] flex items-center justify-center text-slate-400 dark:text-slate-500 hover:text-primary-600 dark:hover:text-primary-400"
+                      aria-label="Preview"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </button>
                     <button
                       type="button"
                       onClick={() => handleDownload(f)}

@@ -258,6 +258,8 @@ export interface AgentRun extends BaseEntity {
   workflow_type: string;
   input_summary: string;
   output_summary?: string;
+  model?: string;
+  tools?: string[];
   project_id?: string;
   property_id?: string;
   status: string;

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Loader2,
   AlertCircle,
@@ -16,6 +16,7 @@ import {
   Trash2,
   Camera,
   Flag,
+  Sparkles,
 } from "lucide-react";
 import type {
   Project,
@@ -49,6 +50,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { Modal } from "@/components/ui/modal";
 import { Tabs } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
+import { FilePreviewModal } from "@/components/features/file-preview";
 import {
   useList,
   useCreate,
@@ -216,6 +218,19 @@ function BuyPage() {
   const updateProject = useUpdate<Project>("projects", "/projects");
   const createProperty = useCreate<Property>("properties", "/properties");
   const updateProperty = useUpdate<Property>("properties", "/properties");
+  const removeProperty = useRemove("properties", "/properties");
+  const [enrichingIds, setEnrichingIds] = useState<Set<string>>(new Set());
+  const enrichProperty = useMutation({
+    mutationFn: (id: string) => apiPost<{ data: Property; enriched_fields: string[]; photos_downloaded: number }>(`/properties/${id}/enrich`, {}),
+    onSuccess: (_data, id) => {
+      setEnrichingIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+      qc.invalidateQueries({ queryKey: ["properties"] });
+      qc.invalidateQueries({ queryKey: ["files"] });
+    },
+    onError: (_err, id) => {
+      setEnrichingIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    },
+  });
   const createOffer = useCreate<Offer>("offers", "/offers");
   const updateOffer = useUpdate<Offer>("offers", "/offers");
   const removeOffer = useRemove("offers", "/offers");
@@ -385,6 +400,7 @@ function BuyPage() {
             onWatchlistFilter={setWatchlistFilter}
             loading={propertiesQuery.isLoading}
             evaluations={evalByPropertyId}
+            enrichingIds={enrichingIds}
             onOpenDetail={(id) => setPropertyDetailId(id)}
             onAddProperty={() => setAddPropertyOpen(true)}
             onToggleFavourite={(p, rank) =>
@@ -397,6 +413,12 @@ function BuyPage() {
             onPatchWatchlist={(p, status) =>
               updateProperty.mutate({ id: p.id, data: { watchlist_status: status } })
             }
+            onEnrich={(p) => {
+              setEnrichingIds((prev) => new Set(prev).add(p.id));
+              enrichProperty.mutate(p.id);
+            }}
+            onDelete={(id) => removeProperty.mutate(id)}
+            deletePending={removeProperty.isPending}
           />
         )}
 
@@ -518,9 +540,14 @@ function BuyPage() {
         projectId={buy.id}
         onSubmit={(data) =>
           createProperty.mutate(data, {
-            onSuccess: () => {
+            onSuccess: (result) => {
               setAddPropertyOpen(false);
               qc.invalidateQueries({ queryKey: ["properties"] });
+              const created = result.data;
+              if (created.listing_url || created.address) {
+                setEnrichingIds((prev) => new Set(prev).add(created.id));
+                enrichProperty.mutate(created.id);
+              }
             },
           })
         }
@@ -559,6 +586,17 @@ function BuyPage() {
         updatingEval={updateEvaluation.isPending}
         filesQueryEnabled={Boolean(detailProperty)}
         propertyId={detailProperty?.id}
+        isEnriching={detailProperty ? enrichingIds.has(detailProperty.id) : false}
+        onEnrich={() => {
+          if (!detailProperty) return;
+          setEnrichingIds((prev) => new Set(prev).add(detailProperty.id));
+          enrichProperty.mutate(detailProperty.id);
+        }}
+        onUpdateProperty={(data) => {
+          if (!detailProperty) return;
+          updateProperty.mutate({ id: detailProperty.id, data });
+        }}
+        updatingProperty={updateProperty.isPending}
       />
 
       <BuyOfferModal
@@ -666,6 +704,130 @@ function StringListEditor({
   );
 }
 
+function CriteriaSummaryCard({
+  criteria,
+  onEdit,
+}: {
+  criteria: PropertyCriteria;
+  onEdit: () => void;
+}) {
+  const f = criteria.financing_assumptions;
+  const hasFinancing = f && (f.deposit_percent || f.interest_rate || f.loan_term_years || f.pre_approval_amount);
+
+  const tagList = (items: string[]) =>
+    items.length > 0 ? (
+      <div className="flex flex-wrap gap-1.5">
+        {items.map((item) => (
+          <span
+            key={item}
+            className="rounded-full px-2.5 py-1 text-xs font-medium border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300"
+          >
+            {item}
+          </span>
+        ))}
+      </div>
+    ) : (
+      <p className="text-xs text-slate-400 dark:text-slate-500 italic">None set</p>
+    );
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Home className="h-4 w-4 text-slate-500 dark:text-slate-400" />
+            Buy criteria
+          </CardTitle>
+          <button
+            type="button"
+            onClick={onEdit}
+            className="shrink-0 p-2 -m-1 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            aria-label="Edit criteria"
+            title="Edit criteria"
+          >
+            <Pencil className="h-4 w-4" />
+          </button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {criteria.locations.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Locations</p>
+            {tagList(criteria.locations)}
+          </div>
+        )}
+
+        {criteria.must_haves.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Must-haves</p>
+            {tagList(criteria.must_haves)}
+          </div>
+        )}
+
+        {criteria.nice_to_haves.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Nice-to-haves</p>
+            {tagList(criteria.nice_to_haves)}
+          </div>
+        )}
+
+        {criteria.exclusions.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Exclusions</p>
+            {tagList(criteria.exclusions)}
+          </div>
+        )}
+
+        {criteria.property_types.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Property types</p>
+            <div className="flex flex-wrap gap-1.5">
+              {criteria.property_types.map((t) => (
+                <span
+                  key={t}
+                  className="rounded-full px-2.5 py-1 text-xs font-medium border border-primary-300 dark:border-primary-700 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300"
+                >
+                  {capitalize(t)}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          {criteria.budget_ceiling && (
+            <div>
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-0.5">Budget</p>
+              <p className="font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+                {formatCurrency(criteria.budget_ceiling)}
+              </p>
+            </div>
+          )}
+          {f?.pre_approval_amount && (
+            <div>
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-0.5">Pre-approval</p>
+              <p className="font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+                {formatCurrency(f.pre_approval_amount)}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {hasFinancing && (
+          <div className="rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/80 px-3 py-2.5">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Financing</p>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-700 dark:text-slate-300">
+              {f?.deposit_percent != null && <span>{f.deposit_percent}% deposit</span>}
+              {f?.interest_rate != null && <span>{f.interest_rate}% interest</span>}
+              {f?.loan_term_years != null && <span>{f.loan_term_years} yr term</span>}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function CriteriaTab({
   projectId,
   criteria,
@@ -679,6 +841,7 @@ function CriteriaTab({
   saving: boolean;
   onSave: (payload: Record<string, unknown>) => void;
 }) {
+  const [editing, setEditing] = useState(false);
   const [locations, setLocations] = useState<string[]>([]);
   const [mustHaves, setMustHaves] = useState<string[]>([]);
   const [nice, setNice] = useState<string[]>([]);
@@ -689,6 +852,14 @@ function CriteriaTab({
   const [interest, setInterest] = useState("");
   const [term, setTerm] = useState("");
   const [preApp, setPreApp] = useState("");
+
+  const prevSaving = useRef(saving);
+  useEffect(() => {
+    if (prevSaving.current && !saving && criteria) {
+      setEditing(false);
+    }
+    prevSaving.current = saving;
+  }, [saving, criteria]);
 
   useEffect(() => {
     if (!criteria) return;
@@ -733,6 +904,14 @@ function CriteriaTab({
     return (
       <div className="flex justify-center py-16 text-slate-500 dark:text-slate-400">
         <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
+  if (criteria && !editing) {
+    return (
+      <div className="space-y-4">
+        <CriteriaSummaryCard criteria={criteria} onEdit={() => setEditing(true)} />
       </div>
     );
   }
@@ -810,16 +989,28 @@ function CriteriaTab({
             </div>
           </div>
 
-          <Button className="w-full min-h-12" disabled={saving} onClick={handleSave}>
-            {saving ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Saving…
-              </>
-            ) : (
-              "Save criteria"
+          <div className="flex gap-2">
+            {criteria && (
+              <Button
+                type="button"
+                variant="secondary"
+                className="flex-1 min-h-12"
+                onClick={() => setEditing(false)}
+              >
+                Cancel
+              </Button>
             )}
-          </Button>
+            <Button className="flex-1 min-h-12" disabled={saving} onClick={handleSave}>
+              {saving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                "Save criteria"
+              )}
+            </Button>
+          </div>
           {!criteria && (
             <p className="text-xs text-center text-slate-500 dark:text-slate-400">
               First save creates your criteria record for this project.
@@ -838,11 +1029,15 @@ function PropertiesTab({
   onWatchlistFilter,
   loading,
   evaluations,
+  enrichingIds,
   onOpenDetail,
   onAddProperty,
   onToggleFavourite,
   favouritePending,
   onPatchWatchlist,
+  onEnrich,
+  onDelete,
+  deletePending,
 }: {
   properties: Property[];
   allCount: number;
@@ -850,11 +1045,15 @@ function PropertiesTab({
   onWatchlistFilter: (v: string) => void;
   loading: boolean;
   evaluations: Map<string, PropertyEvaluation>;
+  enrichingIds: Set<string>;
   onOpenDetail: (id: string) => void;
   onAddProperty: () => void;
   onToggleFavourite: (p: Property, rank: number | undefined) => void;
   favouritePending: boolean;
   onPatchWatchlist: (p: Property, status: string) => void;
+  onEnrich: (p: Property) => void;
+  onDelete: (id: string) => void;
+  deletePending: boolean;
 }) {
   return (
     <div className="space-y-4">
@@ -896,13 +1095,22 @@ function PropertiesTab({
           {properties.map((p) => {
             const ev = evaluations.get(p.id);
             const rank = p.favourite_rank ?? 0;
+            const isEnriching = enrichingIds.has(p.id);
             return (
-              <button
+              <div
                 key={p.id}
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={() => onOpenDetail(p.id)}
-                className="text-left rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-sm active:scale-[0.99] transition-transform"
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenDetail(p.id); } }}
+                className="text-left rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-sm active:scale-[0.99] transition-transform cursor-pointer"
               >
+                {isEnriching && (
+                  <div className="flex items-center gap-1.5 mb-2 text-xs text-primary-600 dark:text-primary-400">
+                    <Sparkles className="h-3.5 w-3.5 animate-pulse" />
+                    <span>Fetching listing details…</span>
+                  </div>
+                )}
                 <div className="flex justify-between gap-2 mb-2">
                   <p className="font-semibold text-slate-900 dark:text-slate-100 leading-snug pr-2">{p.address}</p>
                   <button
@@ -943,24 +1151,62 @@ function PropertiesTab({
                     options={WATCHLIST_STATUSES.map((s) => ({ value: s, label: capitalize(s) }))}
                   />
                 </div>
-                <div className="flex flex-wrap items-center gap-2 mt-2">
-                  {p.watchlist_status && <StatusBadge status={p.watchlist_status} />}
-                  {p.listing_url && (
-                    <a
-                      href={p.listing_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-primary-600 dark:text-primary-400"
-                      onClick={(e) => e.stopPropagation()}
+                <div className="flex items-center justify-between gap-2 mt-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {p.watchlist_status && <StatusBadge status={p.watchlist_status} />}
+                    {p.listing_url && (
+                      <a
+                        href={p.listing_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-primary-600 dark:text-primary-400"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        Listing <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                  </div>
+                  <div
+                    className="flex items-center gap-1"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onEnrich(p)}
+                      disabled={isEnriching}
+                      className="p-2 rounded-lg text-slate-400 dark:text-slate-500 hover:text-primary-600 dark:hover:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 disabled:opacity-40 transition-colors"
+                      aria-label="Enrich from listing"
+                      title="Enrich from listing"
                     >
-                      Listing <ExternalLink className="h-3 w-3" />
-                    </a>
-                  )}
+                      <Sparkles className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onOpenDetail(p.id)}
+                      className="p-2 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                      aria-label="Edit property"
+                      title="View / edit"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm(`Delete "${p.address}"?`)) onDelete(p.id);
+                      }}
+                      disabled={deletePending}
+                      className="p-2 rounded-lg text-slate-400 dark:text-slate-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 transition-colors"
+                      aria-label="Delete property"
+                      title="Delete"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
                 {ev?.visit_notes && (
                   <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 line-clamp-2">{ev.visit_notes}</p>
                 )}
-              </button>
+              </div>
             );
           })}
         </div>
@@ -1801,6 +2047,7 @@ function AddPropertyModal({
   const [suburb, setSuburb] = useState("");
   const [city, setCity] = useState("");
   const [listingMethod, setListingMethod] = useState("");
+  const [enriching, setEnriching] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -1809,7 +2056,28 @@ function AddPropertyModal({
     setSuburb("");
     setCity("");
     setListingMethod("");
+    setEnriching(false);
   }, [open]);
+
+  const handleEnrich = async () => {
+    if (!url.trim()) return;
+    setEnriching(true);
+    try {
+      const res = await apiPost<{ data: Record<string, any> }>("/properties/enrich-preview", {
+        listing_url: url.trim(),
+        address: address.trim() || undefined,
+      });
+      const d = res.data;
+      if (d.address) setAddress(d.address);
+      if (d.suburb) setSuburb(d.suburb);
+      if (d.city) setCity(d.city);
+      if (d.listing_method) setListingMethod(d.listing_method);
+    } catch {
+      // enrichment is best-effort
+    } finally {
+      setEnriching(false);
+    }
+  };
 
   if (!open) return null;
 
@@ -1831,13 +2099,30 @@ function AddPropertyModal({
           });
         }}
       >
-        <Input
-          label="Listing URL"
-          type="url"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://…"
-        />
+        <div>
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Listing URL</label>
+          <div className="flex gap-2">
+            <Input
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://…"
+              className="flex-1"
+            />
+            <button
+              type="button"
+              disabled={!url.trim() || enriching}
+              onClick={handleEnrich}
+              className="shrink-0 flex items-center justify-center h-11 w-11 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              title="Fetch details from listing"
+            >
+              {enriching ? <Loader2 className="h-4.5 w-4.5 animate-spin" /> : <Sparkles className="h-4.5 w-4.5" />}
+            </button>
+          </div>
+          {enriching && (
+            <p className="text-xs text-primary-600 dark:text-primary-400 mt-1">Fetching listing details…</p>
+          )}
+        </div>
         <Input
           label="Address"
           value={address}
@@ -1860,7 +2145,7 @@ function AddPropertyModal({
           <Button type="button" variant="secondary" className="flex-1 min-h-12" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" className="flex-1 min-h-12" disabled={submitting}>
+          <Button type="submit" className="flex-1 min-h-12" disabled={submitting || enriching}>
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save property"}
           </Button>
         </div>
@@ -1880,6 +2165,10 @@ function PropertyDetailModal({
   updatingEval,
   filesQueryEnabled,
   propertyId,
+  isEnriching,
+  onEnrich,
+  onUpdateProperty,
+  updatingProperty,
 }: {
   open: boolean;
   property: Property | null;
@@ -1891,10 +2180,63 @@ function PropertyDetailModal({
   updatingEval: boolean;
   filesQueryEnabled: boolean;
   propertyId: string | undefined;
+  isEnriching: boolean;
+  onEnrich: () => void;
+  onUpdateProperty: (data: Record<string, unknown>) => void;
+  updatingProperty: boolean;
 }) {
+  /* ---- edit helpers ---- */
+  const startEditing = () => {
+    if (!property) return;
+    setEditAddress(property.address ?? "");
+    setEditSuburb(property.suburb ?? "");
+    setEditCity(property.city ?? "");
+    setEditPrice(property.price_asking?.toString() ?? "");
+    setEditBeds(property.bedrooms?.toString() ?? "");
+    setEditBaths(property.bathrooms?.toString() ?? "");
+    setEditParking(property.parking?.toString() ?? "");
+    setEditLand(property.land_area_sqm?.toString() ?? "");
+    setEditFloor(property.floor_area_sqm?.toString() ?? "");
+    setEditType(property.property_type ?? "");
+    setEditMethod(property.listing_method ?? "");
+    setEditUrl(property.listing_url ?? "");
+    setEditing(true);
+  };
+  const saveEdits = () => {
+    const data: Record<string, unknown> = {
+      address: editAddress.trim() || undefined,
+      suburb: editSuburb.trim() || undefined,
+      city: editCity.trim() || undefined,
+      price_asking: editPrice ? parseFloat(editPrice) : undefined,
+      bedrooms: editBeds ? parseInt(editBeds, 10) : undefined,
+      bathrooms: editBaths ? parseInt(editBaths, 10) : undefined,
+      parking: editParking ? parseInt(editParking, 10) : undefined,
+      land_area_sqm: editLand ? parseFloat(editLand) : undefined,
+      floor_area_sqm: editFloor ? parseFloat(editFloor) : undefined,
+      property_type: editType || undefined,
+      listing_method: editMethod || undefined,
+      listing_url: editUrl.trim() || undefined,
+    };
+    onUpdateProperty(data);
+    setEditing(false);
+  };
   const [visitNotes, setVisitNotes] = useState("");
   const [questions, setQuestions] = useState<string[]>([]);
   const [flags, setFlags] = useState<string[]>([]);
+  const [previewFile, setPreviewFile] = useState<FileRecord | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [editAddress, setEditAddress] = useState("");
+  const [editSuburb, setEditSuburb] = useState("");
+  const [editCity, setEditCity] = useState("");
+  const [editPrice, setEditPrice] = useState("");
+  const [editBeds, setEditBeds] = useState("");
+  const [editBaths, setEditBaths] = useState("");
+  const [editParking, setEditParking] = useState("");
+  const [editLand, setEditLand] = useState("");
+  const [editFloor, setEditFloor] = useState("");
+  const [editType, setEditType] = useState("");
+  const [editMethod, setEditMethod] = useState("");
+  const [editUrl, setEditUrl] = useState("");
 
   const filesQuery = useQuery({
     queryKey: ["files", propertyId],
@@ -1920,67 +2262,177 @@ function PropertyDetailModal({
     ) ?? [];
 
   return (
-    <Modal open={open} onClose={onClose} title="Property detail">
+    <Modal open={open} onClose={() => { setEditing(false); onClose(); }} title="Property detail">
       <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
-        <div>
-          <p className="font-semibold text-slate-900 dark:text-slate-100 leading-snug">{property.address}</p>
-          <div className="flex flex-wrap gap-2 mt-2">
-            {property.watchlist_status && <StatusBadge status={property.watchlist_status} />}
-            {property.listing_method && (
-              <Badge>{capitalize(property.listing_method)}</Badge>
+        {editing ? (
+          <div className="space-y-3">
+            <Input label="Address" value={editAddress} onChange={(e) => setEditAddress(e.target.value)} />
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Suburb" value={editSuburb} onChange={(e) => setEditSuburb(e.target.value)} />
+              <Input label="City" value={editCity} onChange={(e) => setEditCity(e.target.value)} />
+            </div>
+            <Input label="Asking price" inputMode="decimal" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} />
+            <div className="grid grid-cols-3 gap-3">
+              <Input label="Beds" inputMode="numeric" value={editBeds} onChange={(e) => setEditBeds(e.target.value)} />
+              <Input label="Baths" inputMode="numeric" value={editBaths} onChange={(e) => setEditBaths(e.target.value)} />
+              <Input label="Parking" inputMode="numeric" value={editParking} onChange={(e) => setEditParking(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Land m²" inputMode="decimal" value={editLand} onChange={(e) => setEditLand(e.target.value)} />
+              <Input label="Floor m²" inputMode="decimal" value={editFloor} onChange={(e) => setEditFloor(e.target.value)} />
+            </div>
+            <Select
+              label="Property type"
+              value={editType}
+              onChange={(e) => setEditType(e.target.value)}
+              options={PROPERTY_TYPES.map((t) => ({ value: t, label: capitalize(t) }))}
+              placeholder="Select…"
+            />
+            <Select
+              label="Listing method"
+              value={editMethod}
+              onChange={(e) => setEditMethod(e.target.value)}
+              options={LISTING_METHODS.map((m) => ({ value: m, label: capitalize(m) }))}
+              placeholder="Select…"
+            />
+            <Input label="Listing URL" type="url" value={editUrl} onChange={(e) => setEditUrl(e.target.value)} />
+            <div className="flex gap-2 pt-1">
+              <Button type="button" variant="secondary" className="flex-1 min-h-11" onClick={() => setEditing(false)}>
+                Cancel
+              </Button>
+              <Button type="button" className="flex-1 min-h-11" onClick={saveEdits} disabled={updatingProperty}>
+                {updatingProperty ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex justify-between items-start gap-2">
+              <div>
+                <p className="font-semibold text-slate-900 dark:text-slate-100 leading-snug">{property.address}</p>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {property.watchlist_status && <StatusBadge status={property.watchlist_status} />}
+                  {property.listing_method && (
+                    <Badge>{capitalize(property.listing_method)}</Badge>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={startEditing}
+                className="shrink-0 p-2 -mt-1 -mr-1 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                aria-label="Edit property"
+                title="Edit property"
+              >
+                <Pencil className="h-4.5 w-4.5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <span className="text-slate-500 dark:text-slate-400">Price</span>
+                <p className="font-semibold tabular-nums">
+                  {formatCurrency(property.price_asking ?? property.price_guide_high)}
+                </p>
+                {property.price_guide_low && property.price_guide_high && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                    {formatCurrency(property.price_guide_low)} – {formatCurrency(property.price_guide_high)}
+                  </p>
+                )}
+              </div>
+              <div>
+                <span className="text-slate-500 dark:text-slate-400">Beds / baths</span>
+                <p className="font-medium">
+                  {property.bedrooms ?? "—"} / {property.bathrooms ?? "—"}
+                </p>
+              </div>
+              {(property.parking != null || property.land_area_sqm != null || property.floor_area_sqm != null) && (
+                <>
+                  <div>
+                    <span className="text-slate-500 dark:text-slate-400">Parking</span>
+                    <p className="font-medium">{property.parking ?? "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 dark:text-slate-400">Land / floor</span>
+                    <p className="font-medium tabular-nums">
+                      {property.land_area_sqm ? `${property.land_area_sqm} m²` : "—"}
+                      {" / "}
+                      {property.floor_area_sqm ? `${property.floor_area_sqm} m²` : "—"}
+                    </p>
+                  </div>
+                </>
+              )}
+              {property.property_type && (
+                <div>
+                  <span className="text-slate-500 dark:text-slate-400">Type</span>
+                  <p className="font-medium">{capitalize(property.property_type)}</p>
+                </div>
+              )}
+            </div>
+
+            {property.listing_description && (
+              <div>
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Listing</p>
+                <p className="text-sm text-slate-600 dark:text-slate-400 whitespace-pre-wrap">{property.listing_description}</p>
+              </div>
             )}
-          </div>
-        </div>
 
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <div>
-            <span className="text-slate-500 dark:text-slate-400">Price</span>
-            <p className="font-semibold tabular-nums">
-              {formatCurrency(property.price_asking ?? property.price_guide_high)}
-            </p>
-          </div>
-          <div>
-            <span className="text-slate-500 dark:text-slate-400">Beds / baths</span>
-            <p className="font-medium">
-              {property.bedrooms ?? "—"} / {property.bathrooms ?? "—"}
-            </p>
-          </div>
-        </div>
-
-        {property.listing_description && (
-          <div>
-            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Listing</p>
-            <p className="text-sm text-slate-600 dark:text-slate-400 whitespace-pre-wrap">{property.listing_description}</p>
-          </div>
+            {property.listing_url && (
+              <a
+                href={property.listing_url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-sm text-primary-600 dark:text-primary-400"
+              >
+                Open listing <ExternalLink className="h-4 w-4" />
+              </a>
+            )}
+          </>
         )}
 
-        {property.listing_url && (
-          <a
-            href={property.listing_url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-sm text-primary-600 dark:text-primary-400"
+        {isEnriching ? (
+          <div className="flex items-center gap-2 rounded-lg border border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-900/30 px-3 py-2.5 text-sm text-primary-700 dark:text-primary-300">
+            <Sparkles className="h-4 w-4 animate-pulse" />
+            <span>Fetching listing details with AI…</span>
+            <Loader2 className="h-4 w-4 animate-spin ml-auto" />
+          </div>
+        ) : (
+          <Button
+            variant="secondary"
+            className="w-full min-h-11"
+            onClick={onEnrich}
           >
-            Open listing <ExternalLink className="h-4 w-4" />
-          </a>
+            <Sparkles className="h-4 w-4" />
+            Enrich from listing
+          </Button>
         )}
 
         <div>
           <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2 flex items-center gap-1">
-            <Camera className="h-4 w-4" /> Photos
+            <Camera className="h-4 w-4" /> Photos ({photos.length})
           </p>
           {filesQuery.isLoading ? (
             <Loader2 className="h-5 w-5 animate-spin text-slate-400 dark:text-slate-500" />
           ) : photos.length === 0 ? (
             <p className="text-xs text-slate-500 dark:text-slate-400">No photo files linked yet.</p>
           ) : (
-            <ul className="text-sm text-slate-700 dark:text-slate-300 space-y-1">
+            <div className="grid grid-cols-3 gap-2">
               {photos.map((f) => (
-                <li key={f.id} className="truncate">
-                  {f.filename}
-                </li>
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setPreviewFile(f)}
+                  className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer hover:ring-2 hover:ring-primary-500/40 transition-shadow"
+                >
+                  <img
+                    src={`/api/v1/files/${f.id}/download`}
+                    alt={f.filename}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                </button>
               ))}
-            </ul>
+            </div>
           )}
         </div>
 
@@ -2027,6 +2479,13 @@ function PropertyDetailModal({
           </>
         )}
       </div>
+      <FilePreviewModal
+        file={previewFile}
+        open={previewFile != null}
+        onClose={() => setPreviewFile(null)}
+        gallery={photos}
+        onNavigate={setPreviewFile}
+      />
     </Modal>
   );
 }

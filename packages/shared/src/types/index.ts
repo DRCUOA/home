@@ -7,6 +7,7 @@ export interface BaseEntity {
 export interface User extends BaseEntity {
   email: string;
   name: string;
+  plan: "free" | "pro" | "lifetime";
 }
 
 export interface Project extends BaseEntity {

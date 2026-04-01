@@ -26,6 +26,10 @@ export const users = pgTable("users", {
   email: varchar("email", { length: 255 }).notNull().unique(),
   password_hash: varchar("password_hash", { length: 255 }).notNull(),
   name: varchar("name", { length: 200 }).notNull(),
+  plan: varchar("plan", { length: 20 }).default("free").notNull(),
+  stripe_customer_id: varchar("stripe_customer_id", { length: 255 }),
+  stripe_subscription_id: varchar("stripe_subscription_id", { length: 255 }),
+  plan_expires_at: timestamp("plan_expires_at"),
   ...timestamps(),
 });
 

@@ -196,6 +196,7 @@ export const AGENT_WORKFLOW_TYPES = [
   "project_state_summary",
   "semantic_search",
   "qa",
+  "enrich_property",
 ] as const;
 export type AgentWorkflowType = (typeof AGENT_WORKFLOW_TYPES)[number];
 

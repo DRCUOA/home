@@ -177,9 +177,20 @@ function QuickPropertyModal({ onClose }: { onClose: () => void }) {
   const [url, setUrl] = useState("");
   const [projectId, setProjectId] = useState("");
   const qc = useQueryClient();
+  const enrichMutation = useMutation({
+    mutationFn: (id: string) => apiPost(`/properties/${id}/enrich`, {}),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["properties"] }); },
+  });
   const mutation = useMutation({
     mutationFn: (data: any) => apiPost("/properties", data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["properties"] }); onClose(); },
+    onSuccess: (result: any) => {
+      qc.invalidateQueries({ queryKey: ["properties"] });
+      const created = result.data;
+      if (created.listing_url || created.address) {
+        enrichMutation.mutate(created.id);
+      }
+      onClose();
+    },
   });
 
   return (

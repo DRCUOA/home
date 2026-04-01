@@ -14,6 +14,8 @@ import {
   RotateCw,
   Maximize2,
   Minimize2,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import type { FileRecord } from "@hcc/shared";
 import { getAccessToken } from "@/lib/api";
@@ -22,6 +24,8 @@ interface FilePreviewProps {
   file: FileRecord | null;
   open: boolean;
   onClose: () => void;
+  gallery?: FileRecord[];
+  onNavigate?: (file: FileRecord) => void;
 }
 
 type PreviewKind = "image" | "pdf" | "video" | "audio" | "text" | "unsupported";
@@ -65,7 +69,7 @@ function formatSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function FilePreviewModal({ file, open, onClose }: FilePreviewProps) {
+export function FilePreviewModal({ file, open, onClose, gallery, onNavigate }: FilePreviewProps) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [textContent, setTextContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -134,18 +138,32 @@ export function FilePreviewModal({ file, open, onClose }: FilePreviewProps) {
     };
   }, [open, file?.id]);
 
+  const currentIndex = gallery && file ? gallery.findIndex((f) => f.id === file.id) : -1;
+  const hasPrev = currentIndex > 0;
+  const hasNext = gallery ? currentIndex < gallery.length - 1 : false;
+
+  const goPrev = useCallback(() => {
+    if (hasPrev && gallery && onNavigate) onNavigate(gallery[currentIndex - 1]);
+  }, [hasPrev, gallery, currentIndex, onNavigate]);
+
+  const goNext = useCallback(() => {
+    if (hasNext && gallery && onNavigate) onNavigate(gallery[currentIndex + 1]);
+  }, [hasNext, gallery, currentIndex, onNavigate]);
+
   useEffect(() => {
     if (!open) return;
     document.body.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
+      if (e.key === "ArrowLeft") goPrev();
+      if (e.key === "ArrowRight") goNext();
     };
     window.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = "";
       window.removeEventListener("keydown", onKey);
     };
-  }, [open, onClose]);
+  }, [open, onClose, goPrev, goNext]);
 
   useEffect(() => {
     return () => {
@@ -184,7 +202,9 @@ export function FilePreviewModal({ file, open, onClose }: FilePreviewProps) {
           <div className="min-w-0">
             <p className="text-sm font-medium truncate">{file.filename}</p>
             <p className="text-xs text-slate-400">
-              {file.mime_type} &middot; {formatSize(file.size_bytes)}
+              {gallery && gallery.length > 1
+                ? `${currentIndex + 1} of ${gallery.length} · ${formatSize(file.size_bytes)}`
+                : `${file.mime_type} · ${formatSize(file.size_bytes)}`}
             </p>
           </div>
         </div>
@@ -226,6 +246,27 @@ export function FilePreviewModal({ file, open, onClose }: FilePreviewProps) {
 
       {/* content area */}
       <div className="relative z-10 flex-1 flex items-center justify-center overflow-auto p-4">
+        {hasPrev && (
+          <button
+            type="button"
+            onClick={goPrev}
+            className="absolute left-2 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center h-12 w-12 rounded-full bg-black/50 text-white hover:bg-black/70 active:bg-black/80 transition-colors backdrop-blur-sm"
+            aria-label="Previous photo"
+          >
+            <ChevronLeft className="h-6 w-6" />
+          </button>
+        )}
+        {hasNext && (
+          <button
+            type="button"
+            onClick={goNext}
+            className="absolute right-2 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center h-12 w-12 rounded-full bg-black/50 text-white hover:bg-black/70 active:bg-black/80 transition-colors backdrop-blur-sm"
+            aria-label="Next photo"
+          >
+            <ChevronRight className="h-6 w-6" />
+          </button>
+        )}
+
         {loading && (
           <div className="flex flex-col items-center gap-3 text-white">
             <Loader2 className="h-8 w-8 animate-spin text-primary-400" />

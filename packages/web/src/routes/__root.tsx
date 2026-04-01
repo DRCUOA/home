@@ -1,5 +1,6 @@
 import { createRootRoute, Outlet, useLocation, Navigate } from "@tanstack/react-router";
 import { BottomNav } from "@/components/layout/bottom-nav";
+import { LandingHero } from "@/components/landing-hero";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
 import { useEffect } from "react";
@@ -27,12 +28,12 @@ function RootLayout() {
     );
   }
 
-  if (!isAuthenticated && !isAuthPage) {
-    return <Navigate to="/login" />;
-  }
-
   if (isAuthenticated && isAuthPage) {
     return <Navigate to="/" />;
+  }
+
+  if (!isAuthenticated && !isAuthPage) {
+    return <LandingHero />;
   }
 
   return (

@@ -676,6 +676,8 @@ function RunMessage({
   const StatusIcon = cfg.icon;
   const isRunning = run.status === "running";
   const isCompleted = run.status === "completed";
+  const isFailed = run.status === "failed";
+  const showActions = isCompleted || isFailed;
   const modelLabel = run.model
     ? OPENAI_MODEL_LABELS[run.model as keyof typeof OPENAI_MODEL_LABELS] ?? run.model
     : null;
@@ -694,20 +696,22 @@ function RunMessage({
       )}
 
       <div className="flex justify-end gap-1.5 items-start">
-        {isCompleted && (
+        {showActions && (
           <div className="flex flex-col items-center gap-0.5 mt-2 shrink-0">
-            <button
-              type="button"
-              onClick={onToggleSelect}
-              className={`rounded-full p-1 transition-colors ${
-                isSelected
-                  ? "text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/40"
-                  : "text-slate-300 dark:text-slate-600 hover:text-slate-500 dark:hover:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-              }`}
-              title={isSelected ? "Remove from context" : "Include as context"}
-            >
-              <SelectIcon className="h-3.5 w-3.5" />
-            </button>
+            {isCompleted && (
+              <button
+                type="button"
+                onClick={onToggleSelect}
+                className={`rounded-full p-1 transition-colors ${
+                  isSelected
+                    ? "text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/40"
+                    : "text-slate-300 dark:text-slate-600 hover:text-slate-500 dark:hover:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                }`}
+                title={isSelected ? "Remove from context" : "Include as context"}
+              >
+                <SelectIcon className="h-3.5 w-3.5" />
+              </button>
+            )}
             <RunActionButton icon={Pencil} title="Edit from here" onClick={onEdit} />
           </div>
         )}
@@ -760,11 +764,15 @@ function RunMessage({
             {formatDate(run.completed_at ?? run.created_at)}
           </p>
         </div>
-        {isCompleted && (
+        {showActions && (
           <div className="flex flex-col items-center gap-0.5 mt-2 shrink-0">
             <RunActionButton icon={Trash2} title="Delete from here" onClick={onDelete} />
-            <RunActionButton icon={Download} badge={Files} title="Save entire chat to Library" onClick={onSaveAll} loading={isSavingAll} />
-            <RunActionButton icon={Download} badge={FileText} title="Save selected to Library" onClick={onSaveSelected} loading={isSavingSelected} />
+            {isCompleted && (
+              <>
+                <RunActionButton icon={Download} badge={Files} title="Save entire chat to Library" onClick={onSaveAll} loading={isSavingAll} />
+                <RunActionButton icon={Download} badge={FileText} title="Save selected to Library" onClick={onSaveSelected} loading={isSavingSelected} />
+              </>
+            )}
           </div>
         )}
       </div>

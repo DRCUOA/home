@@ -8,6 +8,13 @@ interface LLMContext {
 const llmStore = new AsyncLocalStorage<LLMContext>();
 const llmCache = new Map<string, ChatOpenAI>();
 
+const FIXED_TEMPERATURE_MODELS = new Set([
+  "gpt-5-nano",
+  "gpt-5-mini",
+  "gpt-5.4",
+  "o4-mini",
+]);
+
 export function getLLM(modelOverride?: string): ChatOpenAI {
   const ctx = llmStore.getStore();
   const model =
@@ -17,7 +24,7 @@ export function getLLM(modelOverride?: string): ChatOpenAI {
   if (!llm) {
     llm = new ChatOpenAI({
       model,
-      temperature: 0.3,
+      ...(FIXED_TEMPERATURE_MODELS.has(model) ? {} : { temperature: 0.3 }),
       apiKey: process.env.OPENAI_API_KEY,
     });
     llmCache.set(model, llm);

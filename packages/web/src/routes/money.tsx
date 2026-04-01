@@ -50,6 +50,19 @@ const n = (v: string) => {
   return Number.isFinite(x) ? x : 0;
 };
 
+function evalExpr(raw: string): number | null {
+  const s = raw.replace(/\s/g, "");
+  if (!s) return null;
+  const tokens = s.match(/^[+-]?[\d.]+(?:[+-][\d.]+)*$/);
+  if (!tokens) return null;
+  const parts = s.match(/[+-]?[\d.]+/g);
+  if (!parts) return null;
+  const result = parts.reduce((acc, p) => acc + parseFloat(p), 0);
+  return Number.isFinite(result) ? result : null;
+}
+
+const hasOperator = (v: string) => /[+-]/.test(v.replace(/^[+-]/, ""));
+
 function calcMonthlyRepayment(principal: number, annualRate: number, years: number): number | null {
   if (principal <= 0 || years <= 0) return null;
   if (annualRate <= 0) return principal / (years * 12);
@@ -77,7 +90,7 @@ function MoneyPage() {
   const [scenarioModalOpen, setScenarioModalOpen] = useState(false);
   const [editingScenarioId, setEditingScenarioId] = useState<string | null>(null);
   const [copyingScenarioId, setCopyingScenarioId] = useState<string | null>(null);
-  const [compareIds, setCompareIds] = useState<(string | null)[]>([null, null, null]);
+  const [compareIds, setCompareIds] = useState<(string | null)[]>([null, null, null, null]);
 
   const projectsQuery = useList<Project>("projects", "/projects");
   const projects = projectsQuery.data?.data ?? [];
@@ -370,7 +383,7 @@ function DashboardTab({
         <div className="flex items-start gap-2 rounded-lg border border-red-200 dark:border-red-700 bg-red-50 dark:bg-red-900/30 px-3 py-2.5 text-sm text-red-900 dark:text-red-200">
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
           <span>
-            Cash shortfall of{" "}
+            Funding deficit of{" "}
             <strong className="tabular-nums">{formatCurrency(Math.abs(s.net_cash_remaining))}</strong>.
             You may need to reduce your target purchase price, increase savings, or adjust your plan.
           </span>
@@ -451,7 +464,9 @@ function ScenariosTab({
                     </div>
                   </div>
                   <div className="border-t border-slate-100 dark:border-slate-800 pt-2 flex justify-between text-sm">
-                    <span className="text-slate-500 dark:text-slate-400">Net cash remaining</span>
+                    <span className="text-slate-500 dark:text-slate-400">
+                      {netCash != null && netCash < 0 ? "Deficit funding" : "Surplus funding"}
+                    </span>
                     <span
                       className={`font-semibold tabular-nums ${
                         netCash != null && netCash < 0 ? "text-red-700 dark:text-red-300" : "text-emerald-700 dark:text-emerald-300"
@@ -532,7 +547,14 @@ function CompareTab({
     label: s.name,
   }));
 
-  type CompareRow = { label: string; warn?: boolean } & (
+  const fmtK = (v: number | undefined | null) => {
+    if (v == null) return "-";
+    const k = v / 1000;
+    const prefix = v < 0 ? "-" : "";
+    return `${prefix}$${Math.abs(Math.round(k)).toLocaleString()}k`;
+  };
+
+  type CompareRow = { label: string; warn?: boolean; plain?: boolean; raw?: boolean } & (
     | { key: keyof FinancialScenario; compute?: never }
     | { compute: (s: FinancialScenario) => number | null; key?: never }
   );
@@ -546,6 +568,7 @@ function CompareTab({
     { label: "Purchase price", key: "purchase_price" },
     { label: "Deposit", key: "deposit" },
     { label: "Loan amount", key: "loan_amount" },
+    { label: "Loan term (yrs)", key: "loan_term_years", raw: true },
     { label: "Interest expense", compute: (s) => {
       const principal = s.loan_amount ?? 0;
       const rate = s.interest_rate ?? 0;
@@ -556,13 +579,13 @@ function CompareTab({
       if (mo == null) return null;
       return mo * months - principal;
     }},
-    { label: "Repayments/mo", key: "repayment_monthly" },
+    { label: "Repayments/mo", key: "repayment_monthly", plain: true },
     { label: "Repayments/wk", compute: (s) => {
       const mo = s.repayment_monthly ?? 0;
       return mo > 0 ? Math.round(mo * 12 / 52) : null;
-    }},
+    }, plain: true },
     { label: "Contingency", key: "contingency" },
-    { label: "Net cash", key: "net_cash_remaining", warn: true },
+    { label: "Surplus / Deficit", key: "net_cash_remaining", warn: true },
   ];
 
   return (
@@ -574,8 +597,8 @@ function CompareTab({
             Select scenarios
           </CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-3">
-          {[0, 1, 2].map((i) => (
+        <CardContent className="grid gap-3 grid-cols-2 sm:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
             <Select
               key={i}
               label={`Scenario ${i + 1}`}
@@ -595,12 +618,13 @@ function CompareTab({
       {comparisonData.length >= 2 && (
         <Card>
           <CardContent className="overflow-x-auto pt-4">
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-2 text-right">Values in $000s</p>
             <table className="w-full text-sm min-w-[480px]">
               <thead>
                 <tr className="border-b border-slate-100 dark:border-slate-800 text-left text-xs text-slate-500 dark:text-slate-400">
                   <th className="pb-2 pr-3 font-medium" />
                   {comparisonData.map((s) => (
-                    <th key={s.id} className="pb-2 pr-3 font-medium">
+                    <th key={s.id} className="pb-2 pr-3 font-medium truncate max-w-[100px]">
                       {s.name}
                     </th>
                   ))}
@@ -613,6 +637,11 @@ function CompareTab({
                     {comparisonData.map((s) => {
                       const val = row.compute ? row.compute(s) : (s[row.key] as number | undefined);
                       const isNegative = row.warn && val != null && val < 0;
+                      const display = row.raw
+                        ? (val != null ? val.toFixed(1) : "-")
+                        : row.plain
+                          ? (val != null ? formatCurrency(val) : "-")
+                          : fmtK(val);
                       return (
                         <td
                           key={s.id}
@@ -620,7 +649,7 @@ function CompareTab({
                             isNegative ? "text-red-700 dark:text-red-300" : ""
                           }`}
                         >
-                          {formatCurrency(val)}
+                          {display}
                         </td>
                       );
                     })}
@@ -744,6 +773,19 @@ function ScenarioModal({
     setLoanDriver(null);
   }, [open, existing?.id, projects]);
 
+  const computedDeposit = useMemo(() => {
+    const pp = n(purchasePrice);
+    const la = n(loanAmount);
+    if (pp > 0 && la > 0 && pp >= la) return pp - la;
+    return null;
+  }, [purchasePrice, loanAmount]);
+
+  useEffect(() => {
+    if (computedDeposit != null) {
+      setDeposit(Math.round(computedDeposit).toString());
+    }
+  }, [computedDeposit]);
+
   useEffect(() => {
     if (loanDriver !== "term") return;
     const result = calcMonthlyRepayment(n(loanAmount), n(interestRate), n(loanTerm));
@@ -805,8 +847,10 @@ function ScenarioModal({
   const totalRepayments = loanMonthly != null && termMonths > 0 ? loanMonthly * termMonths : 0;
   const totalInterest = totalRepayments > 0 ? totalRepayments - loanAmt : 0;
 
+  const loanExceedsBorrowing = borrowing > 0 && loanAmt > borrowing;
+
   const allCosts = sellCosts + mort + purchase + buyCosts + cont + totalInterest;
-  const totalFunding = sale + cashReserves + borrowing + totalInterest;
+  const totalFunding = sale + cashReserves + loanAmt + totalInterest;
   const netCash = totalFunding - allCosts;
 
   return (
@@ -896,10 +940,40 @@ function ScenarioModal({
         <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide pt-2">Buy side</p>
         <div className="grid grid-cols-2 gap-3">
           <Input label="Purchase price" inputMode="decimal" value={purchasePrice} onChange={(e) => setPurchasePrice(e.target.value)} />
-          <Input label="Deposit" inputMode="decimal" value={deposit} onChange={(e) => setDeposit(e.target.value)} />
+          <Input
+            label={`Deposit${computedDeposit != null ? " · auto" : ""}`}
+            inputMode="decimal"
+            value={deposit}
+            onChange={(e) => setDeposit(e.target.value)}
+            readOnly={computedDeposit != null}
+            className={computedDeposit != null ? "bg-blue-50 dark:bg-blue-900/20" : ""}
+          />
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Input label="Loan amount" inputMode="decimal" value={loanAmount} onChange={(e) => setLoanAmount(e.target.value)} />
+          <div className="space-y-1">
+            <Input
+              label="Loan amount"
+              value={loanAmount}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === "" || /^[+-]?[\d.]*(?:[+-][\d.]*)*$/.test(v)) {
+                  setLoanAmount(v);
+                }
+              }}
+              onBlur={() => {
+                if (hasOperator(loanAmount)) {
+                  const result = evalExpr(loanAmount);
+                  if (result != null) setLoanAmount(Math.round(result).toString());
+                }
+              }}
+              error={loanExceedsBorrowing ? `Exceeds borrowing capacity (${formatCurrency(borrowing)})` : undefined}
+            />
+            {hasOperator(loanAmount) && evalExpr(loanAmount) != null && (
+              <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums pl-1">
+                = {formatCurrency(evalExpr(loanAmount))}
+              </p>
+            )}
+          </div>
           <Input label="Interest %" inputMode="decimal" value={interestRate} onChange={(e) => setInterestRate(e.target.value)} />
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -1026,10 +1100,10 @@ function ScenarioModal({
                 <span className="tabular-nums">{formatCurrency(cashReserves)}</span>
               </div>
             )}
-            {borrowing > 0 && (
+            {loanAmt > 0 && (
               <div className="flex justify-between">
-                <span className="text-slate-500 dark:text-slate-400">Borrowing</span>
-                <span className="tabular-nums">{formatCurrency(borrowing)}</span>
+                <span className="text-slate-500 dark:text-slate-400">Loan</span>
+                <span className="tabular-nums">{formatCurrency(loanAmt)}</span>
               </div>
             )}
             {totalInterest > 0 && (
@@ -1045,7 +1119,9 @@ function ScenarioModal({
           </div>
 
           <div className="flex justify-between border-t-2 border-slate-200 dark:border-slate-600 pt-2">
-            <span className="font-semibold text-slate-900 dark:text-slate-100">Net cash impact</span>
+            <span className="font-semibold text-slate-900 dark:text-slate-100">
+              {netCash < 0 ? "Deficit funding" : "Surplus funding"}
+            </span>
             <span className={`font-bold tabular-nums ${netCash < 0 ? "text-red-700 dark:text-red-300" : "text-emerald-700 dark:text-emerald-300"}`}>
               {formatCurrency(netCash)}
             </span>

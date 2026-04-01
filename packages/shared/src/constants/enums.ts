@@ -229,3 +229,56 @@ export type AssistantTool = (typeof ASSISTANT_TOOLS)[number];
 export const ASSISTANT_TOOL_LABELS: Record<AssistantTool, string> = {
   web_search: "Web search",
 };
+
+export const PLAN_IDS = ["free", "pro", "lifetime"] as const;
+export type PlanId = (typeof PLAN_IDS)[number];
+
+export const PLAN_LIMITS: Record<PlanId, {
+  maxProperties: number;
+  maxScenarios: number;
+  maxPhotos: number;
+  aiEnrich: boolean;
+  aiAssistant: boolean;
+  advancedSearch: boolean;
+  comparison: boolean;
+  offerManagement: boolean;
+  dueDiligence: boolean;
+  multiProject: boolean;
+}> = {
+  free: {
+    maxProperties: 3,
+    maxScenarios: 1,
+    maxPhotos: 25,
+    aiEnrich: false,
+    aiAssistant: false,
+    advancedSearch: false,
+    comparison: false,
+    offerManagement: false,
+    dueDiligence: false,
+    multiProject: false,
+  },
+  pro: {
+    maxProperties: Infinity,
+    maxScenarios: Infinity,
+    maxPhotos: Infinity,
+    aiEnrich: true,
+    aiAssistant: false,
+    advancedSearch: true,
+    comparison: true,
+    offerManagement: true,
+    dueDiligence: true,
+    multiProject: false,
+  },
+  lifetime: {
+    maxProperties: Infinity,
+    maxScenarios: Infinity,
+    maxPhotos: Infinity,
+    aiEnrich: true,
+    aiAssistant: true,
+    advancedSearch: true,
+    comparison: true,
+    offerManagement: true,
+    dueDiligence: true,
+    multiProject: true,
+  },
+};

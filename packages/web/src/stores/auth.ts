@@ -11,6 +11,7 @@ interface AuthState {
   register: (email: string, password: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -47,6 +48,13 @@ export const useAuthStore = create<AuthState>()(
         } catch {
           set({ user: null, isAuthenticated: false, isLoading: false });
         }
+      },
+
+      refreshUser: async () => {
+        try {
+          const res = await apiGet("/auth/me");
+          set({ user: res.data });
+        } catch { /* ignore */ }
       },
     }),
     {

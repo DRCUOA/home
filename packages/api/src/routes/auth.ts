@@ -35,7 +35,7 @@ export default async function authRoutes(app: FastifyInstance) {
     const [user] = await db
       .insert(schema.users)
       .values({ email: body.email, password_hash: passwordHash, name: body.name })
-      .returning({ id: schema.users.id, email: schema.users.email, name: schema.users.name });
+      .returning({ id: schema.users.id, email: schema.users.email, name: schema.users.name, plan: schema.users.plan });
 
     const accessToken = signAccessToken(user.id, user.email);
     const refreshToken = signRefreshToken(user.id, user.email);
@@ -77,7 +77,7 @@ export default async function authRoutes(app: FastifyInstance) {
       })
       .send({
         data: {
-          user: { id: user.id, email: user.email, name: user.name },
+          user: { id: user.id, email: user.email, name: user.name, plan: user.plan },
           accessToken,
           refreshToken,
         },
@@ -132,6 +132,7 @@ export default async function authRoutes(app: FastifyInstance) {
           id: schema.users.id,
           email: schema.users.email,
           name: schema.users.name,
+          plan: schema.users.plan,
         })
         .from(schema.users)
         .where(eq(schema.users.id, req.userId))

@@ -17,8 +17,10 @@
     "clsx": "^2.1",
     "date-fns": "^4.1",
     "lucide-react": "^0.468",
+    "maplibre-gl": "^5.22.0",
     "react": "^19.0",
     "react-dom": "^19.0",
+    "react-map-gl": "^8.1.0",
     "tailwind-merge": "^2.6",
     "zustand": "^5.0"
   },

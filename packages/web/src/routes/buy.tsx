@@ -417,7 +417,7 @@ function BuyPage() {
               setEnrichingIds((prev) => new Set(prev).add(p.id));
               enrichProperty.mutate(p.id);
             }}
-            onDelete={(id) => removeProperty.mutate(id)}
+            onDelete={(id) => removeProperty.mutate(id, { onError: () => alert("Failed to delete property") })}
             deletePending={removeProperty.isPending}
           />
         )}

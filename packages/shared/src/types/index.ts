@@ -46,6 +46,8 @@ export interface Property extends BaseEntity {
   rejection_reason?: string;
   is_own_home: boolean;
   favourite_rank?: number;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface Contact extends BaseEntity {
@@ -241,6 +243,16 @@ export interface PropertyCriteria extends BaseEntity {
     loan_term_years?: number;
     pre_approval_amount?: number;
   };
+}
+
+export interface MapPin extends BaseEntity {
+  user_id: string;
+  label: string;
+  color: string;
+  icon: string;
+  latitude: number;
+  longitude: number;
+  notes?: string;
 }
 
 export interface AuditLog {

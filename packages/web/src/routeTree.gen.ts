@@ -14,6 +14,7 @@ import { Route as SellRouteImport } from './routes/sell'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as MoneyRouteImport } from './routes/money'
+import { Route as MapRouteImport } from './routes/map'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as GalleryRouteImport } from './routes/gallery'
@@ -44,6 +45,11 @@ const RegisterRoute = RegisterRouteImport.update({
 const MoneyRoute = MoneyRouteImport.update({
   id: '/money',
   path: '/money',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MapRoute = MapRouteImport.update({
+  id: '/map',
+  path: '/map',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -84,6 +90,7 @@ export interface FileRoutesByFullPath {
   '/gallery': typeof GalleryRoute
   '/library': typeof LibraryRoute
   '/login': typeof LoginRoute
+  '/map': typeof MapRoute
   '/money': typeof MoneyRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
@@ -97,6 +104,7 @@ export interface FileRoutesByTo {
   '/gallery': typeof GalleryRoute
   '/library': typeof LibraryRoute
   '/login': typeof LoginRoute
+  '/map': typeof MapRoute
   '/money': typeof MoneyRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
@@ -111,6 +119,7 @@ export interface FileRoutesById {
   '/gallery': typeof GalleryRoute
   '/library': typeof LibraryRoute
   '/login': typeof LoginRoute
+  '/map': typeof MapRoute
   '/money': typeof MoneyRoute
   '/register': typeof RegisterRoute
   '/search': typeof SearchRoute
@@ -126,6 +135,7 @@ export interface FileRouteTypes {
     | '/gallery'
     | '/library'
     | '/login'
+    | '/map'
     | '/money'
     | '/register'
     | '/search'
@@ -139,6 +149,7 @@ export interface FileRouteTypes {
     | '/gallery'
     | '/library'
     | '/login'
+    | '/map'
     | '/money'
     | '/register'
     | '/search'
@@ -152,6 +163,7 @@ export interface FileRouteTypes {
     | '/gallery'
     | '/library'
     | '/login'
+    | '/map'
     | '/money'
     | '/register'
     | '/search'
@@ -166,6 +178,7 @@ export interface RootRouteChildren {
   GalleryRoute: typeof GalleryRoute
   LibraryRoute: typeof LibraryRoute
   LoginRoute: typeof LoginRoute
+  MapRoute: typeof MapRoute
   MoneyRoute: typeof MoneyRoute
   RegisterRoute: typeof RegisterRoute
   SearchRoute: typeof SearchRoute
@@ -208,6 +221,13 @@ declare module '@tanstack/react-router' {
       path: '/money'
       fullPath: '/money'
       preLoaderRoute: typeof MoneyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/map': {
+      id: '/map'
+      path: '/map'
+      fullPath: '/map'
+      preLoaderRoute: typeof MapRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -262,6 +282,7 @@ const rootRouteChildren: RootRouteChildren = {
   GalleryRoute: GalleryRoute,
   LibraryRoute: LibraryRoute,
   LoginRoute: LoginRoute,
+  MapRoute: MapRoute,
   MoneyRoute: MoneyRoute,
   RegisterRoute: RegisterRoute,
   SearchRoute: SearchRoute,

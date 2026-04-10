@@ -11,6 +11,7 @@ import { db, schema } from "../db/index.js";
 import { createPropertySchema, updatePropertySchema } from "@hcc/shared";
 import { indexRecord } from "../agents/embeddings.js";
 import { enrichPropertyWorkflow } from "../agents/workflows/enrich-property.js";
+import { geocodeAddress } from "../services/geocoding.js";
 
 const UPLOADS_DIR = path.resolve(process.cwd(), "uploads");
 
@@ -252,6 +253,20 @@ export default async function propertyRoutes(app: FastifyInstance) {
       .values(body)
       .returning();
     indexProperty(row);
+
+    if (!row.latitude && row.address) {
+      geocodeAddress(row.address, row.suburb ?? undefined, row.city ?? undefined)
+        .then(async (geo) => {
+          if (geo) {
+            await db
+              .update(schema.properties)
+              .set({ latitude: geo.latitude, longitude: geo.longitude, updated_at: new Date() })
+              .where(eq(schema.properties.id, row.id));
+          }
+        })
+        .catch((err) => console.error("[Geocode] Auto-geocode failed:", err.message));
+    }
+
     return reply.status(201).send({ data: row });
   });
 
@@ -265,15 +280,41 @@ export default async function propertyRoutes(app: FastifyInstance) {
       .returning();
     if (!row) return reply.status(404).send({ error: "Not Found" });
     indexProperty(row);
+
+    const addressChanged = body.address || body.suburb || body.city;
+    if (addressChanged && !row.latitude && row.address) {
+      geocodeAddress(row.address, row.suburb ?? undefined, row.city ?? undefined)
+        .then(async (geo) => {
+          if (geo) {
+            await db
+              .update(schema.properties)
+              .set({ latitude: geo.latitude, longitude: geo.longitude, updated_at: new Date() })
+              .where(eq(schema.properties.id, row.id));
+          }
+        })
+        .catch((err) => console.error("[Geocode] Auto-geocode failed:", err.message));
+    }
+
     return { data: row };
   });
 
   app.delete("/api/v1/properties/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
-    const [row] = await db
-      .delete(schema.properties)
-      .where(eq(schema.properties.id, id))
-      .returning();
+    const [row] = await db.transaction(async (tx) => {
+      await tx.delete(schema.offers).where(eq(schema.offers.property_id, id));
+
+      await tx.update(schema.financialScenarios).set({ property_id: null }).where(eq(schema.financialScenarios.property_id, id));
+      await tx.update(schema.communicationLogs).set({ property_id: null }).where(eq(schema.communicationLogs.property_id, id));
+      await tx.update(schema.notes).set({ property_id: null }).where(eq(schema.notes.property_id, id));
+      await tx.update(schema.files).set({ property_id: null }).where(eq(schema.files.property_id, id));
+      await tx.update(schema.tasks).set({ property_id: null }).where(eq(schema.tasks.property_id, id));
+      await tx.update(schema.checklistItems).set({ property_id: null }).where(eq(schema.checklistItems.property_id, id));
+      await tx.update(schema.decisions).set({ property_id: null }).where(eq(schema.decisions.property_id, id));
+      await tx.update(schema.researchItems).set({ property_id: null }).where(eq(schema.researchItems.property_id, id));
+      await tx.update(schema.agentRuns).set({ property_id: null }).where(eq(schema.agentRuns.property_id, id));
+
+      return tx.delete(schema.properties).where(eq(schema.properties.id, id)).returning();
+    });
     if (!row) return reply.status(404).send({ error: "Not Found" });
     return { data: row };
   });

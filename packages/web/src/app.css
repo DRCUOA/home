@@ -32,3 +32,47 @@ body {
 input, textarea, select {
   font-size: 16px; /* prevents iOS zoom on focus */
 }
+
+/* Dense map measure dropdowns: smaller menu text (scoped so other selects keep 16px) */
+select.measure-location-select,
+select.measure-location-select option,
+select.measure-location-select optgroup {
+  font-size: 10px !important;
+  line-height: 1.35;
+}
+
+.maplibregl-popup-content {
+  padding: 0 !important;
+  border-radius: 0.75rem !important;
+  overflow: hidden;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.maplibregl-popup-close-button {
+  display: none;
+}
+
+.maplibregl-popup-tip {
+  display: none;
+}
+
+.maplibregl-ctrl-scale {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+  border-color: #334155 !important;
+  border-width: 2px !important;
+  border-top: none !important;
+  color: #334155 !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  padding: 1px 6px !important;
+  line-height: 1.4 !important;
+  backdrop-filter: blur(4px);
+  border-radius: 0 0 4px 4px !important;
+}
+
+.dark .maplibregl-ctrl-scale {
+  background-color: rgba(15, 23, 42, 0.85) !important;
+  border-color: #94a3b8 !important;
+  color: #e2e8f0 !important;
+}

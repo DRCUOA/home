@@ -1,6 +1,7 @@
 import { createRootRoute, Outlet, useLocation, Navigate } from "@tanstack/react-router";
 import { BottomNav } from "@/components/layout/bottom-nav";
 import { LandingHero, PlanPicker } from "@/components/landing-hero";
+import { ListingDropZone } from "@/components/features/listing-drop-zone";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
 import { useEffect, useState } from "react";
@@ -68,6 +69,7 @@ function RootLayout() {
     <>
       <Outlet />
       <BottomNav />
+      <ListingDropZone />
     </>
   );
 }

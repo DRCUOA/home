@@ -109,6 +109,8 @@ export const properties = pgTable(
     rejection_reason: text("rejection_reason"),
     is_own_home: boolean("is_own_home").default(false).notNull(),
     favourite_rank: integer("favourite_rank"),
+    latitude: real("latitude"),
+    longitude: real("longitude"),
     ...timestamps(),
   },
   (t) => [index("properties_project_idx").on(t.project_id)]
@@ -441,6 +443,24 @@ export const tags = pgTable("tags", {
   name: varchar("name", { length: 100 }).notNull().unique(),
   ...timestamps(),
 });
+
+export const mapPins = pgTable(
+  "map_pins",
+  {
+    id: id(),
+    user_id: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    label: varchar("label", { length: 200 }).notNull(),
+    color: varchar("color", { length: 20 }).default("#8b5cf6").notNull(),
+    icon: varchar("icon", { length: 30 }).default("pin").notNull(),
+    latitude: real("latitude").notNull(),
+    longitude: real("longitude").notNull(),
+    notes: text("notes"),
+    ...timestamps(),
+  },
+  (t) => [index("map_pins_user_idx").on(t.user_id)]
+);
 
 export const auditLogs = pgTable(
   "audit_logs",

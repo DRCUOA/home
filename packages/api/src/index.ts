@@ -24,6 +24,7 @@ import searchRoutes from "./routes/search.js";
 import assistantRoutes from "./routes/assistant.js";
 import auditLogRoutes from "./routes/audit-logs.js";
 import billingRoutes from "./routes/billing.js";
+import mapRoutes from "./routes/map.js";
 
 const app = Fastify({ logger: true });
 
@@ -54,6 +55,7 @@ await app.register(searchRoutes);
 await app.register(assistantRoutes);
 await app.register(auditLogRoutes);
 await app.register(billingRoutes);
+await app.register(mapRoutes);
 
 app.setErrorHandler((error: any, _req, reply) => {
   if (error.validation) {

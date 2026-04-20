@@ -5,6 +5,7 @@ import {
   AlertCircle,
   Plus,
   Pencil,
+  Trash2,
   ListChecks,
   CheckSquare,
   LayoutTemplate,
@@ -98,6 +99,7 @@ function TasksPage() {
   const [tab, setTab] = useState("tasks");
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [filterProject, setFilterProject] = useState("");
   const [filterPriority, setFilterPriority] = useState("");
   const [filterOverdue, setFilterOverdue] = useState(false);
@@ -204,7 +206,7 @@ function TasksPage() {
               const next = statuses[(idx + 1) % statuses.length];
               updateTask.mutate({ id: task.id, data: { status: next } });
             }}
-            onDelete={(id) => removeTask.mutate(id)}
+            onDelete={(id) => setConfirmDeleteId(id)}
             deletePending={removeTask.isPending}
           />
         )}
@@ -265,6 +267,40 @@ function TasksPage() {
         }}
         submitting={createTask.isPending || updateTask.isPending}
       />
+
+      <Modal
+        open={confirmDeleteId !== null}
+        onClose={() => setConfirmDeleteId(null)}
+        title="Delete task"
+      >
+        <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">
+          Are you sure you want to delete &ldquo;{tasks.find((t) => t.id === confirmDeleteId)?.title}&rdquo;? This cannot be undone.
+        </p>
+        <div className="flex gap-2 pt-2">
+          <Button
+            type="button"
+            variant="secondary"
+            className="flex-1 min-h-12"
+            onClick={() => setConfirmDeleteId(null)}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            className="flex-1 min-h-12 bg-red-600 text-white hover:bg-red-700"
+            disabled={removeTask.isPending}
+            onClick={() => {
+              if (confirmDeleteId) {
+                removeTask.mutate(confirmDeleteId, {
+                  onSuccess: () => setConfirmDeleteId(null),
+                });
+              }
+            }}
+          >
+            {removeTask.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Delete"}
+          </Button>
+        </div>
+      </Modal>
     </PageShell>
   );
 }
@@ -494,6 +530,11 @@ function AllTasksTab({
                             <p className={`font-medium text-slate-900 dark:text-slate-100 ${task.status === "done" ? "line-through text-slate-400 dark:text-slate-500" : ""}`}>
                               {task.title}
                             </p>
+                            {task.description && (
+                              <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">
+                                {task.description}
+                              </p>
+                            )}
                             <div className="flex flex-wrap items-center gap-2 mt-1">
                               {task.due_date && (
                                 <span className={`text-xs ${overdue ? "text-red-600 dark:text-red-400 font-semibold" : "text-slate-500 dark:text-slate-400"}`}>
@@ -512,6 +553,15 @@ function AllTasksTab({
                           <div className="flex gap-1 shrink-0">
                             <Button variant="ghost" size="sm" className="min-h-10" onClick={() => onEdit(task.id)}>
                               <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="min-h-10 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30"
+                              onClick={() => onDelete(task.id)}
+                              disabled={deletePending}
+                            >
+                              <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>
                         </div>

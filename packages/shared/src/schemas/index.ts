@@ -14,3 +14,4 @@ export * from "./research.js";
 export * from "./sell-agent.js";
 export * from "./file.js";
 export * from "./assistant.js";
+export * from "./moving.js";

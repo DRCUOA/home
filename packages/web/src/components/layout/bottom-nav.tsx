@@ -9,6 +9,7 @@ import {
   Library,
   MessageCircle,
   Image,
+  Truck,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { BUILD_FOOTER_TEXT, BUILD_NUMBER } from "@/lib/build-info";
@@ -20,6 +21,7 @@ const tabs = [
   { to: "/map", icon: MapPin, label: "Map" },
   { to: "/money", icon: DollarSign, label: "Money" },
   { to: "/tasks", icon: CheckSquare, label: "Tasks" },
+  { to: "/moving", icon: Truck, label: "Moving" },
   { to: "/gallery", icon: Image, label: "Gallery" },
   { to: "/library", icon: Library, label: "Library" },
   { to: "/assistant", icon: MessageCircle, label: "Assistant" },

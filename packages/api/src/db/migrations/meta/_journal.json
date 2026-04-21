@@ -43,6 +43,13 @@
       "when": 1775697276465,
       "tag": "0005_uneven_marvel_apes",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777017600000,
+      "tag": "0006_moving_house",
+      "breakpoints": true
     }
   ]
 }

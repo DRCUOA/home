@@ -279,6 +279,57 @@ export interface AgentRun extends BaseEntity {
   completed_at?: string;
 }
 
+export interface Move extends BaseEntity {
+  user_id: string;
+  project_id: string;
+  origin_property_id?: string;
+  destination_property_id?: string;
+  origin_floor_plan_file_id?: string;
+  destination_floor_plan_file_id?: string;
+  move_date?: string;
+  status: string;
+  notes?: string;
+}
+
+export interface MoveRoomPolygonPoint {
+  x: number;
+  y: number;
+}
+
+export interface MoveRoom extends BaseEntity {
+  move_id: string;
+  side: "origin" | "destination";
+  name: string;
+  color: string;
+  polygon: MoveRoomPolygonPoint[];
+  sort_order: number;
+}
+
+export interface MoveBox extends BaseEntity {
+  move_id: string;
+  barcode: string;
+  label: string;
+  destination_room_id?: string;
+  fragile: boolean;
+  priority: string;
+  notes?: string;
+}
+
+export interface MoveItem extends BaseEntity {
+  move_id: string;
+  name: string;
+  quantity: number;
+  origin_room_id?: string;
+  destination_room_id?: string;
+  box_id?: string;
+  status: string;
+  category?: string;
+  value_estimate?: number;
+  fragile: boolean;
+  photo_file_id?: string;
+  notes?: string;
+}
+
 export interface ApiResponse<T> {
   data: T;
 }

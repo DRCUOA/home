@@ -502,3 +502,141 @@ export const agentRuns = pgTable(
   },
   (t) => [index("agent_runs_user_idx").on(t.user_id)]
 );
+
+/* ------------------------------------------------------------------ */
+/*  Moving house                                                        */
+/*                                                                      */
+/*  A `move` ties a project to an origin property (the user's current   */
+/*  home, is_own_home=true) and a destination property (from the buy    */
+/*  pipeline). Floor plan images are stored in the existing `files`     */
+/*  table and referenced here. Rooms are polygons drawn on top of each  */
+/*  floor plan image. Items are inventory to be moved — each item has   */
+/*  an origin room, a destination room on the new plan, a packing       */
+/*  status, and an optional box. Boxes carry a barcode (for scan +      */
+/*  label print) and roll up item counts.                               */
+/* ------------------------------------------------------------------ */
+
+export const moves = pgTable(
+  "moves",
+  {
+    id: id(),
+    user_id: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    project_id: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    origin_property_id: uuid("origin_property_id").references(
+      () => properties.id,
+      { onDelete: "set null" }
+    ),
+    destination_property_id: uuid("destination_property_id").references(
+      () => properties.id,
+      { onDelete: "set null" }
+    ),
+    origin_floor_plan_file_id: uuid("origin_floor_plan_file_id").references(
+      () => files.id,
+      { onDelete: "set null" }
+    ),
+    destination_floor_plan_file_id: uuid(
+      "destination_floor_plan_file_id"
+    ).references(() => files.id, { onDelete: "set null" }),
+    move_date: varchar("move_date", { length: 20 }),
+    status: varchar("status", { length: 30 }).default("planning").notNull(),
+    notes: text("notes"),
+    ...timestamps(),
+  },
+  (t) => [
+    index("moves_user_idx").on(t.user_id),
+    index("moves_project_idx").on(t.project_id),
+  ]
+);
+
+export const moveRooms = pgTable(
+  "move_rooms",
+  {
+    id: id(),
+    move_id: uuid("move_id")
+      .notNull()
+      .references(() => moves.id, { onDelete: "cascade" }),
+    // "origin" = room on current home plan, "destination" = room on new home plan
+    side: varchar("side", { length: 20 }).notNull(),
+    name: varchar("name", { length: 120 }).notNull(),
+    color: varchar("color", { length: 20 }).default("#8b5cf6").notNull(),
+    // SVG polygon as array of {x,y} in 0..1 floor-plan coordinates (relative
+    // to the image so it scales with any render size). Can be empty while the
+    // room is still being sketched.
+    polygon: jsonb("polygon").$type<{ x: number; y: number }[]>().default([]).notNull(),
+    sort_order: integer("sort_order").default(0).notNull(),
+    ...timestamps(),
+  },
+  (t) => [
+    index("move_rooms_move_idx").on(t.move_id),
+    index("move_rooms_side_idx").on(t.side),
+  ]
+);
+
+export const moveBoxes = pgTable(
+  "move_boxes",
+  {
+    id: id(),
+    move_id: uuid("move_id")
+      .notNull()
+      .references(() => moves.id, { onDelete: "cascade" }),
+    // Human-scannable ID that goes on the label. Unique per move, so
+    // scanning a barcode anywhere in the app lets us find the right box.
+    barcode: varchar("barcode", { length: 64 }).notNull(),
+    label: varchar("label", { length: 200 }).notNull(),
+    destination_room_id: uuid("destination_room_id").references(
+      () => moveRooms.id,
+      { onDelete: "set null" }
+    ),
+    fragile: boolean("fragile").default(false).notNull(),
+    priority: varchar("priority", { length: 20 }).default("normal").notNull(),
+    notes: text("notes"),
+    ...timestamps(),
+  },
+  (t) => [
+    index("move_boxes_move_idx").on(t.move_id),
+    index("move_boxes_barcode_idx").on(t.barcode),
+  ]
+);
+
+export const moveItems = pgTable(
+  "move_items",
+  {
+    id: id(),
+    move_id: uuid("move_id")
+      .notNull()
+      .references(() => moves.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 300 }).notNull(),
+    quantity: integer("quantity").default(1).notNull(),
+    // Rooms on either plan. Both optional — an item starts unassigned and
+    // is placed when the user drags it onto a room on a floor plan.
+    origin_room_id: uuid("origin_room_id").references(() => moveRooms.id, {
+      onDelete: "set null",
+    }),
+    destination_room_id: uuid("destination_room_id").references(
+      () => moveRooms.id,
+      { onDelete: "set null" }
+    ),
+    box_id: uuid("box_id").references(() => moveBoxes.id, {
+      onDelete: "set null",
+    }),
+    status: varchar("status", { length: 30 }).default("unpacked").notNull(),
+    category: varchar("category", { length: 50 }),
+    value_estimate: real("value_estimate"),
+    fragile: boolean("fragile").default(false).notNull(),
+    photo_file_id: uuid("photo_file_id").references(() => files.id, {
+      onDelete: "set null",
+    }),
+    notes: text("notes"),
+    ...timestamps(),
+  },
+  (t) => [
+    index("move_items_move_idx").on(t.move_id),
+    index("move_items_origin_room_idx").on(t.origin_room_id),
+    index("move_items_destination_room_idx").on(t.destination_room_id),
+    index("move_items_box_idx").on(t.box_id),
+  ]
+);

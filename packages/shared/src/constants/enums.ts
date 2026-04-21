@@ -233,6 +233,51 @@ export const ASSISTANT_TOOL_LABELS: Record<AssistantTool, string> = {
 export const PLAN_IDS = ["free", "pro", "lifetime"] as const;
 export type PlanId = (typeof PLAN_IDS)[number];
 
+export const MOVE_STATUSES = [
+  "planning",
+  "packing",
+  "in_transit",
+  "unpacking",
+  "done",
+] as const;
+export type MoveStatus = (typeof MOVE_STATUSES)[number];
+
+export const MOVE_SIDES = ["origin", "destination"] as const;
+export type MoveSide = (typeof MOVE_SIDES)[number];
+
+export const MOVE_ITEM_STATUSES = [
+  "unpacked",
+  "packed",
+  "loaded",
+  "delivered",
+  "unpacked_at_destination",
+] as const;
+export type MoveItemStatus = (typeof MOVE_ITEM_STATUSES)[number];
+
+export const MOVE_BOX_PRIORITIES = [
+  "low",
+  "normal",
+  "high",
+  "first_night",
+] as const;
+export type MoveBoxPriority = (typeof MOVE_BOX_PRIORITIES)[number];
+
+export const MOVE_ITEM_CATEGORIES = [
+  "furniture",
+  "appliance",
+  "electronics",
+  "kitchen",
+  "clothing",
+  "books",
+  "art",
+  "plants",
+  "garage",
+  "garden",
+  "sentimental",
+  "other",
+] as const;
+export type MoveItemCategory = (typeof MOVE_ITEM_CATEGORIES)[number];
+
 export const PLAN_LIMITS: Record<PlanId, {
   maxProperties: number;
   maxScenarios: number;

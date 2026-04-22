@@ -173,6 +173,92 @@ export function normalizeRect(r: Rect): Rect {
   };
 }
 
+/**
+ * Compute smart alignment guides for a moving/resizing rectangle. Returns
+ * a list of guide lines — horizontal (`y`) and vertical (`x`) — where the
+ * rect's edges or center snap to another object's edges or center within
+ * `threshold`. The caller can render each guide as a dashed line spanning
+ * the viewport and optionally nudge the rect so the snap is exact.
+ *
+ * The returned `snapDeltaX` / `snapDeltaY` tell the caller how far to
+ * shift the rect to align with the strongest guide on each axis (zero if
+ * no snap happens). A typical integration: call the helper every pointer
+ * move, apply the deltas to the patch, then render each guide as an SVG
+ * line at its `x`/`y` position.
+ */
+export interface AlignmentGuideResult {
+  vertical: { x: number; refKind: "edge" | "center" }[];
+  horizontal: { y: number; refKind: "edge" | "center" }[];
+  snapDeltaX: number;
+  snapDeltaY: number;
+}
+
+export function computeAlignmentGuides(
+  moving: Rect,
+  others: Rect[],
+  threshold: number
+): AlignmentGuideResult {
+  const mv = {
+    left: moving.x,
+    right: moving.x + moving.width,
+    cx: moving.x + moving.width / 2,
+    top: moving.y,
+    bottom: moving.y + moving.height,
+    cy: moving.y + moving.height / 2,
+  };
+
+  const vertical: { x: number; refKind: "edge" | "center" }[] = [];
+  const horizontal: { y: number; refKind: "edge" | "center" }[] = [];
+
+  let bestDX: { delta: number; abs: number } | null = null;
+  let bestDY: { delta: number; abs: number } | null = null;
+
+  const considerX = (srcX: number, refX: number, refKind: "edge" | "center") => {
+    const delta = refX - srcX;
+    const abs = Math.abs(delta);
+    if (abs <= threshold) {
+      vertical.push({ x: refX, refKind });
+      if (!bestDX || abs < bestDX.abs) bestDX = { delta, abs };
+    }
+  };
+  const considerY = (srcY: number, refY: number, refKind: "edge" | "center") => {
+    const delta = refY - srcY;
+    const abs = Math.abs(delta);
+    if (abs <= threshold) {
+      horizontal.push({ y: refY, refKind });
+      if (!bestDY || abs < bestDY.abs) bestDY = { delta, abs };
+    }
+  };
+
+  for (const o of others) {
+    const oL = o.x;
+    const oR = o.x + o.width;
+    const oCx = o.x + o.width / 2;
+    const oT = o.y;
+    const oB = o.y + o.height;
+    const oCy = o.y + o.height / 2;
+    // Vertical guides: left/center/right of moving → left/center/right of other.
+    for (const src of [mv.left, mv.cx, mv.right]) {
+      considerX(src, oL, "edge");
+      considerX(src, oCx, "center");
+      considerX(src, oR, "edge");
+    }
+    // Horizontal guides: top/center/bottom of moving → top/center/bottom of other.
+    for (const src of [mv.top, mv.cy, mv.bottom]) {
+      considerY(src, oT, "edge");
+      considerY(src, oCy, "center");
+      considerY(src, oB, "edge");
+    }
+  }
+
+  return {
+    vertical,
+    horizontal,
+    snapDeltaX: bestDX ? (bestDX as { delta: number }).delta : 0,
+    snapDeltaY: bestDY ? (bestDY as { delta: number }).delta : 0,
+  };
+}
+
 /** Project a point onto a wall, returning the t parameter (0..1) along the
  *  wall, clamped. Used when placing a door or window on a wall. */
 export function projectOntoWall(p: Point, wall: Segment): { t: number; point: Point } {

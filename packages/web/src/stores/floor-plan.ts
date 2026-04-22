@@ -74,6 +74,7 @@ function defaultViewport(): FloorPlanViewport {
     snapToObjects: true,
     unit: "metric",
     realWorldHeightMeters: FLOOR_PLAN_DEFAULT_HEIGHT_METERS,
+    measurementMode: "exterior",
   };
 }
 
@@ -88,6 +89,39 @@ interface HistoryEntry {
 }
 
 const HISTORY_LIMIT = 50;
+
+/* ---------- remote persistence hook-up ---------- */
+
+/**
+ * A subset of the `FloorPlanPersistence` surface from `use-primitives.ts`.
+ *
+ * The store is defined in a package that doesn't depend on TanStack Query,
+ * so we take the shape as a structural type and let the EditorShell inject
+ * the real implementation via `setRemote`. When `remote` is `null` the store
+ * falls back to the phase-1 in-memory behavior — useful for tests and for
+ * the transitional period while the editor is being wired up.
+ */
+export interface FloorPlanRemote {
+  createWall: (draft: Omit<FloorPlanWall, "id">) => Promise<FloorPlanWall | null>;
+  updateWall: (id: string, patch: Partial<FloorPlanWall>) => Promise<void>;
+  deleteWall: (id: string) => Promise<void>;
+
+  createOpening: (draft: Omit<FloorPlanOpening, "id">) => Promise<FloorPlanOpening | null>;
+  updateOpening: (id: string, patch: Partial<FloorPlanOpening>) => Promise<void>;
+  deleteOpening: (id: string) => Promise<void>;
+
+  createAnnotation: (
+    draft: Omit<FloorPlanAnnotation, "id">
+  ) => Promise<FloorPlanAnnotation | null>;
+  updateAnnotation: (id: string, patch: Partial<FloorPlanAnnotation>) => Promise<void>;
+  deleteAnnotation: (id: string) => Promise<void>;
+
+  createLayer: (
+    draft: Omit<FloorPlanLayer, "id"> & { id?: string }
+  ) => Promise<FloorPlanLayer | null>;
+  updateLayer: (id: string, patch: Partial<FloorPlanLayer>) => Promise<void>;
+  deleteLayer: (id: string) => Promise<void>;
+}
 
 /* ---------- state shape ---------- */
 
@@ -118,6 +152,16 @@ export interface FloorPlanState {
     | { type: "wall"; x1: number; y1: number; x2: number; y2: number }
     | { type: "room-rect"; x: number; y: number; width: number; height: number }
     | { type: "room-polygon"; points: { x: number; y: number }[] }
+    | {
+        type: "dimension";
+        x1: number;
+        y1: number;
+        x2: number;
+        y2: number;
+        /** True once the user has clicked the first endpoint; pointer
+         *  move updates (x2,y2) until the second click. */
+        placed: boolean;
+      }
     | { type: "marquee"; x: number; y: number; width: number; height: number }
     | null;
 
@@ -139,8 +183,26 @@ export interface FloorPlanState {
    *  pointer drag produces a single undo step. */
   batching: boolean;
 
+  // --- Remote persistence ---
+  /** Injected by EditorShell once the move id + side are known. When null,
+   *  mutators behave as in phase 1 (local-only). When present, server-backed
+   *  primitives (walls/openings/annotations/layers) round-trip through the
+   *  REST endpoints; styles remain client-only. */
+  remote: FloorPlanRemote | null;
+
   // --- Actions ---
   resetDocument(doc?: FloorPlanDocument): void;
+  /** Swap the server-visible slice of the document (walls/openings/
+   *  annotations/layers) with fresh data. Leaves viewport, selection,
+   *  history, tool, and style overlay alone. Call this whenever the
+   *  persistence queries come back with new data. */
+  setRemoteDocument(slice: {
+    walls: FloorPlanWall[];
+    openings: FloorPlanOpening[];
+    annotations: FloorPlanAnnotation[];
+    layers: FloorPlanLayer[];
+  }): void;
+  setRemote(remote: FloorPlanRemote | null): void;
   setViewport(partial: Partial<FloorPlanViewport>): void;
   zoomIn(): void;
   zoomOut(): void;
@@ -208,7 +270,12 @@ type PersistedSlice = Pick<
 > & {
   viewport: Pick<
     FloorPlanViewport,
-    "gridSizePx" | "showGrid" | "snapToGrid" | "snapToObjects" | "unit"
+    | "gridSizePx"
+    | "showGrid"
+    | "snapToGrid"
+    | "snapToObjects"
+    | "unit"
+    | "measurementMode"
   >;
 };
 
@@ -266,6 +333,9 @@ export const useFloorPlanStore = create<FloorPlanState>()(
           future: [],
           batching: false,
 
+          // Remote persistence hook — wired up by EditorShell.
+          remote: null,
+
           // --- Document lifecycle ---
           resetDocument: (doc) =>
             set({
@@ -275,6 +345,22 @@ export const useFloorPlanStore = create<FloorPlanState>()(
               past: [],
               future: [],
             }),
+
+          setRemoteDocument: ({ walls, openings, annotations, layers }) =>
+            set((state) => ({
+              doc: {
+                ...state.doc,
+                walls,
+                openings,
+                annotations,
+                // If the server hasn't seeded layers yet (query pending),
+                // keep whatever we already had so the UI doesn't flash from
+                // default to empty.
+                layers: layers.length > 0 ? layers : state.doc.layers,
+              },
+            })),
+
+          setRemote: (remote) => set({ remote }),
 
           // --- Viewport ---
           setViewport: (partial) =>
@@ -364,20 +450,75 @@ export const useFloorPlanStore = create<FloorPlanState>()(
             set({ selectedIds: new Set(), selectionKind: "none" }),
 
           // --- Walls ---
+          // When a `remote` is wired up, we optimistically insert a temp
+          // row so the canvas renders immediately, kick off the server call,
+          // and let the query invalidation swap the temp for the real one.
+          // Local branch stays intact for tests / phase-1 behavior.
           addWall: (w) => {
+            const remote = get().remote;
+            if (remote) {
+              const tempId = uid("wall");
+              set((state) => ({
+                doc: {
+                  ...state.doc,
+                  walls: [...state.doc.walls, { ...w, id: tempId }],
+                },
+              }));
+              void remote.createWall(w).catch((err) => {
+                console.warn("[floor-plan] createWall failed", err);
+              });
+              return tempId;
+            }
             const id = uid("wall");
             mutate((doc) => ({ ...doc, walls: [...doc.walls, { ...w, id }] }));
             return id;
           },
-          updateWall: (id, patch) =>
+          updateWall: (id, patch) => {
+            const remote = get().remote;
+            if (remote) {
+              // Mirror locally so drags feel instant; the mutation hook also
+              // does optimistic cache updates. On the next server refresh
+              // setRemoteDocument reconciles.
+              set((state) => ({
+                doc: {
+                  ...state.doc,
+                  walls: state.doc.walls.map((w) =>
+                    w.id === id ? { ...w, ...patch } : w
+                  ),
+                },
+              }));
+              void remote.updateWall(id, patch).catch((err) => {
+                console.warn("[floor-plan] updateWall failed", err);
+              });
+              return;
+            }
             mutate((doc) => ({
               ...doc,
               walls: doc.walls.map((w) =>
                 w.id === id ? { ...w, ...patch } : w
               ),
-            })),
+            }));
+          },
           deleteWalls: (ids) => {
             const toDelete = new Set(ids);
+            const remote = get().remote;
+            if (remote) {
+              set((state) => ({
+                doc: {
+                  ...state.doc,
+                  walls: state.doc.walls.filter((w) => !toDelete.has(w.id)),
+                  openings: state.doc.openings.filter(
+                    (o) => !toDelete.has(o.wallId)
+                  ),
+                },
+              }));
+              for (const id of toDelete) {
+                void remote.deleteWall(id).catch((err) => {
+                  console.warn("[floor-plan] deleteWall failed", err);
+                });
+              }
+              return;
+            }
             mutate((doc) => ({
               ...doc,
               walls: doc.walls.filter((w) => !toDelete.has(w.id)),
@@ -388,6 +529,20 @@ export const useFloorPlanStore = create<FloorPlanState>()(
 
           // --- Openings ---
           addOpening: (o) => {
+            const remote = get().remote;
+            if (remote) {
+              const tempId = uid("open");
+              set((state) => ({
+                doc: {
+                  ...state.doc,
+                  openings: [...state.doc.openings, { ...o, id: tempId }],
+                },
+              }));
+              void remote.createOpening(o).catch((err) => {
+                console.warn("[floor-plan] createOpening failed", err);
+              });
+              return tempId;
+            }
             const id = uid("open");
             mutate((doc) => ({
               ...doc,
@@ -395,15 +550,48 @@ export const useFloorPlanStore = create<FloorPlanState>()(
             }));
             return id;
           },
-          updateOpening: (id, patch) =>
+          updateOpening: (id, patch) => {
+            const remote = get().remote;
+            if (remote) {
+              set((state) => ({
+                doc: {
+                  ...state.doc,
+                  openings: state.doc.openings.map((o) =>
+                    o.id === id ? { ...o, ...patch } : o
+                  ),
+                },
+              }));
+              void remote.updateOpening(id, patch).catch((err) => {
+                console.warn("[floor-plan] updateOpening failed", err);
+              });
+              return;
+            }
             mutate((doc) => ({
               ...doc,
               openings: doc.openings.map((o) =>
                 o.id === id ? { ...o, ...patch } : o
               ),
-            })),
+            }));
+          },
           deleteOpenings: (ids) => {
             const toDelete = new Set(ids);
+            const remote = get().remote;
+            if (remote) {
+              set((state) => ({
+                doc: {
+                  ...state.doc,
+                  openings: state.doc.openings.filter(
+                    (o) => !toDelete.has(o.id)
+                  ),
+                },
+              }));
+              for (const id of toDelete) {
+                void remote.deleteOpening(id).catch((err) => {
+                  console.warn("[floor-plan] deleteOpening failed", err);
+                });
+              }
+              return;
+            }
             mutate((doc) => ({
               ...doc,
               openings: doc.openings.filter((o) => !toDelete.has(o.id)),
@@ -412,6 +600,20 @@ export const useFloorPlanStore = create<FloorPlanState>()(
 
           // --- Annotations ---
           addAnnotation: (a) => {
+            const remote = get().remote;
+            if (remote) {
+              const tempId = uid("ann");
+              set((state) => ({
+                doc: {
+                  ...state.doc,
+                  annotations: [...state.doc.annotations, { ...a, id: tempId }],
+                },
+              }));
+              void remote.createAnnotation(a).catch((err) => {
+                console.warn("[floor-plan] createAnnotation failed", err);
+              });
+              return tempId;
+            }
             const id = uid("ann");
             mutate((doc) => ({
               ...doc,
@@ -419,15 +621,48 @@ export const useFloorPlanStore = create<FloorPlanState>()(
             }));
             return id;
           },
-          updateAnnotation: (id, patch) =>
+          updateAnnotation: (id, patch) => {
+            const remote = get().remote;
+            if (remote) {
+              set((state) => ({
+                doc: {
+                  ...state.doc,
+                  annotations: state.doc.annotations.map((a) =>
+                    a.id === id ? { ...a, ...patch } : a
+                  ),
+                },
+              }));
+              void remote.updateAnnotation(id, patch).catch((err) => {
+                console.warn("[floor-plan] updateAnnotation failed", err);
+              });
+              return;
+            }
             mutate((doc) => ({
               ...doc,
               annotations: doc.annotations.map((a) =>
                 a.id === id ? { ...a, ...patch } : a
               ),
-            })),
+            }));
+          },
           deleteAnnotations: (ids) => {
             const toDelete = new Set(ids);
+            const remote = get().remote;
+            if (remote) {
+              set((state) => ({
+                doc: {
+                  ...state.doc,
+                  annotations: state.doc.annotations.filter(
+                    (a) => !toDelete.has(a.id)
+                  ),
+                },
+              }));
+              for (const id of toDelete) {
+                void remote.deleteAnnotation(id).catch((err) => {
+                  console.warn("[floor-plan] deleteAnnotation failed", err);
+                });
+              }
+              return;
+            }
             mutate((doc) => ({
               ...doc,
               annotations: doc.annotations.filter((a) => !toDelete.has(a.id)),
@@ -435,14 +670,49 @@ export const useFloorPlanStore = create<FloorPlanState>()(
           },
 
           // --- Layers ---
-          updateLayer: (id, patch) =>
+          updateLayer: (id, patch) => {
+            const remote = get().remote;
+            if (remote) {
+              set((state) => ({
+                doc: {
+                  ...state.doc,
+                  layers: state.doc.layers.map((l) =>
+                    l.id === id ? { ...l, ...patch } : l
+                  ),
+                },
+              }));
+              void remote.updateLayer(id, patch).catch((err) => {
+                console.warn("[floor-plan] updateLayer failed", err);
+              });
+              return;
+            }
             mutate((doc) => ({
               ...doc,
               layers: doc.layers.map((l) =>
                 l.id === id ? { ...l, ...patch } : l
               ),
-            })),
+            }));
+          },
           addLayer: (name) => {
+            const remote = get().remote;
+            const nextSortOrder = (get().doc.layers.at(-1)?.sort_order ?? 0) + 10;
+            if (remote) {
+              const tempId = uid("layer");
+              const draft: FloorPlanLayer = {
+                id: tempId,
+                name,
+                visible: true,
+                locked: false,
+                sort_order: nextSortOrder,
+              };
+              set((state) => ({
+                doc: { ...state.doc, layers: [...state.doc.layers, draft] },
+              }));
+              void remote.createLayer(draft).catch((err) => {
+                console.warn("[floor-plan] createLayer failed", err);
+              });
+              return tempId;
+            }
             const id = uid("layer");
             mutate((doc) => ({
               ...doc,
@@ -453,18 +723,40 @@ export const useFloorPlanStore = create<FloorPlanState>()(
                   name,
                   visible: true,
                   locked: false,
-                  sort_order: (doc.layers.at(-1)?.sort_order ?? 0) + 10,
+                  sort_order: nextSortOrder,
                 },
               ],
             }));
             return id;
           },
           deleteLayer: (id) => {
+            const doc = get().doc;
             // Can't delete the last layer. Orphan primitives migrate to
             // whatever's first.
-            const doc = get().doc;
             if (doc.layers.length <= 1) return;
             const fallback = doc.layers.find((l) => l.id !== id)?.id ?? "walls";
+            const remote = get().remote;
+            if (remote) {
+              set((state) => ({
+                doc: {
+                  ...state.doc,
+                  layers: state.doc.layers.filter((l) => l.id !== id),
+                  walls: state.doc.walls.map((w) =>
+                    w.layerId === id ? { ...w, layerId: fallback } : w
+                  ),
+                  openings: state.doc.openings.map((o) =>
+                    o.layerId === id ? { ...o, layerId: fallback } : o
+                  ),
+                  annotations: state.doc.annotations.map((a) =>
+                    a.layerId === id ? { ...a, layerId: fallback } : a
+                  ),
+                },
+              }));
+              void remote.deleteLayer(id).catch((err) => {
+                console.warn("[floor-plan] deleteLayer failed", err);
+              });
+              return;
+            }
             mutate((d) => ({
               ...d,
               layers: d.layers.filter((l) => l.id !== id),
@@ -534,6 +826,7 @@ export const useFloorPlanStore = create<FloorPlanState>()(
             snapToGrid: state.viewport.snapToGrid,
             snapToObjects: state.viewport.snapToObjects,
             unit: state.viewport.unit,
+            measurementMode: state.viewport.measurementMode,
           },
         }),
         merge: (persisted, current) => {

@@ -64,6 +64,13 @@
       "when": 1777968000000,
       "tag": "0008_move_rooms_rect",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1777996800000,
+      "tag": "0009_floor_plan_primitives",
+      "breakpoints": true
     }
   ]
 }

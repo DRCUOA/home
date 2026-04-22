@@ -9,6 +9,7 @@ import {
   real,
   jsonb,
   index,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -692,5 +693,158 @@ export const moveStickers = pgTable(
   (t) => [
     index("move_stickers_move_idx").on(t.move_id),
     index("move_stickers_side_idx").on(t.side),
+  ]
+);
+
+/* -------------------------------------------------------------------------
+ * Floor Plan Designer primitives (UI/UX refactor — phase 2).
+ *
+ * Walls, openings (doors/windows), annotations, and user-editable layers
+ * are now first-class rows on the plan instead of serialized JSON inside
+ * move_stickers.label. Coordinates stay 0..1 normalized so renders scale.
+ *
+ * Layer ids are stable strings (e.g. "walls", "furniture") composite-keyed
+ * by move so custom layers created in the editor retain their identity
+ * without needing a uuid round-trip through the client. Walls/openings/
+ * annotations carry a layer_id varchar that the app layer keeps in sync
+ * with move_layers.id; we deliberately skip a FK to avoid a composite FK
+ * on (move_id, layer_id) and to let rows survive a layer delete (client
+ * reparents orphans to a fallback layer).
+ * ---------------------------------------------------------------------- */
+
+/** One editable layer on a plan. Visibility + lock gate every primitive
+ *  that references this row via layer_id. */
+export const moveLayers = pgTable(
+  "move_layers",
+  {
+    /** Stable string id — seeded layers use "walls"/"furniture"/... so
+     *  DEFAULT_LAYER_IDS on the client matches directly. Custom layers
+     *  use a client-generated uuid-like token. */
+    id: varchar("id", { length: 40 }).notNull(),
+    move_id: uuid("move_id")
+      .notNull()
+      .references(() => moves.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 120 }).notNull(),
+    visible: boolean("visible").default(true).notNull(),
+    locked: boolean("locked").default(false).notNull(),
+    sort_order: integer("sort_order").default(0).notNull(),
+    ...timestamps(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.move_id, t.id] }),
+    index("move_layers_move_idx").on(t.move_id),
+  ]
+);
+
+/**
+ * Wall primitive: two endpoints in 0..1 normalized space plus a thickness
+ * perpendicular to the line. Rendered as a filled quad; corners auto-join
+ * on the client via geometry helpers (not stored).
+ */
+export const moveWalls = pgTable(
+  "move_walls",
+  {
+    id: id(),
+    move_id: uuid("move_id")
+      .notNull()
+      .references(() => moves.id, { onDelete: "cascade" }),
+    side: varchar("side", { length: 20 }).notNull(),
+    // Endpoints in 0..1 normalized space.
+    x1: real("x1").default(0.2).notNull(),
+    y1: real("y1").default(0.2).notNull(),
+    x2: real("x2").default(0.8).notNull(),
+    y2: real("y2").default(0.2).notNull(),
+    // Normalized thickness (presets: thin 0.006, standard 0.012, thick 0.02).
+    thickness: real("thickness").default(0.012).notNull(),
+    // Line style: solid | dashed | dotted.
+    line_style: varchar("line_style", { length: 10 }).default("solid").notNull(),
+    color: varchar("color", { length: 20 }).default("#0f172a").notNull(),
+    layer_id: varchar("layer_id", { length: 40 }).default("walls").notNull(),
+    locked: boolean("locked").default(false).notNull(),
+    hidden: boolean("hidden").default(false).notNull(),
+    label: varchar("label", { length: 120 }),
+    sort_order: integer("sort_order").default(0).notNull(),
+    ...timestamps(),
+  },
+  (t) => [
+    index("move_walls_move_idx").on(t.move_id),
+    index("move_walls_side_idx").on(t.side),
+    index("move_walls_layer_idx").on(t.layer_id),
+  ]
+);
+
+/**
+ * Door or window opening: always bound to a wall, positioned as a parameter
+ * along the wall's length [0..1] plus an opening width. Doors carry a swing
+ * direction so the canvas can render the arc.
+ */
+export const moveOpenings = pgTable(
+  "move_openings",
+  {
+    id: id(),
+    move_id: uuid("move_id")
+      .notNull()
+      .references(() => moves.id, { onDelete: "cascade" }),
+    side: varchar("side", { length: 20 }).notNull(),
+    wall_id: uuid("wall_id")
+      .notNull()
+      .references(() => moveWalls.id, { onDelete: "cascade" }),
+    // kind: door | door_double | sliding_door | garage_door | window
+    kind: varchar("kind", { length: 20 }).notNull(),
+    // Position along the wall (0 at wall.x1/y1, 1 at wall.x2/y2).
+    t: real("t").default(0.5).notNull(),
+    // Opening width as a fraction of the wall length (0..1).
+    width: real("width").default(0.15).notNull(),
+    // Door swing direction: left | right | none (windows always "none").
+    swing: varchar("swing", { length: 10 }).default("none").notNull(),
+    layer_id: varchar("layer_id", { length: 40 }).default("walls").notNull(),
+    locked: boolean("locked").default(false).notNull(),
+    hidden: boolean("hidden").default(false).notNull(),
+    label: varchar("label", { length: 120 }),
+    sort_order: integer("sort_order").default(0).notNull(),
+    ...timestamps(),
+  },
+  (t) => [
+    index("move_openings_move_idx").on(t.move_id),
+    index("move_openings_side_idx").on(t.side),
+    index("move_openings_wall_idx").on(t.wall_id),
+  ]
+);
+
+/**
+ * Text annotations: labels, notes, callouts, standalone dimensions, arrows.
+ * Label/note/callout use x/y/width/height. Dimension/arrow use x/y and
+ * x2/y2 for the second endpoint.
+ */
+export const moveAnnotations = pgTable(
+  "move_annotations",
+  {
+    id: id(),
+    move_id: uuid("move_id")
+      .notNull()
+      .references(() => moves.id, { onDelete: "cascade" }),
+    side: varchar("side", { length: 20 }).notNull(),
+    // kind: label | note | callout | dimension | arrow
+    kind: varchar("kind", { length: 20 }).notNull(),
+    x: real("x").default(0.4).notNull(),
+    y: real("y").default(0.4).notNull(),
+    width: real("width"),
+    height: real("height"),
+    x2: real("x2"),
+    y2: real("y2"),
+    text: text("text"),
+    font_size_px: real("font_size_px").default(12).notNull(),
+    bold: boolean("bold").default(false).notNull(),
+    color: varchar("color", { length: 20 }).default("#0f172a").notNull(),
+    layer_id: varchar("layer_id", { length: 40 }).default("annotations").notNull(),
+    locked: boolean("locked").default(false).notNull(),
+    hidden: boolean("hidden").default(false).notNull(),
+    sort_order: integer("sort_order").default(0).notNull(),
+    ...timestamps(),
+  },
+  (t) => [
+    index("move_annotations_move_idx").on(t.move_id),
+    index("move_annotations_side_idx").on(t.side),
+    index("move_annotations_layer_idx").on(t.layer_id),
   ]
 );

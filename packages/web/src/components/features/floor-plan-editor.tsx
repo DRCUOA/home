@@ -24,6 +24,9 @@ import type { MoveRoom, MoveSticker, MoveStickerKind } from "@hcc/shared";
 import { FloorPlanEditorShell } from "./floor-plan/EditorShell";
 
 interface FloorPlanEditorProps {
+  /** Move id — threaded through so the designer shell can load walls,
+   *  openings, annotations, and layers from the server. */
+  moveId: string;
   side: "origin" | "destination";
   title: string;
   imageUrl: string | null;
@@ -36,11 +39,12 @@ interface FloorPlanEditorProps {
 
   onCreateRoom: (partial: {
     name: string;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    rotation: number;
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    rotation?: number;
+    polygon?: { x: number; y: number }[];
   }) => void;
   onUpdateRoom: (id: string, patch: Partial<MoveRoom>) => void;
   onDeleteRoom: (roomId: string) => void;

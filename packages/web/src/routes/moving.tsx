@@ -985,6 +985,7 @@ function PlansTab({
 
       {editing && (
         <FloorPlanEditor
+          moveId={move.id}
           side={editing}
           title={editing === "origin" ? "Current home" : "New home"}
           imageUrl={editing === "origin" ? originImage : destImage}

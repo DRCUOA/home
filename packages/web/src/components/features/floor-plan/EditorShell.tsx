@@ -16,7 +16,7 @@
  * Individual pieces read from the Zustand store directly.
  */
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import type {
   MoveRoom,
   MoveSticker,
@@ -27,11 +27,13 @@ import { ToolSidebar } from "./ToolSidebar";
 import { PropertiesSidebar } from "./PropertiesSidebar";
 import { FloorPlanCanvasInner } from "./Canvas";
 import { useFloorPlanStore } from "@/stores/floor-plan";
+import { useFloorPlanPersistence } from "@/lib/floor-plan/use-primitives";
 import { STICKER_DEFAULT_SIZES } from "../sticker-icons";
 import { cn } from "@/lib/cn";
 import { useState } from "react";
 
 interface Props {
+  moveId: string;
   side: "origin" | "destination";
   title: string;
   imageUrl: string | null;
@@ -42,11 +44,15 @@ interface Props {
   onRemovePlan?: () => void;
   onCreateRoom: (partial: {
     name: string;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    rotation: number;
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    rotation?: number;
+    /** For polygon-room tool — a list of normalized polygon vertices. When
+     *  present the server persists as a polygon room; the rect fields are
+     *  optional metadata the designer uses for handles. */
+    polygon?: { x: number; y: number }[];
   }) => void;
   onUpdateRoom: (id: string, patch: Partial<MoveRoom>) => void;
   onDeleteRoom: (id: string) => void;
@@ -64,6 +70,7 @@ interface Props {
 }
 
 export function FloorPlanEditorShell({
+  moveId,
   side,
   title,
   imageUrl,
@@ -79,7 +86,6 @@ export function FloorPlanEditorShell({
   onUpdateSticker,
   onDeleteSticker,
 }: Props) {
-  void side;
   const theme = useFloorPlanStore((s) => s.theme);
   const textScale = useFloorPlanStore((s) => s.textScale);
   const showToolSidebar = useFloorPlanStore((s) => s.showToolSidebar);
@@ -93,9 +99,70 @@ export function FloorPlanEditorShell({
   const resetViewport = useFloorPlanStore((s) => s.resetViewport);
   const fitToScreen = useFloorPlanStore((s) => s.fitToScreen);
   const clearSelection = useFloorPlanStore((s) => s.clearSelection);
+  const setRemote = useFloorPlanStore((s) => s.setRemote);
+  const setRemoteDocument = useFloorPlanStore((s) => s.setRemoteDocument);
+
+  // Server-backed primitives: walls/openings/annotations/layers.
+  // The persistence hook owns the TanStack Query lifecycle; we mirror its
+  // data into the store so the canvas/panels keep reading from one place.
+  const persistence = useFloorPlanPersistence(moveId, side);
+  const { walls, openings, annotations, layers } = persistence;
+
+  // Inject the remote bridge into the store so mutators round-trip to the
+  // server instead of staying local. Clear on unmount so a second editor
+  // (different moveId) can't pick up stale callbacks.
+  const remoteBridge = useMemo(
+    () => ({
+      createWall: persistence.createWall,
+      updateWall: persistence.updateWall,
+      deleteWall: persistence.deleteWall,
+      createOpening: persistence.createOpening,
+      updateOpening: persistence.updateOpening,
+      deleteOpening: persistence.deleteOpening,
+      createAnnotation: persistence.createAnnotation,
+      updateAnnotation: persistence.updateAnnotation,
+      deleteAnnotation: persistence.deleteAnnotation,
+      createLayer: persistence.createLayer,
+      updateLayer: persistence.updateLayer,
+      deleteLayer: persistence.deleteLayer,
+    }),
+    [
+      persistence.createWall,
+      persistence.updateWall,
+      persistence.deleteWall,
+      persistence.createOpening,
+      persistence.updateOpening,
+      persistence.deleteOpening,
+      persistence.createAnnotation,
+      persistence.updateAnnotation,
+      persistence.deleteAnnotation,
+      persistence.createLayer,
+      persistence.updateLayer,
+      persistence.deleteLayer,
+    ]
+  );
+
+  useEffect(() => {
+    setRemote(remoteBridge);
+    return () => setRemote(null);
+  }, [remoteBridge, setRemote]);
+
+  // Mirror server data into the store's doc slice whenever the queries
+  // return new results. The store keeps history, viewport, and selection
+  // intact across these resets.
+  useEffect(() => {
+    setRemoteDocument({ walls, openings, annotations, layers });
+  }, [walls, openings, annotations, layers, setRemoteDocument]);
 
   const [selection, setSelection] = useState<{
-    kind: "none" | "room" | "sticker" | "wall" | "mixed";
+    kind:
+      | "none"
+      | "room"
+      | "sticker"
+      | "wall"
+      | "opening"
+      | "annotation"
+      | "mixed";
     ids: string[];
   }>({ kind: "none", ids: [] });
 
@@ -136,8 +203,37 @@ export function FloorPlanEditorShell({
     });
   };
 
+  const createRoomPolygon = (points: { x: number; y: number }[]) => {
+    // Compute bounding rect so the room also has the sticker-style
+    // metadata (move/resize/rotate handles target the bbox). The server
+    // accepts polygon + rect together — rect stays a projection of the
+    // shape the beginner-mode UI can still grab.
+    if (points.length < 3) return;
+    const xs = points.map((p) => p.x);
+    const ys = points.map((p) => p.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    onCreateRoom({
+      name: `Room ${rooms.length + 1}`,
+      polygon: points,
+      x: minX,
+      y: minY,
+      width: Math.max(0.02, maxX - minX),
+      height: Math.max(0.02, maxY - minY),
+      rotation: 0,
+    });
+  };
+
   const handleSelection = (
-    kind: "room" | "sticker" | "wall" | "none",
+    kind:
+      | "room"
+      | "sticker"
+      | "wall"
+      | "opening"
+      | "annotation"
+      | "none",
     ids: string[]
   ) => {
     setSelection({ kind, ids });
@@ -251,6 +347,7 @@ export function FloorPlanEditorShell({
           rooms={rooms}
           stickers={stickers}
           onCreateRoomRect={createRoomRect}
+          onCreateRoomPolygon={createRoomPolygon}
           onUpdateRoom={onUpdateRoom}
           onDeleteRooms={(ids) => ids.forEach((id) => onDeleteRoom(id))}
           onCreateSticker={onCreateSticker}

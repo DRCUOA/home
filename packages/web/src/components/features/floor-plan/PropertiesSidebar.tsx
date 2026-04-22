@@ -39,7 +39,14 @@ import { cn } from "@/lib/cn";
 import { formatDimension } from "@/lib/floor-plan/coords";
 
 interface Props {
-  selectedKind: "none" | "room" | "sticker" | "wall" | "mixed";
+  selectedKind:
+    | "none"
+    | "room"
+    | "sticker"
+    | "wall"
+    | "opening"
+    | "annotation"
+    | "mixed";
   selectedIds: string[];
   rooms: MoveRoom[];
   stickers: MoveSticker[];

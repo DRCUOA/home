@@ -14,7 +14,26 @@ import {
   createMoveStickerSchema,
   updateMoveStickerSchema,
   assignItemsRoomSchema,
+  createMoveWallSchema,
+  updateMoveWallSchema,
+  createMoveOpeningSchema,
+  updateMoveOpeningSchema,
+  createMoveAnnotationSchema,
+  updateMoveAnnotationSchema,
+  createMoveLayerSchema,
+  updateMoveLayerSchema,
 } from "@hcc/shared";
+
+/** Default layer seed — applied the first time the client GETs the layer
+ *  list for a move that has no layer rows yet. Mirrors
+ *  FLOOR_PLAN_DEFAULT_LAYERS on the client so ids align. */
+const DEFAULT_LAYER_SEED = [
+  { id: "walls", name: "Walls", visible: true, locked: false, sort_order: 10 },
+  { id: "furniture", name: "Furniture", visible: true, locked: false, sort_order: 20 },
+  { id: "annotations", name: "Annotations", visible: true, locked: false, sort_order: 30 },
+  { id: "electrical", name: "Electrical", visible: false, locked: false, sort_order: 40 },
+  { id: "plumbing", name: "Plumbing", visible: false, locked: false, sort_order: 50 },
+] as const;
 
 /**
  * Guard: every write goes through the user's own moves. We verify
@@ -465,6 +484,370 @@ export default async function movingRoutes(app: FastifyInstance) {
     const [row] = await db
       .delete(schema.moveStickers)
       .where(eq(schema.moveStickers.id, id))
+      .returning();
+    return { data: row };
+  });
+
+  /* ---------- Move Layers (floor plan designer, phase 2) ---------- */
+
+  // List + auto-seed. Layers are per-move (not per-side) — seeded the
+  // first time the editor asks for them so existing moves created before
+  // phase 2 don't need a backfill migration.
+  app.get("/api/v1/moves/:moveId/layers", async (req, reply) => {
+    const { moveId } = req.params as { moveId: string };
+    if (!(await assertOwnsMove(req.userId, moveId))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    let rows = await db
+      .select()
+      .from(schema.moveLayers)
+      .where(eq(schema.moveLayers.move_id, moveId));
+    if (rows.length === 0) {
+      rows = await db
+        .insert(schema.moveLayers)
+        .values(
+          DEFAULT_LAYER_SEED.map((l) => ({
+            id: l.id,
+            move_id: moveId,
+            name: l.name,
+            visible: l.visible,
+            locked: l.locked,
+            sort_order: l.sort_order,
+          }))
+        )
+        .returning();
+    }
+    return { data: rows, total: rows.length };
+  });
+
+  app.post("/api/v1/move-layers", async (req, reply) => {
+    const body = createMoveLayerSchema.parse(req.body);
+    if (!(await assertOwnsMove(req.userId, body.move_id))) {
+      return reply.status(403).send({ error: "Move not owned by user" });
+    }
+    const [row] = await db
+      .insert(schema.moveLayers)
+      .values({
+        id: body.id,
+        move_id: body.move_id,
+        name: body.name,
+        visible: body.visible ?? true,
+        locked: body.locked ?? false,
+        sort_order: body.sort_order ?? 0,
+      })
+      .returning();
+    return reply.status(201).send({ data: row });
+  });
+
+  app.patch("/api/v1/moves/:moveId/layers/:id", async (req, reply) => {
+    const { moveId, id } = req.params as { moveId: string; id: string };
+    if (!(await assertOwnsMove(req.userId, moveId))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    const body = updateMoveLayerSchema.parse(req.body);
+    const [row] = await db
+      .update(schema.moveLayers)
+      .set({ ...body, updated_at: new Date() })
+      .where(
+        and(
+          eq(schema.moveLayers.move_id, moveId),
+          eq(schema.moveLayers.id, id)
+        )
+      )
+      .returning();
+    if (!row) return reply.status(404).send({ error: "Not Found" });
+    return { data: row };
+  });
+
+  app.delete("/api/v1/moves/:moveId/layers/:id", async (req, reply) => {
+    const { moveId, id } = req.params as { moveId: string; id: string };
+    if (!(await assertOwnsMove(req.userId, moveId))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    // Refuse to delete the last layer — editor needs at least one.
+    const remaining = await db
+      .select({ id: schema.moveLayers.id })
+      .from(schema.moveLayers)
+      .where(eq(schema.moveLayers.move_id, moveId));
+    if (remaining.length <= 1) {
+      return reply.status(409).send({ error: "Cannot delete the last layer" });
+    }
+    const [row] = await db
+      .delete(schema.moveLayers)
+      .where(
+        and(
+          eq(schema.moveLayers.move_id, moveId),
+          eq(schema.moveLayers.id, id)
+        )
+      )
+      .returning();
+    if (!row) return reply.status(404).send({ error: "Not Found" });
+    return { data: row };
+  });
+
+  /* ---------- Move Walls ---------- */
+
+  app.get("/api/v1/moves/:moveId/walls", async (req, reply) => {
+    const { moveId } = req.params as { moveId: string };
+    if (!(await assertOwnsMove(req.userId, moveId))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    const rows = await db
+      .select()
+      .from(schema.moveWalls)
+      .where(eq(schema.moveWalls.move_id, moveId));
+    return { data: rows, total: rows.length };
+  });
+
+  app.post("/api/v1/move-walls", async (req, reply) => {
+    const body = createMoveWallSchema.parse(req.body);
+    if (!(await assertOwnsMove(req.userId, body.move_id))) {
+      return reply.status(403).send({ error: "Move not owned by user" });
+    }
+    const [row] = await db
+      .insert(schema.moveWalls)
+      .values({
+        move_id: body.move_id,
+        side: body.side,
+        x1: body.x1,
+        y1: body.y1,
+        x2: body.x2,
+        y2: body.y2,
+        thickness: body.thickness ?? 0.012,
+        line_style: body.line_style ?? "solid",
+        color: body.color ?? "#0f172a",
+        layer_id: body.layer_id ?? "walls",
+        locked: body.locked ?? false,
+        hidden: body.hidden ?? false,
+        label: body.label,
+        sort_order: body.sort_order ?? 0,
+      })
+      .returning();
+    return reply.status(201).send({ data: row });
+  });
+
+  app.patch("/api/v1/move-walls/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = updateMoveWallSchema.parse(req.body);
+    const [existing] = await db
+      .select()
+      .from(schema.moveWalls)
+      .where(eq(schema.moveWalls.id, id))
+      .limit(1);
+    if (!existing) return reply.status(404).send({ error: "Not Found" });
+    if (!(await assertOwnsMove(req.userId, existing.move_id))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    const [row] = await db
+      .update(schema.moveWalls)
+      .set({ ...body, updated_at: new Date() })
+      .where(eq(schema.moveWalls.id, id))
+      .returning();
+    return { data: row };
+  });
+
+  app.delete("/api/v1/move-walls/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const [existing] = await db
+      .select()
+      .from(schema.moveWalls)
+      .where(eq(schema.moveWalls.id, id))
+      .limit(1);
+    if (!existing) return reply.status(404).send({ error: "Not Found" });
+    if (!(await assertOwnsMove(req.userId, existing.move_id))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    // DB cascade drops attached openings; nothing extra to do here.
+    const [row] = await db
+      .delete(schema.moveWalls)
+      .where(eq(schema.moveWalls.id, id))
+      .returning();
+    return { data: row };
+  });
+
+  /* ---------- Move Openings (doors / windows) ---------- */
+
+  app.get("/api/v1/moves/:moveId/openings", async (req, reply) => {
+    const { moveId } = req.params as { moveId: string };
+    if (!(await assertOwnsMove(req.userId, moveId))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    const rows = await db
+      .select()
+      .from(schema.moveOpenings)
+      .where(eq(schema.moveOpenings.move_id, moveId));
+    return { data: rows, total: rows.length };
+  });
+
+  app.post("/api/v1/move-openings", async (req, reply) => {
+    const body = createMoveOpeningSchema.parse(req.body);
+    if (!(await assertOwnsMove(req.userId, body.move_id))) {
+      return reply.status(403).send({ error: "Move not owned by user" });
+    }
+    // Guard: wall must belong to the same move + side.
+    const [wall] = await db
+      .select({
+        id: schema.moveWalls.id,
+        move_id: schema.moveWalls.move_id,
+        side: schema.moveWalls.side,
+      })
+      .from(schema.moveWalls)
+      .where(eq(schema.moveWalls.id, body.wall_id))
+      .limit(1);
+    if (!wall || wall.move_id !== body.move_id || wall.side !== body.side) {
+      return reply.status(400).send({ error: "wall_id does not belong to move/side" });
+    }
+    const [row] = await db
+      .insert(schema.moveOpenings)
+      .values({
+        move_id: body.move_id,
+        side: body.side,
+        wall_id: body.wall_id,
+        kind: body.kind,
+        t: body.t ?? 0.5,
+        width: body.width ?? 0.15,
+        swing: body.swing ?? (body.kind === "window" ? "none" : "right"),
+        layer_id: body.layer_id ?? "walls",
+        locked: body.locked ?? false,
+        hidden: body.hidden ?? false,
+        label: body.label,
+        sort_order: body.sort_order ?? 0,
+      })
+      .returning();
+    return reply.status(201).send({ data: row });
+  });
+
+  app.patch("/api/v1/move-openings/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = updateMoveOpeningSchema.parse(req.body);
+    const [existing] = await db
+      .select()
+      .from(schema.moveOpenings)
+      .where(eq(schema.moveOpenings.id, id))
+      .limit(1);
+    if (!existing) return reply.status(404).send({ error: "Not Found" });
+    if (!(await assertOwnsMove(req.userId, existing.move_id))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    // If wall_id changes, make sure the new wall is on the same move+side.
+    if (body.wall_id && body.wall_id !== existing.wall_id) {
+      const [wall] = await db
+        .select({
+          id: schema.moveWalls.id,
+          move_id: schema.moveWalls.move_id,
+          side: schema.moveWalls.side,
+        })
+        .from(schema.moveWalls)
+        .where(eq(schema.moveWalls.id, body.wall_id))
+        .limit(1);
+      if (!wall || wall.move_id !== existing.move_id || wall.side !== existing.side) {
+        return reply.status(400).send({ error: "wall_id mismatch" });
+      }
+    }
+    const [row] = await db
+      .update(schema.moveOpenings)
+      .set({ ...body, updated_at: new Date() })
+      .where(eq(schema.moveOpenings.id, id))
+      .returning();
+    return { data: row };
+  });
+
+  app.delete("/api/v1/move-openings/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const [existing] = await db
+      .select()
+      .from(schema.moveOpenings)
+      .where(eq(schema.moveOpenings.id, id))
+      .limit(1);
+    if (!existing) return reply.status(404).send({ error: "Not Found" });
+    if (!(await assertOwnsMove(req.userId, existing.move_id))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    const [row] = await db
+      .delete(schema.moveOpenings)
+      .where(eq(schema.moveOpenings.id, id))
+      .returning();
+    return { data: row };
+  });
+
+  /* ---------- Move Annotations ---------- */
+
+  app.get("/api/v1/moves/:moveId/annotations", async (req, reply) => {
+    const { moveId } = req.params as { moveId: string };
+    if (!(await assertOwnsMove(req.userId, moveId))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    const rows = await db
+      .select()
+      .from(schema.moveAnnotations)
+      .where(eq(schema.moveAnnotations.move_id, moveId));
+    return { data: rows, total: rows.length };
+  });
+
+  app.post("/api/v1/move-annotations", async (req, reply) => {
+    const body = createMoveAnnotationSchema.parse(req.body);
+    if (!(await assertOwnsMove(req.userId, body.move_id))) {
+      return reply.status(403).send({ error: "Move not owned by user" });
+    }
+    const [row] = await db
+      .insert(schema.moveAnnotations)
+      .values({
+        move_id: body.move_id,
+        side: body.side,
+        kind: body.kind,
+        x: body.x,
+        y: body.y,
+        width: body.width,
+        height: body.height,
+        x2: body.x2,
+        y2: body.y2,
+        text: body.text,
+        font_size_px: body.font_size_px ?? 12,
+        bold: body.bold ?? false,
+        color: body.color ?? "#0f172a",
+        layer_id: body.layer_id ?? "annotations",
+        locked: body.locked ?? false,
+        hidden: body.hidden ?? false,
+        sort_order: body.sort_order ?? 0,
+      })
+      .returning();
+    return reply.status(201).send({ data: row });
+  });
+
+  app.patch("/api/v1/move-annotations/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = updateMoveAnnotationSchema.parse(req.body);
+    const [existing] = await db
+      .select()
+      .from(schema.moveAnnotations)
+      .where(eq(schema.moveAnnotations.id, id))
+      .limit(1);
+    if (!existing) return reply.status(404).send({ error: "Not Found" });
+    if (!(await assertOwnsMove(req.userId, existing.move_id))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    const [row] = await db
+      .update(schema.moveAnnotations)
+      .set({ ...body, updated_at: new Date() })
+      .where(eq(schema.moveAnnotations.id, id))
+      .returning();
+    return { data: row };
+  });
+
+  app.delete("/api/v1/move-annotations/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const [existing] = await db
+      .select()
+      .from(schema.moveAnnotations)
+      .where(eq(schema.moveAnnotations.id, id))
+      .limit(1);
+    if (!existing) return reply.status(404).send({ error: "Not Found" });
+    if (!(await assertOwnsMove(req.userId, existing.move_id))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    const [row] = await db
+      .delete(schema.moveAnnotations)
+      .where(eq(schema.moveAnnotations.id, id))
       .returning();
     return { data: row };
   });

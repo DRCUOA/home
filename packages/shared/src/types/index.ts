@@ -354,6 +354,80 @@ export interface MoveSticker extends BaseEntity {
 }
 
 /* -------------------------------------------------------------------------
+ * Persisted floor-plan primitives (phase 2 — server rows).
+ *
+ * These mirror the move_layers / move_walls / move_openings / move_annotations
+ * tables. The client-facing FloorPlan* types further down are the *editor*
+ * view and keep camelCase for compatibility with phase-1 code; adapters in
+ * stores/floor-plan.ts translate between the two.
+ * ---------------------------------------------------------------------- */
+
+export interface MoveLayer {
+  /** Stable string id — see move_layers.id. Does not share BaseEntity's
+   *  uuid id; layer is composite-keyed by (move_id, id). */
+  id: string;
+  move_id: string;
+  name: string;
+  visible: boolean;
+  locked: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MoveWall extends BaseEntity {
+  move_id: string;
+  side: "origin" | "destination";
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  thickness: number;
+  line_style: "solid" | "dashed" | "dotted";
+  color: string;
+  layer_id: string;
+  locked: boolean;
+  hidden: boolean;
+  label?: string | null;
+  sort_order: number;
+}
+
+export interface MoveOpening extends BaseEntity {
+  move_id: string;
+  side: "origin" | "destination";
+  wall_id: string;
+  kind: "door" | "door_double" | "sliding_door" | "garage_door" | "window";
+  t: number;
+  width: number;
+  swing: "left" | "right" | "none";
+  layer_id: string;
+  locked: boolean;
+  hidden: boolean;
+  label?: string | null;
+  sort_order: number;
+}
+
+export interface MoveAnnotation extends BaseEntity {
+  move_id: string;
+  side: "origin" | "destination";
+  kind: "label" | "note" | "callout" | "dimension" | "arrow";
+  x: number;
+  y: number;
+  width?: number | null;
+  height?: number | null;
+  x2?: number | null;
+  y2?: number | null;
+  text?: string | null;
+  font_size_px: number;
+  bold: boolean;
+  color: string;
+  layer_id: string;
+  locked: boolean;
+  hidden: boolean;
+  sort_order: number;
+}
+
+/* -------------------------------------------------------------------------
  * Floor Plan Designer (UI/UX refactor, Major 1)
  *
  * These types describe the extended client-side document that the new
@@ -494,6 +568,13 @@ export interface FloorPlanViewport {
   /** How many real-world meters the full canvas height represents. Used
    *  to convert normalized coords into shown dimensions. */
   realWorldHeightMeters: number;
+  /** Interior vs exterior measurement mode. Interior subtracts the
+   *  thickness of walls at a segment's endpoints so the reported length
+   *  is the usable inside dimension; exterior is the raw segment length
+   *  (default). Dimension annotations use this mode when they were drawn
+   *  with it, so toggling after the fact doesn't silently change saved
+   *  readings. */
+  measurementMode: "interior" | "exterior";
 }
 
 /** The full in-memory document the editor works on. Server-synced pieces

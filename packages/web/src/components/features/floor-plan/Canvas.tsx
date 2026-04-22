@@ -38,14 +38,23 @@ import { StickerGlyph } from "../sticker-icons";
 import { useFloorPlanStore } from "@/stores/floor-plan";
 import {
   autoJoinEndpoint,
+  computeAlignmentGuides,
   constrainAngle,
+  nearestWall,
   normalizeRect,
+  projectOntoWall,
   segmentLength,
   snapToFeatures,
   snapToGrid,
   type Point,
   type Rect,
 } from "@/lib/floor-plan/geometry";
+import {
+  clearanceBounds,
+  clearanceForKind,
+  rectsOverlap,
+  segmentCrossesRect,
+} from "@/lib/floor-plan/clearance";
 import {
   clientToNormalized,
   formatDimension,
@@ -67,6 +76,8 @@ interface Props {
   rooms: MoveRoom[];
   stickers: MoveSticker[];
   onCreateRoomRect: (r: { x: number; y: number; width: number; height: number }) => void;
+  /** Fires when a polygon-tool draft closes. Points are in 0..1. */
+  onCreateRoomPolygon: (points: { x: number; y: number }[]) => void;
   onUpdateRoom: (id: string, patch: Partial<MoveRoom>) => void;
   onDeleteRooms: (ids: string[]) => void;
   onCreateSticker: (partial: {
@@ -81,12 +92,31 @@ interface Props {
   onUpdateSticker: (id: string, patch: Partial<MoveSticker>) => void;
   onDeleteStickers: (ids: string[]) => void;
   /** Raise selection to parent so Properties panel can display. */
-  onSelectionChange: (kind: "room" | "sticker" | "wall" | "none", ids: string[]) => void;
+  onSelectionChange: (
+    kind: "room" | "sticker" | "wall" | "opening" | "annotation" | "none",
+    ids: string[]
+  ) => void;
 }
 
 const VIEWBOX = 1000;
 const AUTOJOIN = 0.02;
 const SNAP_THRESHOLD = 0.015;
+
+// "Default" stored colors that should track the active theme instead of being
+// drawn literally. When a wall / room / sticker has its color unset — or has
+// one of these historical default values — we render it with CSS
+// `currentColor`, which resolves to charcoal in light mode and off-white in
+// dark mode via a Tailwind text class on the SVG root. User-picked custom
+// colors pass through untouched so people's deliberate styling is preserved.
+const DEFAULT_WALL_COLOR = "#0f172a";
+const DEFAULT_ROOM_COLOR = "#8b5cf6";
+
+function outlineColor(stored: string | null | undefined, def: string): string {
+  if (!stored) return "currentColor";
+  const normalized = stored.toLowerCase();
+  if (normalized === def.toLowerCase()) return "currentColor";
+  return stored;
+}
 
 function roomRect(room: MoveRoom): RectLike {
   if (room.width && room.width > 0) {
@@ -123,6 +153,7 @@ export function FloorPlanCanvasInner({
   rooms,
   stickers,
   onCreateRoomRect,
+  onCreateRoomPolygon,
   onUpdateRoom,
   onDeleteRooms,
   onCreateSticker,
@@ -142,11 +173,18 @@ export function FloorPlanCanvasInner({
   const walls = useFloorPlanStore((s) => s.doc.walls);
   const addWall = useFloorPlanStore((s) => s.addWall);
   const deleteWalls = useFloorPlanStore((s) => s.deleteWalls);
+  const openings = useFloorPlanStore((s) => s.doc.openings);
+  const addOpening = useFloorPlanStore((s) => s.addOpening);
+  const deleteOpenings = useFloorPlanStore((s) => s.deleteOpenings);
+  const annotations = useFloorPlanStore((s) => s.doc.annotations);
+  const addAnnotation = useFloorPlanStore((s) => s.addAnnotation);
+  const deleteAnnotations = useFloorPlanStore((s) => s.deleteAnnotations);
   const selectedIds = useFloorPlanStore((s) => s.selectedIds);
   const selectionKind = useFloorPlanStore((s) => s.selectionKind);
   const select = useFloorPlanStore((s) => s.select);
   const clearSelection = useFloorPlanStore((s) => s.clearSelection);
   const layers = useFloorPlanStore((s) => s.doc.layers);
+  const styles = useFloorPlanStore((s) => s.doc.styles);
   const beginBatch = useFloorPlanStore((s) => s.beginBatch);
   const endBatch = useFloorPlanStore((s) => s.endBatch);
 
@@ -175,6 +213,67 @@ export function FloorPlanCanvasInner({
     for (const l of layers) m.set(l.id, l);
     return m;
   }, [layers]);
+
+  /** For each sticker that has clearance enabled, precompute the zone's
+   *  bounding rect + whether it conflicts with any other sticker, wall,
+   *  or room. The rendering layer below reads from this map. Computed in
+   *  a memo so we avoid recomputing per-sticker on every pointer move. */
+  const clearanceInfo = useMemo(() => {
+    const entries = new Map<
+      string,
+      {
+        zone: { x: number; y: number; width: number; height: number };
+        conflict: boolean;
+        conflictReason: string | null;
+      }
+    >();
+    // Collect the clearance rect for every sticker that opts in.
+    const zones: { id: string; rect: { x: number; y: number; width: number; height: number } }[] = [];
+    for (const s of stickers) {
+      const st = styles[s.id];
+      if (!st?.clearanceZone) continue;
+      const margins = clearanceForKind(s.kind as MoveStickerKind);
+      if (!margins) continue;
+      const zone = clearanceBounds(
+        { x: s.x, y: s.y, width: s.width, height: s.height, rotation: s.rotation },
+        margins
+      );
+      zones.push({ id: s.id, rect: zone });
+    }
+    for (const { id, rect } of zones) {
+      let conflict = false;
+      let reason: string | null = null;
+      // Zone-to-sticker overlap (excluding the owner).
+      for (const s of stickers) {
+        if (s.id === id) continue;
+        if (
+          rectsOverlap(rect, {
+            x: s.x,
+            y: s.y,
+            width: s.width,
+            height: s.height,
+          })
+        ) {
+          conflict = true;
+          reason = "Overlaps another object";
+          break;
+        }
+      }
+      // Zone-to-wall crossing (walls are line segments).
+      if (!conflict) {
+        for (const w of walls) {
+          if (w.hidden) continue;
+          if (segmentCrossesRect({ x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 }, rect)) {
+            conflict = true;
+            reason = "Blocked by wall";
+            break;
+          }
+        }
+      }
+      entries.set(id, { zone: rect, conflict, conflictReason: reason });
+    }
+    return entries;
+  }, [stickers, styles, walls]);
 
   /* ---------- pointer to normalized coords ---------- */
 
@@ -233,9 +332,25 @@ export function FloorPlanCanvasInner({
   const dragRef = useRef<DragKind>(null);
   const [marquee, setMarquee] = useState<Rect | null>(null);
   const [snapGuide, setSnapGuide] = useState<{ p: Point; kind: string } | null>(null);
+  // Opening-placement preview: the wall + t position the cursor would
+  // snap to when the door/window tool is active. Pure UI state — does not
+  // enter the undo stack until the user clicks to commit.
+  const [openingPreview, setOpeningPreview] = useState<
+    | { wallId: string; t: number; point: Point; kind: "door" | "window" }
+    | null
+  >(null);
+  // Smart-alignment guide lines rendered during move/resize drags. Each
+  // entry is either an x (vertical guide) or y (horizontal guide) in 0..1.
+  const [alignGuides, setAlignGuides] = useState<{
+    vertical: number[];
+    horizontal: number[];
+  } | null>(null);
 
   // Selection helpers.
-  const selectOne = (kind: "room" | "sticker" | "wall", id: string) => {
+  const selectOne = (
+    kind: "room" | "sticker" | "wall" | "opening" | "annotation",
+    id: string
+  ) => {
     select([id], kind);
     onSelectionChange(kind, [id]);
   };
@@ -315,6 +430,98 @@ export function FloorPlanCanvasInner({
       setDraft({ type: "room-rect", x: snapped.x, y: snapped.y, width: 0, height: 0 });
       return;
     }
+    if (activeTool === "door" || activeTool === "window") {
+      // Place an opening on the nearest wall. Recompute — the hover-move
+      // handler might not have fired yet (first click after tool switch).
+      const hit = nearestWall(
+        p,
+        walls.map((w) => ({ id: w.id, x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 })),
+        0.05
+      );
+      if (!hit) return;
+      const { t } = projectOntoWall(p, {
+        x1: hit.x1,
+        y1: hit.y1,
+        x2: hit.x2,
+        y2: hit.y2,
+      });
+      const kind = activeTool === "door" ? "door" : "window";
+      // Opening width defaults: doors 0.08 (≈80 cm), windows 0.10.
+      // Expressed as a fraction of wall length so it follows resizing.
+      const wallLen = segmentLength({
+        x1: hit.x1,
+        y1: hit.y1,
+        x2: hit.x2,
+        y2: hit.y2,
+      });
+      const absWidth = kind === "door" ? 0.08 : 0.1;
+      const widthFraction = wallLen > 0 ? Math.min(0.9, absWidth / wallLen) : 0.25;
+      addOpening({
+        wallId: hit.id,
+        kind,
+        t,
+        width: widthFraction,
+        swing: kind === "door" ? "right" : "none",
+        layerId: kind === "door" ? "walls" : "walls",
+        locked: false,
+        hidden: false,
+      });
+      // Stay in tool to allow multi-placement — user can hit Esc / switch.
+      return;
+    }
+    if (activeTool === "dimension") {
+      const snapped = snap(p).point;
+      if (draft?.type === "dimension" && draft.placed) {
+        // Second click — commit the dimension as an annotation.
+        addAnnotation({
+          kind: "dimension",
+          x: draft.x1,
+          y: draft.y1,
+          x2: snapped.x,
+          y2: snapped.y,
+          fontSizePx: 12,
+          bold: false,
+          color: "#0ea5e9",
+          layerId: "annotations",
+          locked: false,
+          hidden: false,
+        });
+        setDraft(null);
+        // Stay in dimension mode so users can drop another.
+      } else {
+        setDraft({
+          type: "dimension",
+          x1: snapped.x,
+          y1: snapped.y,
+          x2: snapped.x,
+          y2: snapped.y,
+          placed: true,
+        });
+      }
+      return;
+    }
+    if (activeTool === "room-polygon") {
+      const snapped = snap(p).point;
+      // First click starts the polygon; subsequent clicks append a vertex.
+      // Double-click (below, detached) closes. Enter (keydown) also closes.
+      if (draft?.type === "room-polygon") {
+        // If near the first vertex, close the polygon.
+        const first = draft.points[0];
+        const dx = snapped.x - first.x;
+        const dy = snapped.y - first.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (draft.points.length >= 3 && dist < 0.02) {
+          onCreateRoomPolygon(draft.points);
+          setDraft(null);
+          setTool("select");
+          return;
+        }
+        setDraft({ type: "room-polygon", points: [...draft.points, snapped] });
+      } else {
+        setDraft({ type: "room-polygon", points: [snapped] });
+      }
+      return;
+    }
     if (activeTool === "select") {
       // Start a marquee.
       dragRef.current = { type: "marquee", startMouse: p };
@@ -347,9 +554,36 @@ export function FloorPlanCanvasInner({
         const snapped = snap(p).point;
         const dx = snapped.x - drag.startMouse.x;
         const dy = snapped.y - drag.startMouse.y;
-        const patch = {
+        // Proposed post-move bounding rect; used to pull smart-alignment
+        // guides against the other objects.
+        const proposed: Rect = {
           x: clampSafe(drag.startRect.x + dx),
           y: clampSafe(drag.startRect.y + dy),
+          width: drag.startRect.width,
+          height: drag.startRect.height,
+        };
+        const others: Rect[] = [];
+        for (const s of stickers) {
+          if (drag.targetKind === "sticker" && s.id === drag.id) continue;
+          others.push({ x: s.x, y: s.y, width: s.width, height: s.height });
+        }
+        for (const r of rooms) {
+          if (drag.targetKind === "room" && r.id === drag.id) continue;
+          const rc = roomRect(r);
+          others.push({ x: rc.x, y: rc.y, width: rc.width, height: rc.height });
+        }
+        const guides = computeAlignmentGuides(proposed, others, 0.012);
+        if (guides.vertical.length > 0 || guides.horizontal.length > 0) {
+          setAlignGuides({
+            vertical: guides.vertical.map((v) => v.x),
+            horizontal: guides.horizontal.map((h) => h.y),
+          });
+        } else {
+          setAlignGuides(null);
+        }
+        const patch = {
+          x: clampSafe(proposed.x + guides.snapDeltaX),
+          y: clampSafe(proposed.y + guides.snapDeltaY),
         };
         if (drag.targetKind === "sticker")
           onUpdateSticker(drag.id, patch as Partial<MoveSticker>);
@@ -400,6 +634,43 @@ export function FloorPlanCanvasInner({
       });
       return;
     }
+    if (draft?.type === "dimension" && draft.placed) {
+      let end = snap(p).point;
+      if (e.shiftKey) end = constrainAngle({ x: draft.x1, y: draft.y1 }, end, 15);
+      setDraft({ ...draft, x2: end.x, y2: end.y });
+      return;
+    }
+
+    // Door/window hover preview — snap the cursor to the nearest wall and
+    // show a ghost gap at that location. Using nearestWall so a pointer can
+    // be slightly off the wall and still lock on; threshold is generous
+    // because walls are thin.
+    if (activeTool === "door" || activeTool === "window") {
+      const hit = nearestWall(
+        p,
+        walls.map((w) => ({ id: w.id, x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 })),
+        0.05
+      );
+      if (hit) {
+        const { t, point } = projectOntoWall(p, {
+          x1: hit.x1,
+          y1: hit.y1,
+          x2: hit.x2,
+          y2: hit.y2,
+        });
+        setOpeningPreview({
+          wallId: hit.id,
+          t,
+          point,
+          kind: activeTool === "door" ? "door" : "window",
+        });
+      } else {
+        setOpeningPreview(null);
+      }
+      return;
+    }
+    // Any other tool → clear a stale preview.
+    if (openingPreview) setOpeningPreview(null);
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
@@ -440,6 +711,7 @@ export function FloorPlanCanvasInner({
 
     if (drag?.type === "move" || drag?.type === "resize" || drag?.type === "rotate") {
       endBatch();
+      setAlignGuides(null);
     }
 
     dragRef.current = null;
@@ -572,38 +844,97 @@ export function FloorPlanCanvasInner({
       if (e.key === "Escape") {
         if (draft) setDraft(null);
         else clearSel();
+      } else if (e.key === "Enter") {
+        // Commit an in-progress polygon draft with at least 3 vertices.
+        if (draft?.type === "room-polygon" && draft.points.length >= 3) {
+          e.preventDefault();
+          onCreateRoomPolygon(draft.points);
+          setDraft(null);
+          setTool("select");
+        }
       } else if (e.key === "Delete" || e.key === "Backspace") {
         if (selectionKind === "sticker") onDeleteStickers([...selectedIds]);
         else if (selectionKind === "room") onDeleteRooms([...selectedIds]);
         else if (selectionKind === "wall") deleteWalls([...selectedIds]);
+        else if (selectionKind === "opening") deleteOpenings([...selectedIds]);
+        else if (selectionKind === "annotation")
+          deleteAnnotations([...selectedIds]);
         clearSel();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [draft, selectedIds, selectionKind, onDeleteStickers, onDeleteRooms, deleteWalls, clearSel, setDraft]);
+  }, [
+    draft,
+    selectedIds,
+    selectionKind,
+    onDeleteStickers,
+    onDeleteRooms,
+    deleteWalls,
+    deleteOpenings,
+    deleteAnnotations,
+    clearSel,
+    setDraft,
+    onCreateRoomPolygon,
+    setTool,
+  ]);
 
   /* ---------- grid backdrop ---------- */
   const gridPx = viewport.gridSizePx * viewport.zoom;
-  const gridStyle: React.CSSProperties = viewport.showGrid
+  // Build a dashed-grid background as a tiled SVG data URI. Placing the
+  // horizontal + vertical strokes at the top + left edges of each cell
+  // means the pattern tiles into a continuous grid. We stroke at 1px
+  // with a short dash so the lines read as "thin dashed" at any zoom.
+  const buildGridBg = (
+    color: string,
+    cellPx: number,
+    dash: string,
+    opacity: number
+  ): string => {
+    const size = Math.max(2, cellPx);
+    const svg =
+      `<svg xmlns='http://www.w3.org/2000/svg' width='${size}' height='${size}'>` +
+      `<path d='M ${size} 0 L 0 0 L 0 ${size}' fill='none' stroke='${color}' stroke-width='1' stroke-dasharray='${dash}' opacity='${opacity}'/>` +
+      `</svg>`;
+    return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
+  };
+  const gridShared: React.CSSProperties = viewport.showGrid
     ? {
-        backgroundImage:
-          "linear-gradient(to right, rgb(226 232 240 / 0.7) 1px, transparent 1px), linear-gradient(to bottom, rgb(226 232 240 / 0.7) 1px, transparent 1px)",
         backgroundSize: `${gridPx}px ${gridPx}px`,
         backgroundPosition: `${viewport.panX * size.width}px ${viewport.panY * size.height}px`,
       }
     : {};
+  // Light mode: charcoal dashed grid lines on an off-white field.
+  const lightGridStyle: React.CSSProperties = viewport.showGrid
+    ? { ...gridShared, backgroundImage: buildGridBg("#1f2937", gridPx, "3 4", 0.55) }
+    : {};
+  // Dark mode: soft, low-contrast slate-500 dashes.
+  const darkGridStyle: React.CSSProperties = viewport.showGrid
+    ? { ...gridShared, backgroundImage: buildGridBg("#94a3b8", gridPx, "3 4", 0.28) }
+    : {};
 
   /* ---------- render ---------- */
   const worldTransform = `translate(${viewport.panX * VIEWBOX} ${viewport.panY * VIEWBOX}) scale(${viewport.zoom})`;
+  // Inverse zoom factor — UI chrome rendered inside the world <g> multiplies
+  // its pixel-sized dimensions by `z` so it stays a constant visual size
+  // regardless of zoom level. Content (walls, rooms, stickers, opening cuts,
+  // clearance fills) intentionally scales with the world.
+  const z = 1 / Math.max(viewport.zoom, 0.01);
+  const da = (a: number, b: number) => `${a * z} ${b * z}`;
 
   return (
     <div
       ref={containerRef}
       className="flex-1 min-h-0 relative bg-slate-100 dark:bg-slate-950 overflow-hidden"
     >
-      {/* Grid backdrop */}
-      <div className="absolute inset-0 bg-white dark:bg-slate-900" style={gridStyle} />
+      {/* Grid backdrop — two stacked divs, toggled by the dark-mode class.
+          Light: charcoal dashes on off-white. Dark: soft grey dashes on a
+          deep slate panel. */}
+      <div className="absolute inset-0 bg-stone-50 dark:hidden" style={lightGridStyle} />
+      <div
+        className="absolute inset-0 hidden dark:block bg-slate-900"
+        style={darkGridStyle}
+      />
 
       {/* Image underlay */}
       {imageUrl && (
@@ -629,13 +960,30 @@ export function FloorPlanCanvasInner({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
+        onDoubleClick={() => {
+          // Double-click closes an in-progress polygon (convention shared
+          // with Figma / Illustrator's pen tool).
+          if (draft?.type === "room-polygon" && draft.points.length >= 3) {
+            onCreateRoomPolygon(draft.points);
+            setDraft(null);
+            setTool("select");
+          }
+        }}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
         className={cn(
           "absolute inset-0 w-full h-full touch-none",
           activeTool === "pan" || spaceDown ? "cursor-grab" : "",
           activeTool === "wall" ? "cursor-crosshair" : "",
-          activeTool === "room-rect" ? "cursor-crosshair" : ""
+          activeTool === "room-rect" ? "cursor-crosshair" : "",
+          activeTool === "room-polygon" ? "cursor-crosshair" : "",
+          activeTool === "door" || activeTool === "window"
+            ? "cursor-crosshair"
+            : "",
+          // Theme-aware default outline color for shapes whose color isn't
+          // customized. `currentColor` in SVG strokes/fills resolves to this
+          // text color, so charcoal on light / off-white on dark flips cleanly.
+          "text-slate-800 dark:text-stone-200"
         )}
       >
         <g transform={worldTransform}>
@@ -658,7 +1006,7 @@ export function FloorPlanCanvasInner({
                   y1={w.y1 * VIEWBOX}
                   x2={w.x2 * VIEWBOX}
                   y2={w.y2 * VIEWBOX}
-                  stroke={selected ? "#0ea5e9" : w.color}
+                  stroke={selected ? "#0ea5e9" : outlineColor(w.color, DEFAULT_WALL_COLOR)}
                   strokeWidth={strokePx}
                   strokeDasharray={dash}
                   strokeLinecap="round"
@@ -671,11 +1019,140 @@ export function FloorPlanCanvasInner({
               );
             })}
 
+          {/* Openings (doors/windows): rendered as wall cuts + swing arcs */}
+          {openings
+            .filter((o) => !o.hidden && (layerById.get(o.layerId)?.visible ?? true))
+            .map((o) => {
+              const wall = walls.find((w) => w.id === o.wallId);
+              if (!wall) return null;
+              const dx = wall.x2 - wall.x1;
+              const dy = wall.y2 - wall.y1;
+              const wallLen = Math.hypot(dx, dy);
+              if (wallLen === 0) return null;
+              const cx = wall.x1 + dx * o.t;
+              const cy = wall.y1 + dy * o.t;
+              // Opening half-width along the wall (in normalized units).
+              const halfW = (o.width * wallLen) / 2;
+              // Unit vectors along + perpendicular to the wall.
+              const ux = dx / wallLen;
+              const uy = dy / wallLen;
+              const nx = -uy;
+              const ny = ux;
+              const ax = cx - ux * halfW;
+              const ay = cy - uy * halfW;
+              const bx = cx + ux * halfW;
+              const by = cy + uy * halfW;
+              const thickness = wall.thickness;
+              // Opening footprint — a rectangle straddling the wall.
+              const corners: [number, number][] = [
+                [ax + nx * (thickness / 2), ay + ny * (thickness / 2)],
+                [bx + nx * (thickness / 2), by + ny * (thickness / 2)],
+                [bx - nx * (thickness / 2), by - ny * (thickness / 2)],
+                [ax - nx * (thickness / 2), ay - ny * (thickness / 2)],
+              ];
+              const selected =
+                selectionKind === "opening" && selectedIds.has(o.id);
+              const isWindow = o.kind === "window";
+              const isDoor =
+                o.kind === "door" ||
+                o.kind === "door_double" ||
+                o.kind === "sliding_door" ||
+                o.kind === "garage_door";
+              const outline = selected
+                ? "#0ea5e9"
+                : outlineColor(wall.color, DEFAULT_WALL_COLOR);
+              // Door swing arc: quarter-circle from the hinge.
+              let arcPath: string | null = null;
+              if (isDoor && o.swing && o.swing !== "none") {
+                const openingWidth = o.width * wallLen;
+                // Hinge is at one end of the opening; swing determines
+                // whether it's the start (a) or end (b) and which side of
+                // the wall the arc sits on.
+                const hinge = o.swing === "left" ? { x: ax, y: ay } : { x: bx, y: by };
+                const far = o.swing === "left" ? { x: bx, y: by } : { x: ax, y: ay };
+                // Door panel endpoint — rotate `far` 90° around `hinge`
+                // so the arc points "inward" (perpendicular to the wall).
+                const vx = far.x - hinge.x;
+                const vy = far.y - hinge.y;
+                // Rotate +90° (perpendicular into +n direction).
+                const pEndX = hinge.x - vy;
+                const pEndY = hinge.y + vx;
+                arcPath =
+                  `M ${hinge.x * VIEWBOX} ${hinge.y * VIEWBOX} ` +
+                  `L ${far.x * VIEWBOX} ${far.y * VIEWBOX} ` +
+                  `A ${openingWidth * VIEWBOX} ${openingWidth * VIEWBOX} 0 0 ${o.swing === "left" ? 0 : 1} ${pEndX * VIEWBOX} ${pEndY * VIEWBOX} ` +
+                  `L ${hinge.x * VIEWBOX} ${hinge.y * VIEWBOX}`;
+              }
+              return (
+                <g
+                  key={o.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    selectOne("opening", o.id);
+                  }}
+                  style={{ cursor: "pointer" }}
+                >
+                  {/* Cut out the wall — opaque background matching the
+                      canvas, sized to the opening's wall footprint. */}
+                  <polygon
+                    points={corners
+                      .map((c) => `${c[0] * VIEWBOX},${c[1] * VIEWBOX}`)
+                      .join(" ")}
+                    fill="white"
+                    className="dark:fill-slate-900"
+                  />
+                  {/* Window glazing — a slim line through the middle. */}
+                  {isWindow && (
+                    <line
+                      x1={ax * VIEWBOX}
+                      y1={ay * VIEWBOX}
+                      x2={bx * VIEWBOX}
+                      y2={by * VIEWBOX}
+                      stroke={outline}
+                      strokeWidth={Math.max(2, thickness * VIEWBOX * 0.3)}
+                    />
+                  )}
+                  {/* Opening jambs — short perpendicular strokes at the
+                      opening's two ends, so the wall visually terminates. */}
+                  <line
+                    x1={(ax + nx * (thickness / 2)) * VIEWBOX}
+                    y1={(ay + ny * (thickness / 2)) * VIEWBOX}
+                    x2={(ax - nx * (thickness / 2)) * VIEWBOX}
+                    y2={(ay - ny * (thickness / 2)) * VIEWBOX}
+                    stroke={outline}
+                    strokeWidth={Math.max(1.5, thickness * VIEWBOX * 0.4)}
+                  />
+                  <line
+                    x1={(bx + nx * (thickness / 2)) * VIEWBOX}
+                    y1={(by + ny * (thickness / 2)) * VIEWBOX}
+                    x2={(bx - nx * (thickness / 2)) * VIEWBOX}
+                    y2={(by - ny * (thickness / 2)) * VIEWBOX}
+                    stroke={outline}
+                    strokeWidth={Math.max(1.5, thickness * VIEWBOX * 0.4)}
+                  />
+                  {/* Door swing arc. */}
+                  {arcPath && (
+                    <path
+                      d={arcPath}
+                      fill={outline}
+                      fillOpacity={selected ? 0.18 : 0.08}
+                      stroke={outline}
+                      strokeWidth={1.5}
+                    />
+                  )}
+                </g>
+              );
+            })}
+
           {/* Rooms */}
           {rooms.map((room) => {
             const rect = roomRect(room);
             const isSelected = selectionKind === "room" && selectedIds.has(room.id);
-            const color = room.color || "#8b5cf6";
+            // Keep the soft purple wash for rooms that haven't been
+            // customized — it's the category tint that says "this is a room"
+            // — but let the *outline* and label track the theme.
+            const fillColor = room.color || DEFAULT_ROOM_COLOR;
+            const strokeColor = outlineColor(room.color, DEFAULT_ROOM_COLOR);
             return (
               <g
                 key={room.id}
@@ -686,9 +1163,9 @@ export function FloorPlanCanvasInner({
                   y={0}
                   width={rect.width * VIEWBOX}
                   height={rect.height * VIEWBOX}
-                  fill={color}
+                  fill={fillColor}
                   fillOpacity={isSelected ? 0.22 : 0.14}
-                  stroke={color}
+                  stroke={strokeColor}
                   strokeOpacity={0.9}
                   strokeWidth={isSelected ? 4 : 3}
                   strokeDasharray={isSelected ? undefined : "6 4"}
@@ -702,11 +1179,10 @@ export function FloorPlanCanvasInner({
                   y={rect.height * 500}
                   textAnchor="middle"
                   dominantBaseline="central"
-                  fill="#0f172a"
+                  className="fill-slate-800 dark:fill-stone-200 stroke-white dark:stroke-slate-900"
                   fontSize={Math.max(14, Math.min(30, rect.height * VIEWBOX * 0.15))}
                   fontWeight={700}
                   paintOrder="stroke"
-                  stroke="#ffffff"
                   strokeWidth={4}
                   style={{ pointerEvents: "none", userSelect: "none" }}
                 >
@@ -716,7 +1192,8 @@ export function FloorPlanCanvasInner({
                   <SelectionHandles
                     width={rect.width * VIEWBOX}
                     height={rect.height * VIEWBOX}
-                    color={color}
+                    color={strokeColor}
+                    zoom={viewport.zoom}
                     onResize={(corner, e) => beginResize(e, "room", rect, corner)}
                     onRotate={(e) => beginRotate(e, "room", rect)}
                   />
@@ -724,6 +1201,33 @@ export function FloorPlanCanvasInner({
               </g>
             );
           })}
+
+          {/* Clearance zones (rendered below stickers so the sticker
+              glyph remains on top). */}
+          {clearanceInfo.size > 0 && (
+            <g pointerEvents="none">
+              {Array.from(clearanceInfo.entries()).map(([id, info]) => {
+                const color = info.conflict ? "#dc2626" : "#16a34a";
+                return (
+                  <rect
+                    key={`clr-${id}`}
+                    x={info.zone.x * VIEWBOX}
+                    y={info.zone.y * VIEWBOX}
+                    width={info.zone.width * VIEWBOX}
+                    height={info.zone.height * VIEWBOX}
+                    fill={color}
+                    fillOpacity={info.conflict ? 0.12 : 0.06}
+                    stroke={color}
+                    strokeOpacity={0.75}
+                    strokeDasharray={da(4, 4)}
+                    strokeWidth={1.5 * z}
+                    rx={4 * z}
+                    ry={4 * z}
+                  />
+                );
+              })}
+            </g>
+          )}
 
           {/* Stickers */}
           {stickers.map((s) => {
@@ -748,8 +1252,8 @@ export function FloorPlanCanvasInner({
                   height={s.height * VIEWBOX}
                   fill="transparent"
                   stroke={isSelected ? "#3b82f6" : "transparent"}
-                  strokeWidth={2}
-                  strokeDasharray="4 4"
+                  strokeWidth={2 * z}
+                  strokeDasharray={da(4, 4)}
                   style={{ cursor: "move" }}
                   onPointerDown={(e) => beginMove(e, "sticker", rect)}
                 />
@@ -762,13 +1266,14 @@ export function FloorPlanCanvasInner({
                     style={{ pointerEvents: "none" }}
                   >
                     <div
+                      className={s.color ? undefined : "text-slate-800 dark:text-stone-200"}
                       style={{
                         width: "100%",
                         height: "100%",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
-                        color: s.color ?? "#0f172a",
+                        color: s.color ?? undefined,
                         fontSize: 18,
                         fontWeight: 700,
                         textAlign: "center",
@@ -791,9 +1296,8 @@ export function FloorPlanCanvasInner({
                     y={s.height * VIEWBOX + 16}
                     textAnchor="middle"
                     fontSize={14}
-                    fill="#334155"
+                    className="fill-slate-700 dark:fill-stone-200 stroke-white dark:stroke-slate-900"
                     paintOrder="stroke"
-                    stroke="#ffffff"
                     strokeWidth={3}
                     style={{ pointerEvents: "none" }}
                   >
@@ -805,13 +1309,151 @@ export function FloorPlanCanvasInner({
                     width={s.width * VIEWBOX}
                     height={s.height * VIEWBOX}
                     color="#3b82f6"
+                    zoom={viewport.zoom}
                     onResize={(corner, e) => beginResize(e, "sticker", rect, corner)}
                     onRotate={(e) => beginRotate(e, "sticker", rect)}
                   />
                 )}
+                {/* Clearance conflict warning badge — drawn inside the
+                    rotated group so it tracks the sticker. Sized in
+                    viewBox units divided by zoom so it stays constant on
+                    screen. */}
+                {clearanceInfo.get(s.id)?.conflict && (
+                  <g
+                    transform={`translate(${s.width * VIEWBOX - 6 * z}, ${6 * z})`}
+                    style={{ pointerEvents: "none" }}
+                  >
+                    <title>
+                      {clearanceInfo.get(s.id)?.conflictReason ?? "Placement conflict"}
+                    </title>
+                    <circle
+                      r={10 * z}
+                      fill="#dc2626"
+                      stroke="#ffffff"
+                      strokeWidth={2 * z}
+                    />
+                    <text
+                      x={0}
+                      y={1 * z}
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      fontSize={13 * z}
+                      fontWeight={800}
+                      fill="#ffffff"
+                    >
+                      !
+                    </text>
+                  </g>
+                )}
               </g>
             );
           })}
+
+          {/* Annotations (labels, notes, callouts, arrows, dimensions) */}
+          {annotations
+            .filter(
+              (a) => !a.hidden && (layerById.get(a.layerId)?.visible ?? true)
+            )
+            .map((a) => {
+              const selected =
+                selectionKind === "annotation" && selectedIds.has(a.id);
+              if (
+                a.kind === "dimension" ||
+                a.kind === "arrow"
+              ) {
+                const x1 = a.x;
+                const y1 = a.y;
+                const x2 = a.x2 ?? a.x;
+                const y2 = a.y2 ?? a.y;
+                return (
+                  <g
+                    key={a.id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      selectOne("annotation", a.id);
+                    }}
+                    style={{ cursor: "pointer" }}
+                  >
+                    <line
+                      x1={x1 * VIEWBOX}
+                      y1={y1 * VIEWBOX}
+                      x2={x2 * VIEWBOX}
+                      y2={y2 * VIEWBOX}
+                      stroke={selected ? "#0ea5e9" : a.color}
+                      strokeWidth={2 * z}
+                    />
+                    {/* Extension ticks for dimension lines */}
+                    {a.kind === "dimension" && (
+                      <>
+                        <circle
+                          cx={x1 * VIEWBOX}
+                          cy={y1 * VIEWBOX}
+                          r={3 * z}
+                          fill={selected ? "#0ea5e9" : a.color}
+                        />
+                        <circle
+                          cx={x2 * VIEWBOX}
+                          cy={y2 * VIEWBOX}
+                          r={3 * z}
+                          fill={selected ? "#0ea5e9" : a.color}
+                        />
+                        <DimensionLabel x1={x1} y1={y1} x2={x2} y2={y2} zoom={viewport.zoom} />
+                      </>
+                    )}
+                    {/* Arrow head for arrow annotations */}
+                    {a.kind === "arrow" && (
+                      <ArrowHead
+                        x1={x1}
+                        y1={y1}
+                        x2={x2}
+                        y2={y2}
+                        color={a.color}
+                        zoom={viewport.zoom}
+                      />
+                    )}
+                  </g>
+                );
+              }
+              // label/note/callout: render the text at (x,y), width+height
+              // as a background box. Minimal — each kind gets a shared
+              // treatment for now; richer styling lives in the style panel.
+              const bgW = (a.width ?? 0.18) * VIEWBOX;
+              const bgH = (a.height ?? 0.05) * VIEWBOX;
+              return (
+                <g
+                  key={a.id}
+                  transform={`translate(${a.x * VIEWBOX}, ${a.y * VIEWBOX})`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    selectOne("annotation", a.id);
+                  }}
+                  style={{ cursor: "pointer" }}
+                >
+                  {a.kind === "callout" && (
+                    <rect
+                      width={bgW}
+                      height={bgH}
+                      rx={6}
+                      ry={6}
+                      fill="#fef3c7"
+                      stroke={selected ? "#0ea5e9" : a.color}
+                      strokeWidth={(selected ? 2.5 : 1.5) * z}
+                    />
+                  )}
+                  <text
+                    x={a.kind === "callout" ? bgW / 2 : 0}
+                    y={bgH > 0 ? bgH / 2 : 12}
+                    fontSize={a.fontSizePx}
+                    fontWeight={a.bold ? 700 : 400}
+                    fill={a.color}
+                    textAnchor={a.kind === "callout" ? "middle" : "start"}
+                    dominantBaseline="central"
+                  >
+                    {a.text ?? ""}
+                  </text>
+                </g>
+              );
+            })}
 
           {/* In-progress draft */}
           {draft?.type === "wall" && (
@@ -822,7 +1464,7 @@ export function FloorPlanCanvasInner({
                 x2={draft.x2 * VIEWBOX}
                 y2={draft.y2 * VIEWBOX}
                 stroke="#0ea5e9"
-                strokeWidth={8}
+                strokeWidth={8 * z}
                 strokeOpacity={0.6}
                 strokeLinecap="round"
               />
@@ -831,6 +1473,7 @@ export function FloorPlanCanvasInner({
                 y1={draft.y1}
                 x2={draft.x2}
                 y2={draft.y2}
+                zoom={viewport.zoom}
               />
             </g>
           )}
@@ -844,15 +1487,135 @@ export function FloorPlanCanvasInner({
                 fill="#0ea5e9"
                 fillOpacity={0.12}
                 stroke="#0ea5e9"
-                strokeDasharray="6 4"
-                strokeWidth={3}
+                strokeDasharray={da(6, 4)}
+                strokeWidth={3 * z}
               />
               <RectDimensions
                 x={Math.min(draft.x, draft.x + draft.width)}
                 y={Math.min(draft.y, draft.y + draft.height)}
                 w={Math.abs(draft.width)}
                 h={Math.abs(draft.height)}
+                zoom={viewport.zoom}
               />
+            </g>
+          )}
+          {draft?.type === "dimension" && draft.placed && (
+            <g pointerEvents="none">
+              <line
+                x1={draft.x1 * VIEWBOX}
+                y1={draft.y1 * VIEWBOX}
+                x2={draft.x2 * VIEWBOX}
+                y2={draft.y2 * VIEWBOX}
+                stroke="#0ea5e9"
+                strokeWidth={2 * z}
+                strokeDasharray={da(4, 3)}
+              />
+              <DimensionLabel
+                x1={draft.x1}
+                y1={draft.y1}
+                x2={draft.x2}
+                y2={draft.y2}
+                zoom={viewport.zoom}
+              />
+            </g>
+          )}
+          {draft?.type === "room-polygon" && draft.points.length > 0 && (
+            <g pointerEvents="none">
+              {/* Filled preview when we already have enough vertices to form
+                  a shape; rubber-band line from last vertex to cursor. */}
+              {draft.points.length >= 3 && (
+                <polygon
+                  points={draft.points
+                    .map((pt) => `${pt.x * VIEWBOX},${pt.y * VIEWBOX}`)
+                    .join(" ")}
+                  fill="#0ea5e9"
+                  fillOpacity={0.12}
+                  stroke="#0ea5e9"
+                  strokeDasharray={da(6, 4)}
+                  strokeWidth={3 * z}
+                />
+              )}
+              {draft.points.length < 3 && draft.points.length >= 2 && (
+                <polyline
+                  points={draft.points
+                    .map((pt) => `${pt.x * VIEWBOX},${pt.y * VIEWBOX}`)
+                    .join(" ")}
+                  fill="none"
+                  stroke="#0ea5e9"
+                  strokeDasharray={da(6, 4)}
+                  strokeWidth={3 * z}
+                />
+              )}
+              {/* Vertex dots; first one gets a bigger ring so the close
+                  target is discoverable. */}
+              {draft.points.map((pt, idx) => (
+                <circle
+                  key={idx}
+                  cx={pt.x * VIEWBOX}
+                  cy={pt.y * VIEWBOX}
+                  r={(idx === 0 && draft.points.length >= 3 ? 10 : 6) * z}
+                  fill={idx === 0 && draft.points.length >= 3 ? "#ffffff" : "#0ea5e9"}
+                  stroke="#0ea5e9"
+                  strokeWidth={(idx === 0 && draft.points.length >= 3 ? 3 : 2) * z}
+                />
+              ))}
+            </g>
+          )}
+
+          {/* Smart-alignment guides (shown while dragging) */}
+          {alignGuides && (
+            <g pointerEvents="none">
+              {alignGuides.vertical.map((x, i) => (
+                <line
+                  key={`v-${i}-${x}`}
+                  x1={x * VIEWBOX}
+                  y1={0}
+                  x2={x * VIEWBOX}
+                  y2={VIEWBOX}
+                  stroke="#ec4899"
+                  strokeWidth={1 * z}
+                  strokeDasharray={da(3, 3)}
+                  opacity={0.8}
+                />
+              ))}
+              {alignGuides.horizontal.map((y, i) => (
+                <line
+                  key={`h-${i}-${y}`}
+                  x1={0}
+                  y1={y * VIEWBOX}
+                  x2={VIEWBOX}
+                  y2={y * VIEWBOX}
+                  stroke="#ec4899"
+                  strokeWidth={1 * z}
+                  strokeDasharray={da(3, 3)}
+                  opacity={0.8}
+                />
+              ))}
+            </g>
+          )}
+
+          {/* Door/window hover preview */}
+          {openingPreview && (activeTool === "door" || activeTool === "window") && (
+            <g pointerEvents="none">
+              <circle
+                cx={openingPreview.point.x * VIEWBOX}
+                cy={openingPreview.point.y * VIEWBOX}
+                r={14 * z}
+                fill="#0ea5e9"
+                fillOpacity={0.15}
+                stroke="#0ea5e9"
+                strokeWidth={2 * z}
+                strokeDasharray={da(4, 3)}
+              />
+              <text
+                x={openingPreview.point.x * VIEWBOX + 18 * z}
+                y={openingPreview.point.y * VIEWBOX - 6 * z}
+                fill="#0369a1"
+                fontSize={12 * z}
+                fontWeight={600}
+              >
+                {openingPreview.kind === "door" ? "Place door" : "Place window"}
+              </text>
             </g>
           )}
 
@@ -861,10 +1624,10 @@ export function FloorPlanCanvasInner({
             <circle
               cx={snapGuide.p.x * VIEWBOX}
               cy={snapGuide.p.y * VIEWBOX}
-              r={8}
+              r={8 * z}
               fill="none"
               stroke="#06b6d4"
-              strokeWidth={2}
+              strokeWidth={2 * z}
               pointerEvents="none"
             />
           )}
@@ -878,8 +1641,8 @@ export function FloorPlanCanvasInner({
               height={Math.abs(marquee.height) * VIEWBOX}
               fill="rgb(59 130 246 / 0.1)"
               stroke="#3b82f6"
-              strokeWidth={1}
-              strokeDasharray="4 3"
+              strokeWidth={1 * z}
+              strokeDasharray={da(4, 3)}
               pointerEvents="none"
             />
           )}
@@ -924,15 +1687,24 @@ function SelectionHandles({
   width,
   height,
   color,
+  zoom,
   onResize,
   onRotate,
 }: {
   width: number;
   height: number;
   color: string;
+  /** Current viewport zoom. Handle radii, stroke widths, and the rotation
+   *  arm length are divided by this so the chrome stays a constant size on
+   *  screen regardless of how far the user has zoomed in. */
+  zoom: number;
   onResize: (corner: "tl" | "tr" | "bl" | "br", e: React.PointerEvent) => void;
   onRotate: (e: React.PointerEvent) => void;
 }) {
+  const s = 1 / Math.max(zoom, 0.01);
+  const r = 10 * s;
+  const strokeW = 3 * s;
+  const armLen = 30 * s;
   return (
     <>
       {(["tl", "tr", "bl", "br"] as const).map((corner) => {
@@ -945,20 +1717,27 @@ function SelectionHandles({
             key={corner}
             cx={cxh}
             cy={cyh}
-            r={10}
+            r={r}
             fill="#ffffff"
             stroke={color}
-            strokeWidth={3}
+            strokeWidth={strokeW}
             style={{ cursor }}
             onPointerDown={(e) => onResize(corner, e)}
           />
         );
       })}
-      <line x1={width / 2} y1={0} x2={width / 2} y2={-30} stroke={color} strokeWidth={2} />
+      <line
+        x1={width / 2}
+        y1={0}
+        x2={width / 2}
+        y2={-armLen}
+        stroke={color}
+        strokeWidth={2 * s}
+      />
       <circle
         cx={width / 2}
-        cy={-30}
-        r={10}
+        cy={-armLen}
+        r={r}
         fill={color}
         style={{ cursor: "grab" }}
         onPointerDown={onRotate}
@@ -967,20 +1746,51 @@ function SelectionHandles({
   );
 }
 
-function DimensionLabel({ x1, y1, x2, y2 }: { x1: number; y1: number; x2: number; y2: number }) {
+function DimensionLabel({
+  x1,
+  y1,
+  x2,
+  y2,
+  zoom,
+}: {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  /** Viewport zoom — used to keep the label a constant on-screen size. */
+  zoom: number;
+}) {
   const viewport = useFloorPlanStore((s) => s.viewport);
-  const length = Math.hypot(x2 - x1, y2 - y1);
+  const raw = Math.hypot(x2 - x1, y2 - y1);
+  // Interior mode: subtract the typical wall thickness (0.012 each side →
+  // 0.024 total) from the rendered length so the reading reflects the
+  // usable inside dimension between walls. If the dimension is shorter
+  // than that offset, fall back to the raw length so we don't flash a
+  // negative value.
+  const WALL_OFFSET = 0.024;
+  const length =
+    viewport.measurementMode === "interior" && raw > WALL_OFFSET
+      ? raw - WALL_OFFSET
+      : raw;
   const label = formatDimension(length, viewport);
   const mx = ((x1 + x2) / 2) * VIEWBOX;
   const my = ((y1 + y2) / 2) * VIEWBOX;
+  const s = 1 / Math.max(zoom, 0.01);
   return (
     <g pointerEvents="none">
-      <rect x={mx - 34} y={my - 22} width={68} height={18} rx={4} fill="#0ea5e9" />
+      <rect
+        x={mx - 34 * s}
+        y={my - 22 * s}
+        width={68 * s}
+        height={18 * s}
+        rx={4 * s}
+        fill="#0ea5e9"
+      />
       <text
         x={mx}
-        y={my - 8}
+        y={my - 8 * s}
         textAnchor="middle"
-        fontSize={11}
+        fontSize={11 * s}
         fontWeight={600}
         fill="#ffffff"
       >
@@ -990,36 +1800,86 @@ function DimensionLabel({ x1, y1, x2, y2 }: { x1: number; y1: number; x2: number
   );
 }
 
-function RectDimensions({ x, y, w, h }: { x: number; y: number; w: number; h: number }) {
-  const viewport = useFloorPlanStore((s) => s.viewport);
+/** Small arrow head at the (x2, y2) end of a line, used for arrow
+ *  annotations. Coordinates are in 0..1 normalized space; the head is
+ *  drawn in viewBox pixels so it stays a constant size regardless of
+ *  zoom. */
+function ArrowHead({
+  x1,
+  y1,
+  x2,
+  y2,
+  color,
+  zoom,
+}: {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  color: string;
+  zoom: number;
+}) {
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const headLen = 14 / Math.max(zoom, 0.01);
+  const headHalf = Math.PI / 7;
+  const hx = x2 * VIEWBOX;
+  const hy = y2 * VIEWBOX;
+  const ax = hx - headLen * Math.cos(angle - headHalf);
+  const ay = hy - headLen * Math.sin(angle - headHalf);
+  const bx = hx - headLen * Math.cos(angle + headHalf);
+  const by = hy - headLen * Math.sin(angle + headHalf);
+  return (
+    <polygon
+      points={`${hx},${hy} ${ax},${ay} ${bx},${by}`}
+      fill={color}
+      pointerEvents="none"
+    />
+  );
+}
+
+function RectDimensions({
+  x,
+  y,
+  w,
+  h,
+  zoom,
+}: {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  zoom: number;
+}) {
+  const viewport = useFloorPlanStore((sv) => sv.viewport);
   const widthLabel = formatDimension(w, viewport);
   const heightLabel = formatDimension(h, viewport);
+  const s = 1 / Math.max(zoom, 0.01);
   return (
     <g pointerEvents="none">
       <text
         x={(x + w / 2) * VIEWBOX}
-        y={y * VIEWBOX - 6}
+        y={y * VIEWBOX - 6 * s}
         textAnchor="middle"
-        fontSize={11}
+        fontSize={11 * s}
         fontWeight={600}
         fill="#0ea5e9"
         paintOrder="stroke"
         stroke="#ffffff"
-        strokeWidth={3}
+        strokeWidth={3 * s}
       >
         {widthLabel}
       </text>
       <text
-        x={x * VIEWBOX - 6}
+        x={x * VIEWBOX - 6 * s}
         y={(y + h / 2) * VIEWBOX}
         textAnchor="end"
         dominantBaseline="central"
-        fontSize={11}
+        fontSize={11 * s}
         fontWeight={600}
         fill="#0ea5e9"
         paintOrder="stroke"
         stroke="#ffffff"
-        strokeWidth={3}
+        strokeWidth={3 * s}
       >
         {heightLabel}
       </text>

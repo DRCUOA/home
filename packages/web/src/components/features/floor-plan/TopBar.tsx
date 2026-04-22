@@ -56,6 +56,7 @@ export function FloorPlanTopBar({
   const fitToScreen = useFloorPlanStore((s) => s.fitToScreen);
   const resetViewport = useFloorPlanStore((s) => s.resetViewport);
   const setUnit = useFloorPlanStore((s) => s.setUnit);
+  const setViewport = useFloorPlanStore((s) => s.setViewport);
   const undo = useFloorPlanStore((s) => s.undo);
   const redo = useFloorPlanStore((s) => s.redo);
   const past = useFloorPlanStore((s) => s.past);
@@ -169,6 +170,20 @@ export function FloorPlanTopBar({
           title="Switch between metric and imperial"
         >
           {viewport.unit === "metric" ? "m · cm" : "ft · in"}
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            setViewport({
+              measurementMode:
+                viewport.measurementMode === "interior" ? "exterior" : "interior",
+            })
+          }
+          className="rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-0.5 text-[11px] hover:bg-slate-100 dark:hover:bg-slate-700"
+          title="Interior length subtracts wall thickness; exterior uses raw span"
+          aria-pressed={viewport.measurementMode === "interior"}
+        >
+          {viewport.measurementMode === "interior" ? "Interior" : "Exterior"}
         </button>
         <span className="hidden xl:inline">
           canvas ≈ {viewport.realWorldHeightMeters} m tall

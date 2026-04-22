@@ -6,6 +6,10 @@ import {
   MOVE_ITEM_CATEGORIES,
   MOVE_BOX_PRIORITIES,
   MOVE_STICKER_KINDS,
+  MOVE_OPENING_KINDS,
+  MOVE_OPENING_SWINGS,
+  MOVE_ANNOTATION_KINDS,
+  FLOOR_PLAN_LINE_STYLE_VALUES,
 } from "../constants/enums.js";
 
 /* ---------- Move ---------- */
@@ -125,3 +129,110 @@ export const assignItemsRoomSchema = z.object({
   destination_room_id: z.string().uuid().nullable(),
 });
 export type AssignItemsRoomInput = z.infer<typeof assignItemsRoomSchema>;
+
+/* ---------- Floor Plan Designer primitives (phase 2) ---------- */
+
+/** Normalized 0..1 coordinate with a tiny bit of slack so a drag can sit a
+ *  touch beyond the image edge mid-gesture. Mirrors the sticker bounds. */
+const normCoord = z.number().min(-0.2).max(1.2);
+/** Normalized size/width/height along one axis. */
+const normSize = z.number().min(0).max(2);
+
+/* -- move_layers -- */
+
+export const createMoveLayerSchema = z.object({
+  move_id: z.string().uuid(),
+  /** Stable id — seeded layers use "walls"/"furniture"/etc; custom layers
+   *  pass a client-generated token (safe chars + up to 40 chars). */
+  id: z
+    .string()
+    .min(1)
+    .max(40)
+    .regex(/^[A-Za-z0-9_-]+$/, "layer id must be [A-Za-z0-9_-]"),
+  name: z.string().min(1).max(120),
+  visible: z.boolean().optional(),
+  locked: z.boolean().optional(),
+  sort_order: z.number().int().optional(),
+});
+export const updateMoveLayerSchema = createMoveLayerSchema
+  .omit({ move_id: true, id: true })
+  .partial();
+
+export type CreateMoveLayerInput = z.infer<typeof createMoveLayerSchema>;
+export type UpdateMoveLayerInput = z.infer<typeof updateMoveLayerSchema>;
+
+/* -- move_walls -- */
+
+export const createMoveWallSchema = z.object({
+  move_id: z.string().uuid(),
+  side: z.enum(MOVE_SIDES),
+  x1: normCoord,
+  y1: normCoord,
+  x2: normCoord,
+  y2: normCoord,
+  thickness: z.number().min(0.001).max(0.1).optional(),
+  line_style: z.enum(FLOOR_PLAN_LINE_STYLE_VALUES).optional(),
+  color: z.string().max(20).optional(),
+  layer_id: z.string().max(40).optional(),
+  locked: z.boolean().optional(),
+  hidden: z.boolean().optional(),
+  label: z.string().max(120).optional(),
+  sort_order: z.number().int().optional(),
+});
+export const updateMoveWallSchema = createMoveWallSchema
+  .omit({ move_id: true, side: true })
+  .partial();
+
+export type CreateMoveWallInput = z.infer<typeof createMoveWallSchema>;
+export type UpdateMoveWallInput = z.infer<typeof updateMoveWallSchema>;
+
+/* -- move_openings -- */
+
+export const createMoveOpeningSchema = z.object({
+  move_id: z.string().uuid(),
+  side: z.enum(MOVE_SIDES),
+  wall_id: z.string().uuid(),
+  kind: z.enum(MOVE_OPENING_KINDS),
+  t: z.number().min(0).max(1).optional(),
+  width: z.number().min(0).max(1).optional(),
+  swing: z.enum(MOVE_OPENING_SWINGS).optional(),
+  layer_id: z.string().max(40).optional(),
+  locked: z.boolean().optional(),
+  hidden: z.boolean().optional(),
+  label: z.string().max(120).optional(),
+  sort_order: z.number().int().optional(),
+});
+export const updateMoveOpeningSchema = createMoveOpeningSchema
+  .omit({ move_id: true, side: true })
+  .partial();
+
+export type CreateMoveOpeningInput = z.infer<typeof createMoveOpeningSchema>;
+export type UpdateMoveOpeningInput = z.infer<typeof updateMoveOpeningSchema>;
+
+/* -- move_annotations -- */
+
+export const createMoveAnnotationSchema = z.object({
+  move_id: z.string().uuid(),
+  side: z.enum(MOVE_SIDES),
+  kind: z.enum(MOVE_ANNOTATION_KINDS),
+  x: normCoord,
+  y: normCoord,
+  width: normSize.optional(),
+  height: normSize.optional(),
+  x2: normCoord.optional(),
+  y2: normCoord.optional(),
+  text: z.string().max(2000).optional(),
+  font_size_px: z.number().min(6).max(72).optional(),
+  bold: z.boolean().optional(),
+  color: z.string().max(20).optional(),
+  layer_id: z.string().max(40).optional(),
+  locked: z.boolean().optional(),
+  hidden: z.boolean().optional(),
+  sort_order: z.number().int().optional(),
+});
+export const updateMoveAnnotationSchema = createMoveAnnotationSchema
+  .omit({ move_id: true, side: true })
+  .partial();
+
+export type CreateMoveAnnotationInput = z.infer<typeof createMoveAnnotationSchema>;
+export type UpdateMoveAnnotationInput = z.infer<typeof updateMoveAnnotationSchema>;

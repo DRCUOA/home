@@ -17,7 +17,10 @@ interface GlyphProps {
   previewOnly?: boolean;
 }
 
-const defaultStroke = "#1e293b";
+// `currentColor` lets each glyph flip between the theme's text color
+// (charcoal on light, off-white on dark) without the caller having to know
+// about themes. Callers can still override `stroke` with a user-picked color.
+const defaultStroke = "currentColor";
 
 /* ---------- individual glyphs ---------- */
 

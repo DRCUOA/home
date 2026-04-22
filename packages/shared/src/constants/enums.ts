@@ -245,6 +245,37 @@ export type MoveStatus = (typeof MOVE_STATUSES)[number];
 export const MOVE_SIDES = ["origin", "destination"] as const;
 export type MoveSide = (typeof MOVE_SIDES)[number];
 
+/* ---------- Floor Plan Designer primitives (phase 2) ---------- */
+
+export const FLOOR_PLAN_LINE_STYLE_VALUES = [
+  "solid",
+  "dashed",
+  "dotted",
+] as const;
+export type FloorPlanLineStyleValue =
+  (typeof FLOOR_PLAN_LINE_STYLE_VALUES)[number];
+
+export const MOVE_OPENING_KINDS = [
+  "door",
+  "door_double",
+  "sliding_door",
+  "garage_door",
+  "window",
+] as const;
+export type MoveOpeningKind = (typeof MOVE_OPENING_KINDS)[number];
+
+export const MOVE_OPENING_SWINGS = ["left", "right", "none"] as const;
+export type MoveOpeningSwing = (typeof MOVE_OPENING_SWINGS)[number];
+
+export const MOVE_ANNOTATION_KINDS = [
+  "label",
+  "note",
+  "callout",
+  "dimension",
+  "arrow",
+] as const;
+export type MoveAnnotationKind = (typeof MOVE_ANNOTATION_KINDS)[number];
+
 export const MOVE_ITEM_STATUSES = [
   "unpacked",
   "packed",

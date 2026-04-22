@@ -353,6 +353,161 @@ export interface MoveSticker extends BaseEntity {
   sort_order: number;
 }
 
+/* -------------------------------------------------------------------------
+ * Floor Plan Designer (UI/UX refactor, Major 1)
+ *
+ * These types describe the extended client-side document that the new
+ * designer operates on. In phase 1 they are additive: the server-persisted
+ * MoveRoom + MoveSticker rows stay the source of truth, and any new
+ * primitives (walls, openings, annotations, layers) are derived/projected
+ * on the client. Phase 2 introduces dedicated tables.
+ * ---------------------------------------------------------------------- */
+
+export type FloorPlanUnit = "metric" | "imperial";
+export type FloorPlanTheme = "light" | "dark" | "high-contrast";
+export type FloorPlanMode = "beginner" | "advanced";
+export type FloorPlanLineStyle = "solid" | "dashed" | "dotted";
+export type FloorPlanUIDensity = "comfortable" | "compact";
+
+export type FloorPlanTool =
+  | "select"
+  | "pan"
+  | "wall"
+  | "room-rect"
+  | "room-polygon"
+  | "door"
+  | "window"
+  | "dimension"
+  | "text"
+  | "note"
+  | "arrow";
+
+/** A single editable layer — visibility and lock gate every primitive that
+ *  references the layer id. Beginner mode pins everything to the default
+ *  "Main" layer and hides the layers panel. */
+export interface FloorPlanLayer {
+  id: string;
+  name: string;
+  visible: boolean;
+  locked: boolean;
+  sort_order: number;
+}
+
+/** Canonical layer ids. The store seeds these on first open. */
+export const DEFAULT_LAYER_IDS = {
+  walls: "walls",
+  furniture: "furniture",
+  annotations: "annotations",
+  electrical: "electrical",
+  plumbing: "plumbing",
+} as const;
+
+/** Wall primitive — two endpoints in 0..1 normalized coords, rendered with
+ *  configurable thickness + line style. Auto-join corners are computed by
+ *  the geometry helpers, not stored. */
+export interface FloorPlanWall {
+  id: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  /** Normalized thickness along the wall's perpendicular. Presets: thin
+   *  0.006, standard 0.012, thick 0.02. Custom input goes 0.002..0.04. */
+  thickness: number;
+  lineStyle: FloorPlanLineStyle;
+  color: string;
+  layerId: string;
+  locked: boolean;
+  hidden: boolean;
+  /** Optional label displayed along the wall (e.g., "Load-bearing"). */
+  label?: string;
+}
+
+/** Door/window opening — always bound to a wall, positioned as a parameter
+ *  along the wall's length [0..1], plus an opening width. Doors get an
+ *  optional swing arc. */
+export interface FloorPlanOpening {
+  id: string;
+  kind: "door" | "door_double" | "sliding_door" | "garage_door" | "window";
+  wallId: string;
+  /** 0..1 along the wall from (x1,y1) → (x2,y2). */
+  t: number;
+  /** Opening width as a fraction of the wall length (0..1). */
+  width: number;
+  swing?: "left" | "right" | "none";
+  layerId: string;
+  locked: boolean;
+  hidden: boolean;
+  label?: string;
+}
+
+/** Text-like annotation: labels, notes, callouts, free-text dimensions,
+ *  and arrows. Arrows/dimensions use both point + second point; the rest
+ *  use point + width/height. */
+export interface FloorPlanAnnotation {
+  id: string;
+  kind: "label" | "note" | "callout" | "dimension" | "arrow";
+  x: number;
+  y: number;
+  /** Used for label/note/callout bounds and for dimension/arrow endpoints. */
+  width?: number;
+  height?: number;
+  x2?: number;
+  y2?: number;
+  text?: string;
+  fontSizePx: number;
+  bold: boolean;
+  color: string;
+  layerId: string;
+  locked: boolean;
+  hidden: boolean;
+}
+
+/** Extended style attached to stickers + rooms on the client. These fields
+ *  land in the object's `label` JSON payload in phase 1 (prefixed with
+ *  `"__style_v1:"`) and become first-class columns in phase 2. */
+export interface FloorPlanObjectStyle {
+  outlineColor?: string;
+  fillColor?: string;
+  outlineThickness?: number;
+  lineStyle?: FloorPlanLineStyle;
+  opacity?: number;
+  material?: string;
+  layerId?: string;
+  locked?: boolean;
+  hidden?: boolean;
+  /** Show a translucent clearance zone around the object (doors, fridges). */
+  clearanceZone?: boolean;
+}
+
+/** Viewport state — owned by the editor store, persisted per-move in
+ *  localStorage (not the server). */
+export interface FloorPlanViewport {
+  zoom: number;
+  panX: number;
+  panY: number;
+  gridSizePx: number;
+  showGrid: boolean;
+  snapToGrid: boolean;
+  snapToObjects: boolean;
+  unit: FloorPlanUnit;
+  /** How many real-world meters the full canvas height represents. Used
+   *  to convert normalized coords into shown dimensions. */
+  realWorldHeightMeters: number;
+}
+
+/** The full in-memory document the editor works on. Server-synced pieces
+ *  (rooms, stickers) reference the backing MoveRoom / MoveSticker rows; the
+ *  rest live only on the client in phase 1. */
+export interface FloorPlanDocument {
+  walls: FloorPlanWall[];
+  openings: FloorPlanOpening[];
+  annotations: FloorPlanAnnotation[];
+  layers: FloorPlanLayer[];
+  /** Per-entity style overlay, keyed by room/sticker id. */
+  styles: Record<string, FloorPlanObjectStyle>;
+}
+
 export interface ApiResponse<T> {
   data: T;
 }

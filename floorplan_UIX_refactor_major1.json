@@ -1,0 +1,386 @@
+{
+  "promptTitle": "Beginner-Friendly Floor Plan Designer UI/UX Specification",
+  "promptPurpose": "Use this specification to design and/or implement a floor plan designer that is easy for beginners, while still accommodating more advanced users and different working preferences.",
+  "role": "Act as a senior product designer and UX-aware front-end architect. Design a floor plan editor application focused on usability, low friction, and progressive disclosure of complexity.",
+  "primaryGoal": "Create a floor plan designer that lets a complete beginner produce a usable plan quickly, while still supporting precise editing, customization, and varied user preferences.",
+  "corePrinciples": [
+    "Prioritize ease of first use",
+    "Use progressive disclosure: basic tools first, advanced tools available but not intrusive",
+    "Reduce user error and frustration through smart defaults and constraints",
+    "Support both drag-and-drop users and precision-oriented users",
+    "Keep the workspace visually calm and uncluttered",
+    "Ensure accessibility and readability",
+    "Support customization without making the default experience overwhelming"
+  ],
+  "targetUsers": [
+    {
+      "type": "Beginner",
+      "needs": [
+        "Simple drawing tools",
+        "Templates",
+        "Clear labels",
+        "Drag-and-drop objects",
+        "Guided workflows",
+        "Minimal jargon"
+      ]
+    },
+    {
+      "type": "Intermediate user",
+      "needs": [
+        "Property editing",
+        "Measurement control",
+        "Object alignment",
+        "Layer visibility",
+        "Style adjustments"
+      ]
+    },
+    {
+      "type": "Advanced or precision-oriented user",
+      "needs": [
+        "Exact dimensions",
+        "Fine-grained snapping",
+        "Advanced property controls",
+        "Keyboard shortcuts",
+        "Export flexibility"
+      ]
+    }
+  ],
+  "requiredFeatures": {
+    "canvasAndNavigation": [
+      "Large central drawing canvas",
+      "Clean uncluttered interface around the canvas",
+      "Optional grid overlay",
+      "Snap to grid",
+      "Snap to object edges, corners, centerlines, and wall intersections",
+      "Adjustable grid size",
+      "Zoom in/out with mouse wheel and trackpad",
+      "Spacebar-drag pan",
+      "Fit-to-screen action",
+      "Reset/recenter canvas action",
+      "Visible scale indicator",
+      "Visible zoom percentage"
+    ],
+    "drawingTools": [
+      "Simple wall drawing tool with click-to-draw interaction",
+      "Live dimension preview while drawing walls",
+      "Auto-join wall corners",
+      "Wall thickness presets",
+      "Manual custom wall thickness control",
+      "Resize walls by dragging endpoints or edges",
+      "Room-first drawing option using ready-made room shells",
+      "Rectangle room tool",
+      "Custom polygon room tool",
+      "Smart alignment guides while drawing and moving objects"
+    ],
+    "objectLibrary": [
+      "Drag-and-drop object library",
+      "Default 2D shapes for common household objects",
+      "Object categories such as living room, bedroom, kitchen, bathroom, office, outdoor, structural",
+      "Searchable object library",
+      "Recently used items panel",
+      "Favorites or pinned items panel",
+      "Starter templates for common room types",
+      "Prebuilt layout snippets such as bathroom starter, kitchen starter, bedroom starter"
+    ],
+    "commonObjectTypes": [
+      "Doors",
+      "Windows",
+      "Beds",
+      "Sofas",
+      "Dining tables",
+      "Coffee tables",
+      "Chairs",
+      "Desks",
+      "Wardrobes",
+      "Cabinets",
+      "Kitchen benches",
+      "Sinks",
+      "Toilets",
+      "Showers",
+      "Bathtubs",
+      "Fridges",
+      "Ovens",
+      "Cooktops",
+      "Washing machines",
+      "Dryers",
+      "Stairs",
+      "Outdoor furniture"
+    ],
+    "editingAndManipulation": [
+      "Select, move, rotate, resize, stretch, and flip objects",
+      "Drag handles for direct manipulation",
+      "Double-click to rename rooms or objects",
+      "Right-click context menu with duplicate, delete, lock, align, replace, bring forward, send backward",
+      "Multi-select support",
+      "Marquee selection",
+      "Copy/paste and duplicate",
+      "Lock/unlock elements",
+      "Hide/show individual elements or categories"
+    ],
+    "propertyPanel": [
+      "Persistent or toggleable property panel",
+      "Editable width, height, length, and rotation",
+      "Line thickness control",
+      "Line style control",
+      "Fill color control",
+      "Outline color control",
+      "Opacity control where useful",
+      "Object label/name field",
+      "Room name field",
+      "Material/type field where relevant",
+      "Visibility toggle",
+      "Lock toggle",
+      "Preset size options for common object types",
+      "Replace object while preserving approximate location"
+    ],
+    "measurementAndPrecision": [
+      "Live measurement display while drawing or resizing",
+      "Editable measurement labels",
+      "Type exact dimensions directly",
+      "Metric and imperial units",
+      "Switch units at any time",
+      "Automatic wall dimensions",
+      "Manual dimension line tool",
+      "Interior and exterior measurement modes",
+      "Optional angle controls for non-orthogonal walls",
+      "Distribute and align objects evenly"
+    ],
+    "smartBehavior": [
+      "Doors and windows snap into walls automatically",
+      "Wall openings created automatically when placing doors/windows",
+      "Wall-aware placement constraints",
+      "Optional furniture clearance zone display",
+      "Door swing arc display",
+      "Appliance opening clearance display where relevant",
+      "Validation warnings for obvious placement conflicts",
+      "Reconnect broken wall joins automatically where possible",
+      "Smart defaults for common object sizes"
+    ],
+    "usabilityAndBeginnerSupport": [
+      "Strong undo/redo",
+      "Action history if practical",
+      "Autosave",
+      "Version history or recover previous state",
+      "Guided first-run flow",
+      "Inline hints",
+      "Short contextual tooltips",
+      "Visual examples in tooltips where helpful",
+      "Simple mode for beginners",
+      "Advanced mode for more detailed controls",
+      "Low-friction delete and replace workflows",
+      "Prevent common destructive mistakes",
+      "Sample project users can learn from by editing"
+    ],
+    "workspaceCustomization": [
+      "Hide/show sidebars",
+      "Dockable or collapsible panels",
+      "Customizable toolbar arrangement if practical",
+      "Light mode",
+      "Dark mode",
+      "High contrast mode",
+      "Adjustable UI density",
+      "Optional keyboard shortcuts for power users",
+      "Support for mouse, trackpad, and touch interactions"
+    ],
+    "annotationAndDocumentation": [
+      "Text labels",
+      "Room labels",
+      "Notes",
+      "Callouts",
+      "Dimension labels",
+      "Arrows and markers",
+      "Room metadata panel",
+      "Automatic room area display",
+      "Optional metadata such as flooring, wall finish, notes"
+    ],
+    "layersAndViews": [
+      "Simple default view for beginners",
+      "Optional layers panel",
+      "Separate layers such as walls, furniture, annotations, electrical, plumbing",
+      "Toggle layer visibility",
+      "Presentation view",
+      "Technical annotated view",
+      "Empty shell view",
+      "Furnished view"
+    ],
+    "exportAndSharing": [
+      "Export to PDF",
+      "Export to PNG",
+      "Export to SVG",
+      "Print-ready layouts",
+      "Grayscale print option",
+      "Control visibility of labels and annotations on export",
+      "Shareable read-only link if collaboration is supported",
+      "Optional edit collaboration"
+    ],
+    "importAndRecovery": [
+      "Import image as tracing background",
+      "Import scanned sketch as underlay",
+      "Optional PDF/image underlay support",
+      "Recover and clean malformed wall joins",
+      "Restore defaults for selected object",
+      "Reset viewport"
+    ]
+  },
+  "stylingControls": {
+    "lineControls": [
+      "Adjustable wall line thickness",
+      "Adjustable furniture outline thickness",
+      "Adjustable annotation line thickness",
+      "Dimension line thickness control",
+      "Solid line option",
+      "Dashed line option",
+      "Dotted line option"
+    ],
+    "fontControls": {
+      "mustInclude": true,
+      "fontFamilies": [
+        "Inter",
+        "Roboto",
+        "SF Pro Text",
+        "Helvetica Neue",
+        "Arial",
+        "Source Sans 3",
+        "Open Sans"
+      ],
+      "recommendedDefaults": {
+        "uiPrimary": "Inter",
+        "fallbackStack": "Inter, Roboto, SF Pro Text, Helvetica Neue, Arial, sans-serif",
+        "monospace": "SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace"
+      },
+      "fontUsage": {
+        "appTitle": {
+          "sizePx": 20,
+          "weight": 600
+        },
+        "sectionHeaders": {
+          "sizePx": 16,
+          "weight": 600
+        },
+        "panelLabels": {
+          "sizePx": 14,
+          "weight": 500
+        },
+        "bodyText": {
+          "sizePx": 14,
+          "weight": 400
+        },
+        "smallMetaText": {
+          "sizePx": 12,
+          "weight": 400
+        },
+        "canvasLabels": {
+          "sizePx": 12,
+          "weight": 500
+        },
+        "dimensionLabels": {
+          "sizePx": 11,
+          "weight": 500
+        },
+        "tooltips": {
+          "sizePx": 13,
+          "weight": 400
+        },
+        "inputText": {
+          "sizePx": 14,
+          "weight": 400
+        },
+        "buttonText": {
+          "sizePx": 14,
+          "weight": 500
+        }
+      },
+      "requirements": [
+        "Let users adjust font size for labels and annotations",
+        "Provide at least a small, medium, and large text scale setting",
+        "Support separate control for canvas label size vs UI text size if possible",
+        "Ensure font readability at common zoom levels",
+        "Use sans-serif defaults for clarity",
+        "Avoid decorative fonts in the default UI",
+        "Maintain strong contrast between text and background",
+        "Allow bold/regular toggles for annotation emphasis where useful"
+      ]
+    },
+    "colorAndVisualControls": [
+      "Allow user adjustment of fill color and outline color",
+      "Provide beginner-safe default palette",
+      "Support monochrome technical view",
+      "Support color-coded room zones",
+      "Use color sparingly and clearly",
+      "Keep default visual styling calm and readable"
+    ]
+  },
+  "informationArchitecture": {
+    "topBar": [
+      "File",
+      "Undo/redo",
+      "Zoom controls",
+      "Mode switch",
+      "Save status",
+      "Export/share"
+    ],
+    "leftSidebar": [
+      "Wall tools",
+      "Room tools",
+      "Doors/windows",
+      "Furniture/object library",
+      "Annotation tools"
+    ],
+    "centerArea": [
+      "Canvas"
+    ],
+    "rightSidebar": [
+      "Properties",
+      "Dimensions",
+      "Style",
+      "Layers",
+      "Object settings",
+      "Text/font controls"
+    ]
+  },
+  "accessibilityRequirements": [
+    "Support keyboard navigation for major controls",
+    "Ensure visible focus states",
+    "Offer high-contrast mode",
+    "Support larger drag handles and targets",
+    "Use readable font sizes",
+    "Avoid relying on color alone for meaning",
+    "Use accessible naming and labeling for controls",
+    "Support colorblind-safe palettes where relevant"
+  ],
+  "onboardingRequirements": [
+    "Provide a first-use guided experience",
+    "Allow users to skip onboarding",
+    "Teach only the next relevant action",
+    "Use short plain-language instructions",
+    "Offer an editable demo plan"
+  ],
+  "interactionDesignRules": [
+    "Do not overwhelm the user with all controls at once",
+    "Show basic controls by default",
+    "Hide advanced controls until needed or requested",
+    "Prefer direct manipulation over abstract configuration",
+    "Keep important actions obvious and reversible",
+    "Favor smart defaults over mandatory setup",
+    "Use plain language rather than technical drafting jargon where possible"
+  ],
+  "designOutcome": {
+    "successCriteria": [
+      "A beginner can draw a basic room layout within minutes",
+      "A beginner can place furniture without reading documentation",
+      "A user can edit exact dimensions without hunting through the UI",
+      "A user can change line thickness, text/font settings, and object properties easily",
+      "The interface feels uncluttered despite supporting many options",
+      "The application accommodates both casual and precision-oriented workflows"
+    ],
+    "oneSentenceStandard": "The product should let a first-time user create something useful quickly, while still giving them precise control when they want it."
+  },
+  "deliverablesRequested": [
+    "A structured feature breakdown",
+    "A proposed UI layout",
+    "A beginner mode vs advanced mode behavior model",
+    "Suggested interaction flows for key tasks",
+    "Optional wireframe or component map",
+    "Optional data model for objects, walls, rooms, text, and style properties"
+  ]
+}

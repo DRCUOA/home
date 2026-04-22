@@ -30,7 +30,14 @@ import {
   useRef,
   useState,
 } from "react";
-import type { MoveRoom, MoveSticker, MoveStickerKind } from "@hcc/shared";
+import type {
+  FloorPlanAnnotation,
+  FloorPlanOpening,
+  FloorPlanWall,
+  MoveRoom,
+  MoveSticker,
+  MoveStickerKind,
+} from "@hcc/shared";
 import {
   MOVE_STICKER_LABELS,
 } from "@hcc/shared";
@@ -71,6 +78,21 @@ interface RectLike {
   rotation: number;
 }
 
+/** Clipboard entry — discriminated union across every selectable kind so
+ *  Cmd+V can dispatch the right creation path per item. Each variant stores
+ *  a snapshot of the source sufficient to reconstruct a fresh copy (ids
+ *  regenerated, coordinates offset, parent relationships preserved). */
+type ClipboardItem =
+  | { kind: "wall"; snapshot: MoveWallSnapshot }
+  | { kind: "opening"; snapshot: FloorPlanOpening }
+  | { kind: "annotation"; snapshot: FloorPlanAnnotation }
+  | { kind: "room"; snapshot: MoveRoom }
+  | { kind: "sticker"; snapshot: MoveSticker };
+
+// Local alias — walls use a generated `id` but we carry the full shape for
+// symmetry with openings/annotations when pasting (new id + offset coords).
+type MoveWallSnapshot = FloorPlanWall;
+
 interface Props {
   imageUrl: string | null;
   rooms: MoveRoom[];
@@ -91,6 +113,16 @@ interface Props {
   }) => void;
   onUpdateSticker: (id: string, patch: Partial<MoveSticker>) => void;
   onDeleteStickers: (ids: string[]) => void;
+  /** Clone a room with the given offset applied to its coordinates. Called
+   *  by copy/paste; EditorShell forwards this to `onCreateRoom` preserving
+   *  name/color/polygon/rotation. */
+  onDuplicateRoom: (source: MoveRoom, offset: { dx: number; dy: number }) => void;
+  /** Clone a sticker with the given offset applied. Preserves kind, size,
+   *  rotation, color, label. */
+  onDuplicateSticker: (
+    source: MoveSticker,
+    offset: { dx: number; dy: number }
+  ) => void;
   /** Raise selection to parent so Properties panel can display. */
   onSelectionChange: (
     kind: "room" | "sticker" | "wall" | "opening" | "annotation" | "none",
@@ -159,10 +191,24 @@ export function FloorPlanCanvasInner({
   onCreateSticker,
   onUpdateSticker,
   onDeleteStickers,
+  onDuplicateRoom,
+  onDuplicateSticker,
   onSelectionChange,
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Copy/paste clipboard — held in a ref rather than the zustand store
+  // because it never participates in rendering and doesn't need to survive a
+  // canvas remount. Each entry is a snapshot of the item at the time of
+  // copy; paste creates fresh ids and offsets coordinates.
+  //
+  // `pasteCount` is incremented on every Cmd+V so repeated pastes fan out
+  // rather than stacking on top of each other.
+  const clipboardRef = useRef<{
+    items: ClipboardItem[];
+    pasteCount: number;
+  } | null>(null);
 
   const viewport = useFloorPlanStore((s) => s.viewport);
   const setViewport = useFloorPlanStore((s) => s.setViewport);
@@ -835,12 +881,274 @@ export function FloorPlanCanvasInner({
     });
   };
 
+  /* ---------- copy / paste ---------- */
+
+  // Gather a snapshot of whatever is currently selected. Returns an empty
+  // array when there's no selection or the selection kind can't be
+  // serialised (e.g. mixed).
+  const snapshotSelection = useCallback((): ClipboardItem[] => {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return [];
+    switch (selectionKind) {
+      case "wall": {
+        const byId = new Map(walls.map((w) => [w.id, w]));
+        return ids
+          .map((id) => byId.get(id))
+          .filter((w): w is FloorPlanWall => !!w)
+          .map((w) => ({ kind: "wall" as const, snapshot: w }));
+      }
+      case "opening": {
+        const byId = new Map(openings.map((o) => [o.id, o]));
+        return ids
+          .map((id) => byId.get(id))
+          .filter((o): o is FloorPlanOpening => !!o)
+          .map((o) => ({ kind: "opening" as const, snapshot: o }));
+      }
+      case "annotation": {
+        const byId = new Map(annotations.map((a) => [a.id, a]));
+        return ids
+          .map((id) => byId.get(id))
+          .filter((a): a is FloorPlanAnnotation => !!a)
+          .map((a) => ({ kind: "annotation" as const, snapshot: a }));
+      }
+      case "room": {
+        const byId = new Map(rooms.map((r) => [r.id, r]));
+        return ids
+          .map((id) => byId.get(id))
+          .filter((r): r is MoveRoom => !!r)
+          .map((r) => ({ kind: "room" as const, snapshot: r }));
+      }
+      case "sticker": {
+        const byId = new Map(stickers.map((s) => [s.id, s]));
+        return ids
+          .map((id) => byId.get(id))
+          .filter((s): s is MoveSticker => !!s)
+          .map((s) => ({ kind: "sticker" as const, snapshot: s }));
+      }
+      default:
+        return [];
+    }
+  }, [selectedIds, selectionKind, walls, openings, annotations, rooms, stickers]);
+
+  const copySelection = useCallback(() => {
+    const items = snapshotSelection();
+    if (items.length === 0) return false;
+    clipboardRef.current = { items, pasteCount: 0 };
+    return true;
+  }, [snapshotSelection]);
+
+  // Standard offset applied on each paste (in normalized 0..1 units — ~2%
+  // of the canvas). Multiplied by pasteCount so back-to-back Cmd+V presses
+  // fan the copies out diagonally instead of piling them up on the same
+  // spot.
+  const PASTE_OFFSET_STEP = 0.02;
+
+  // Keep x/y in [0, 1 - size] so the paste never lands off-canvas. If the
+  // offset would push the object out, we clamp rather than cancelling the
+  // paste — user still sees a copy, just not at the intended spot.
+  const clampIntoCanvas = (
+    x: number,
+    y: number,
+    width: number,
+    height: number
+  ) => {
+    return {
+      x: Math.max(0, Math.min(1 - width, x)),
+      y: Math.max(0, Math.min(1 - height, y)),
+    };
+  };
+
+  const pasteClipboard = useCallback(() => {
+    const clip = clipboardRef.current;
+    if (!clip || clip.items.length === 0) return false;
+    clip.pasteCount += 1;
+    const dx = PASTE_OFFSET_STEP * clip.pasteCount;
+    const dy = PASTE_OFFSET_STEP * clip.pasteCount;
+    // Collect the ids of every freshly created item (walls/openings/
+    // annotations) so we can select them afterwards. Rooms/stickers round-
+    // trip through the server and their ids arrive asynchronously; leaving
+    // them out of the post-paste selection matches the duplicate-sticker
+    // UX that already ships.
+    const newIds: string[] = [];
+    let lastKind: typeof selectionKind = "none";
+    for (const item of clip.items) {
+      switch (item.kind) {
+        case "wall": {
+          const w = item.snapshot;
+          // Shift both endpoints, then clamp the bounding box so the wall
+          // doesn't walk off-canvas on repeated pastes.
+          const minX = Math.min(w.x1, w.x2);
+          const minY = Math.min(w.y1, w.y2);
+          const maxX = Math.max(w.x1, w.x2);
+          const maxY = Math.max(w.y1, w.y2);
+          const clamped = clampIntoCanvas(
+            minX + dx,
+            minY + dy,
+            maxX - minX,
+            maxY - minY
+          );
+          const finalDx = clamped.x - minX;
+          const finalDy = clamped.y - minY;
+          const id = addWall({
+            x1: w.x1 + finalDx,
+            y1: w.y1 + finalDy,
+            x2: w.x2 + finalDx,
+            y2: w.y2 + finalDy,
+            thickness: w.thickness,
+            lineStyle: w.lineStyle,
+            color: w.color,
+            layerId: w.layerId,
+            locked: false,
+            hidden: w.hidden,
+            label: w.label,
+          });
+          newIds.push(id);
+          lastKind = "wall";
+          break;
+        }
+        case "opening": {
+          // Openings are parameterized along a wall — copying them is only
+          // meaningful when the host wall still exists. If it's gone we
+          // silently skip rather than surprising the user with a ghost.
+          const o = item.snapshot;
+          const host = walls.find((w) => w.id === o.wallId);
+          if (!host) break;
+          // Shift `t` so the clone sits next to the original on the same
+          // wall. Clamp to keep the opening inside the wall's 0..1 range.
+          const shift = 0.08 * clip.pasteCount;
+          const newT = Math.max(
+            o.width / 2,
+            Math.min(1 - o.width / 2, o.t + shift)
+          );
+          const id = addOpening({
+            kind: o.kind,
+            wallId: o.wallId,
+            t: newT,
+            width: o.width,
+            swing: o.swing,
+            layerId: o.layerId,
+            locked: false,
+            hidden: o.hidden,
+            label: o.label,
+          });
+          newIds.push(id);
+          lastKind = "opening";
+          break;
+        }
+        case "annotation": {
+          const a = item.snapshot;
+          const w = a.width ?? 0;
+          const h = a.height ?? 0;
+          const c = clampIntoCanvas(a.x + dx, a.y + dy, w, h);
+          const id = addAnnotation({
+            kind: a.kind,
+            x: c.x,
+            y: c.y,
+            width: a.width,
+            height: a.height,
+            x2:
+              a.x2 !== undefined
+                ? a.x2 + (c.x - a.x)
+                : undefined,
+            y2:
+              a.y2 !== undefined
+                ? a.y2 + (c.y - a.y)
+                : undefined,
+            text: a.text,
+            fontSizePx: a.fontSizePx,
+            bold: a.bold,
+            color: a.color,
+            layerId: a.layerId,
+            locked: false,
+            hidden: a.hidden,
+          });
+          newIds.push(id);
+          lastKind = "annotation";
+          break;
+        }
+        case "room": {
+          // Rooms round-trip through the server; the server assigns the id,
+          // so we can't push it into `newIds`. The EditorShell duplicate
+          // helper takes care of the sort_order/name dedup.
+          onDuplicateRoom(item.snapshot, { dx, dy });
+          break;
+        }
+        case "sticker": {
+          onDuplicateSticker(item.snapshot, { dx, dy });
+          break;
+        }
+      }
+    }
+    // Select the freshly-pasted client-side objects so the user can
+    // immediately move them, nudge them, or paste again.
+    if (newIds.length > 0 && lastKind !== "none") {
+      select(newIds, lastKind);
+    }
+    return true;
+  }, [
+    addWall,
+    addOpening,
+    addAnnotation,
+    onDuplicateRoom,
+    onDuplicateSticker,
+    select,
+    walls,
+  ]);
+
+  const cutSelection = useCallback(() => {
+    if (!copySelection()) return false;
+    // Delete just like the Backspace handler would.
+    if (selectionKind === "sticker") onDeleteStickers([...selectedIds]);
+    else if (selectionKind === "room") onDeleteRooms([...selectedIds]);
+    else if (selectionKind === "wall") deleteWalls([...selectedIds]);
+    else if (selectionKind === "opening") deleteOpenings([...selectedIds]);
+    else if (selectionKind === "annotation") deleteAnnotations([...selectedIds]);
+    clearSel();
+    return true;
+  }, [
+    copySelection,
+    selectionKind,
+    selectedIds,
+    onDeleteStickers,
+    onDeleteRooms,
+    deleteWalls,
+    deleteOpenings,
+    deleteAnnotations,
+    clearSel,
+  ]);
+
   /* ---------- key handlers ---------- */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = document.activeElement?.tagName;
       const typing = tag === "INPUT" || tag === "TEXTAREA" || (document.activeElement as HTMLElement | null)?.isContentEditable;
       if (typing) return;
+      // Copy / cut / paste — Cmd on mac, Ctrl elsewhere. We check both so a
+      // mac user plugged into a PC keyboard still gets the right shortcut.
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && (e.key === "c" || e.key === "C")) {
+        if (copySelection()) e.preventDefault();
+        return;
+      }
+      if (mod && (e.key === "x" || e.key === "X")) {
+        if (cutSelection()) e.preventDefault();
+        return;
+      }
+      if (mod && (e.key === "v" || e.key === "V")) {
+        if (pasteClipboard()) e.preventDefault();
+        return;
+      }
+      // Cmd+D duplicates the current selection without touching the
+      // clipboard — same pattern Figma/Sketch use.
+      if (mod && (e.key === "d" || e.key === "D")) {
+        const items = snapshotSelection();
+        if (items.length > 0) {
+          clipboardRef.current = { items, pasteCount: 0 };
+          pasteClipboard();
+          e.preventDefault();
+        }
+        return;
+      }
       if (e.key === "Escape") {
         if (draft) setDraft(null);
         else clearSel();
@@ -877,6 +1185,10 @@ export function FloorPlanCanvasInner({
     setDraft,
     onCreateRoomPolygon,
     setTool,
+    copySelection,
+    cutSelection,
+    pasteClipboard,
+    snapshotSelection,
   ]);
 
   /* ---------- grid backdrop ---------- */

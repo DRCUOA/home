@@ -239,15 +239,53 @@ export function FloorPlanEditorShell({
     setSelection({ kind, ids });
   };
 
-  const duplicateSticker = (s: MoveSticker) => {
+  const duplicateSticker = (
+    s: MoveSticker,
+    offset?: { dx: number; dy: number }
+  ) => {
+    // Offset defaults to the ~3% nudge used by the Properties-panel
+    // "Duplicate" button. Copy/paste supplies a growing offset so repeated
+    // pastes fan out instead of landing on the same spot.
+    const dx = offset?.dx ?? 0.03;
+    const dy = offset?.dy ?? 0.03;
     onCreateSticker({
       kind: s.kind as MoveStickerKind,
-      x: Math.min(0.9, s.x + 0.03),
-      y: Math.min(0.9, s.y + 0.03),
+      x: Math.max(0, Math.min(1 - s.width, s.x + dx)),
+      y: Math.max(0, Math.min(1 - s.height, s.y + dy)),
       width: s.width,
       height: s.height,
       rotation: s.rotation,
       label: s.label,
+    });
+  };
+
+  // Clone a room with the same geometry, preserving its polygon if any. The
+  // parent `onCreateRoom` callback auto-names the clone as "Room N+1" — we
+  // could also reuse the source name but that leads to ambiguous room
+  // labels; numbered clones match the drag-to-draw flow's auto-naming.
+  const duplicateRoom = (
+    r: MoveRoom,
+    offset: { dx: number; dy: number }
+  ) => {
+    const w = r.width || 0.3;
+    const h = r.height || 0.25;
+    const x = Math.max(0, Math.min(1 - w, r.x + offset.dx));
+    const y = Math.max(0, Math.min(1 - h, r.y + offset.dy));
+    const polygon =
+      r.polygon && r.polygon.length >= 3
+        ? r.polygon.map((p) => ({
+            x: Math.max(0, Math.min(1, p.x + offset.dx)),
+            y: Math.max(0, Math.min(1, p.y + offset.dy)),
+          }))
+        : undefined;
+    onCreateRoom({
+      name: `Room ${rooms.length + 1}`,
+      x,
+      y,
+      width: w,
+      height: h,
+      rotation: r.rotation ?? 0,
+      ...(polygon ? { polygon } : {}),
     });
   };
 
@@ -353,6 +391,8 @@ export function FloorPlanEditorShell({
           onCreateSticker={onCreateSticker}
           onUpdateSticker={onUpdateSticker}
           onDeleteStickers={(ids) => ids.forEach((id) => onDeleteSticker(id))}
+          onDuplicateRoom={duplicateRoom}
+          onDuplicateSticker={duplicateSticker}
           onSelectionChange={handleSelection}
         />
         {showPropertiesSidebar && (

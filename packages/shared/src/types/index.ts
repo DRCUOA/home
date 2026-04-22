@@ -301,7 +301,16 @@ export interface MoveRoom extends BaseEntity {
   side: "origin" | "destination";
   name: string;
   color: string;
+  /** Legacy free-draw polygon. Empty for rooms created after the
+   *  rooms-as-stickers refactor — those rely on the rect fields below. */
   polygon: MoveRoomPolygonPoint[];
+  /** Sticker-compatible rectangle geometry (0..1 normalized). Rooms
+   *  move/resize/rotate with the same UX as stickers in the editor. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
   sort_order: number;
 }
 
@@ -328,6 +337,20 @@ export interface MoveItem extends BaseEntity {
   fragile: boolean;
   photo_file_id?: string;
   notes?: string;
+}
+
+export interface MoveSticker extends BaseEntity {
+  move_id: string;
+  side: "origin" | "destination";
+  kind: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  color?: string;
+  label?: string;
+  sort_order: number;
 }
 
 export interface ApiResponse<T> {

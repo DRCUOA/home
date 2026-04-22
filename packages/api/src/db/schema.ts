@@ -564,9 +564,19 @@ export const moveRooms = pgTable(
     name: varchar("name", { length: 120 }).notNull(),
     color: varchar("color", { length: 20 }).default("#8b5cf6").notNull(),
     // SVG polygon as array of {x,y} in 0..1 floor-plan coordinates (relative
-    // to the image so it scales with any render size). Can be empty while the
-    // room is still being sketched.
+    // to the image so it scales with any render size). Kept for backward
+    // compat with rooms drawn before the room-as-sticker refactor; new rooms
+    // use the rectangle fields below instead.
     polygon: jsonb("polygon").$type<{ x: number; y: number }[]>().default([]).notNull(),
+    // Sticker-compatible rectangle geometry. Rooms are treated as special
+    // stickers in the editor UX — same move/resize/rotate handles — while
+    // the domain logic (drop targets for items/boxes, bulk assign) stays
+    // keyed on this table.
+    x: real("x").default(0.3).notNull(),
+    y: real("y").default(0.3).notNull(),
+    width: real("width").default(0.4).notNull(),
+    height: real("height").default(0.3).notNull(),
+    rotation: real("rotation").default(0).notNull(),
     sort_order: integer("sort_order").default(0).notNull(),
     ...timestamps(),
   },
@@ -638,5 +648,49 @@ export const moveItems = pgTable(
     index("move_items_origin_room_idx").on(t.origin_room_id),
     index("move_items_destination_room_idx").on(t.destination_room_id),
     index("move_items_box_idx").on(t.box_id),
+  ]
+);
+
+/**
+ * Freeform sticker overlays placed on a floor plan (one side at a time).
+ *
+ * Each sticker is a blank / outline SVG glyph representing a common plan
+ * feature — door, window, wall, toilet, sofa, bed, and so on. Users drop
+ * stickers onto the plan and freely move, resize, and rotate them.
+ *
+ * Geometry is stored in 0..1 normalized coordinates relative to the plan,
+ * so stickers scale with any render size.
+ */
+export const moveStickers = pgTable(
+  "move_stickers",
+  {
+    id: id(),
+    move_id: uuid("move_id")
+      .notNull()
+      .references(() => moves.id, { onDelete: "cascade" }),
+    // "origin" = sticker on current home plan, "destination" = new home plan
+    side: varchar("side", { length: 20 }).notNull(),
+    // kind: door | window | wall | sink | toilet | bathtub | shower | bed |
+    //       sofa | table | chair | stairs | fridge | stove | desk | plant |
+    //       rug | label | door_double | arrow
+    kind: varchar("kind", { length: 30 }).notNull(),
+    // Bounding box in 0..1 normalized space.
+    x: real("x").default(0.4).notNull(),
+    y: real("y").default(0.4).notNull(),
+    width: real("width").default(0.2).notNull(),
+    height: real("height").default(0.1).notNull(),
+    // Rotation in degrees, 0..360.
+    rotation: real("rotation").default(0).notNull(),
+    // Optional custom stroke color. Falls back to dark slate when empty.
+    color: varchar("color", { length: 20 }),
+    // Optional free-text label shown next to the glyph (useful for doors,
+    // labelled walls, etc.).
+    label: varchar("label", { length: 120 }),
+    sort_order: integer("sort_order").default(0).notNull(),
+    ...timestamps(),
+  },
+  (t) => [
+    index("move_stickers_move_idx").on(t.move_id),
+    index("move_stickers_side_idx").on(t.side),
   ]
 );

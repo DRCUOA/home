@@ -1,23 +1,57 @@
 import type { ReactNode } from "react";
-import { TopBar } from "./top-bar";
 
 interface PageShellProps {
   title: string;
+  /**
+   * Retained for API compatibility. Global search lives in the TopBar on
+   * desktop, so per-page opt-out is no longer meaningful, but accepting
+   * the prop keeps existing route call sites unchanged.
+   */
   showSearch?: boolean;
   children: ReactNode;
+  /** Optional page-level actions rendered in the page header row. */
   actions?: ReactNode;
+  /**
+   * Optional supporting text rendered under the page title. Useful for
+   * desktop layouts that have room for more descriptive headers.
+   */
+  subtitle?: ReactNode;
 }
 
-export function PageShell({ title, showSearch, children, actions }: PageShellProps) {
+/**
+ * Per-page wrapper for the desktop layout. Renders a page header (title,
+ * optional subtitle, optional actions) and a full-width content slot. The
+ * global chrome (sidebar, top bar, search) lives at the AppShell level.
+ *
+ * `showSearch` is accepted-but-unused for backward compatibility.
+ */
+export function PageShell({
+  title,
+  children,
+  actions,
+  subtitle,
+  showSearch: _showSearch,
+}: PageShellProps) {
+  void _showSearch;
+
   return (
-    <div className="min-h-screen pb-20">
-      <TopBar title={title} showSearch={showSearch} />
-      {actions && (
-        <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 max-w-lg mx-auto">
-          {actions}
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex min-w-0 flex-col gap-1">
+          <h1 className="font-display text-2xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">
+            {title}
+          </h1>
+          {subtitle && (
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              {subtitle}
+            </p>
+          )}
         </div>
-      )}
-      <main className="max-w-lg mx-auto px-4 py-4">{children}</main>
+        {actions && (
+          <div className="flex flex-wrap items-center gap-2">{actions}</div>
+        )}
+      </header>
+      <div>{children}</div>
     </div>
   );
 }

@@ -50,6 +50,20 @@
       "when": 1777017600000,
       "tag": "0006_moving_house",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1777104000000,
+      "tag": "0007_move_stickers",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777968000000,
+      "tag": "0008_move_rooms_rect",
+      "breakpoints": true
     }
   ]
 }

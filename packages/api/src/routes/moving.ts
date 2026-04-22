@@ -11,6 +11,8 @@ import {
   updateMoveItemSchema,
   createMoveBoxSchema,
   updateMoveBoxSchema,
+  createMoveStickerSchema,
+  updateMoveStickerSchema,
   assignItemsRoomSchema,
 } from "@hcc/shared";
 
@@ -385,6 +387,84 @@ export default async function movingRoutes(app: FastifyInstance) {
     const [row] = await db
       .delete(schema.moveBoxes)
       .where(eq(schema.moveBoxes.id, id))
+      .returning();
+    return { data: row };
+  });
+
+  /* ---------- Move Stickers ---------- */
+
+  app.get("/api/v1/moves/:moveId/stickers", async (req, reply) => {
+    const { moveId } = req.params as { moveId: string };
+    if (!(await assertOwnsMove(req.userId, moveId))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    const rows = await db
+      .select()
+      .from(schema.moveStickers)
+      .where(eq(schema.moveStickers.move_id, moveId));
+    return { data: rows, total: rows.length };
+  });
+
+  app.post("/api/v1/move-stickers", async (req, reply) => {
+    const body = createMoveStickerSchema.parse(req.body);
+    if (!(await assertOwnsMove(req.userId, body.move_id))) {
+      return reply.status(403).send({ error: "Move not owned by user" });
+    }
+    const [row] = await db
+      .insert(schema.moveStickers)
+      .values({
+        move_id: body.move_id,
+        side: body.side,
+        kind: body.kind,
+        x: body.x ?? 0.4,
+        y: body.y ?? 0.4,
+        width: body.width ?? 0.2,
+        height: body.height ?? 0.1,
+        rotation: body.rotation ?? 0,
+        color: body.color,
+        label: body.label,
+        sort_order: body.sort_order ?? 0,
+      })
+      .returning();
+    return reply.status(201).send({ data: row });
+  });
+
+  app.patch("/api/v1/move-stickers/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = updateMoveStickerSchema.parse(req.body);
+
+    const [existing] = await db
+      .select()
+      .from(schema.moveStickers)
+      .where(eq(schema.moveStickers.id, id))
+      .limit(1);
+    if (!existing) return reply.status(404).send({ error: "Not Found" });
+    if (!(await assertOwnsMove(req.userId, existing.move_id))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+
+    const [row] = await db
+      .update(schema.moveStickers)
+      .set({ ...body, updated_at: new Date() })
+      .where(eq(schema.moveStickers.id, id))
+      .returning();
+    return { data: row };
+  });
+
+  app.delete("/api/v1/move-stickers/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const [existing] = await db
+      .select()
+      .from(schema.moveStickers)
+      .where(eq(schema.moveStickers.id, id))
+      .limit(1);
+    if (!existing) return reply.status(404).send({ error: "Not Found" });
+    if (!(await assertOwnsMove(req.userId, existing.move_id))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    const [row] = await db
+      .delete(schema.moveStickers)
+      .where(eq(schema.moveStickers.id, id))
       .returning();
     return { data: row };
   });

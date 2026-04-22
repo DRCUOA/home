@@ -1,5 +1,5 @@
 import { createRootRoute, Outlet, useLocation, Navigate } from "@tanstack/react-router";
-import { BottomNav } from "@/components/layout/bottom-nav";
+import { AppShell } from "@/components/layout/app-shell";
 import { LandingHero, PlanPicker } from "@/components/landing-hero";
 import { ListingDropZone } from "@/components/features/listing-drop-zone";
 import { useAuthStore } from "@/stores/auth";
@@ -66,10 +66,9 @@ function RootLayout() {
   }
 
   return (
-    <>
+    <AppShell>
       <Outlet />
-      <BottomNav />
       <ListingDropZone />
-    </>
+    </AppShell>
   );
 }

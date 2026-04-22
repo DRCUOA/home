@@ -1,14 +1,11 @@
 import { useState } from "react";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import {
-  Home,
-  FileText,
-  Phone,
-  Upload,
   Calculator,
   CheckSquare,
-  Plus,
-  X,
+  FileText,
+  Home,
+  Phone,
 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
@@ -16,65 +13,42 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { apiPost } from "@/lib/api";
-import {
-  TASK_PRIORITIES,
-  COMMUNICATION_TYPES,
-} from "@hcc/shared";
+import { TASK_PRIORITIES, COMMUNICATION_TYPES } from "@hcc/shared";
 import { capitalize } from "@/lib/format";
 
-type QuickAction = "property" | "note" | "call" | "file" | "scenario" | "task";
+export type QuickAction = "property" | "note" | "call" | "file" | "scenario" | "task";
 
-export function QuickAddFab() {
-  const [open, setOpen] = useState(false);
-  const [action, setAction] = useState<QuickAction | null>(null);
-
-  const actions = [
-    { type: "property" as const, icon: Home, label: "Add Property" },
-    { type: "note" as const, icon: FileText, label: "Add Note" },
-    { type: "call" as const, icon: Phone, label: "Log Call" },
-    { type: "task" as const, icon: CheckSquare, label: "Add Task" },
-    { type: "scenario" as const, icon: Calculator, label: "New Scenario" },
-  ];
-
-  return (
-    <>
-      <div className="fixed bottom-20 right-4 z-50 flex flex-col-reverse items-end gap-2">
-        {open &&
-          actions.map((a) => (
-            <button
-              key={a.type}
-              onClick={() => {
-                setAction(a.type);
-                setOpen(false);
-              }}
-              className="flex items-center gap-2 rounded-full bg-white dark:bg-slate-800 shadow-lg border border-slate-200 dark:border-slate-700 pl-3 pr-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 active:bg-slate-100 dark:active:bg-slate-700"
-            >
-              <a.icon className="h-4 w-4" />
-              {a.label}
-            </button>
-          ))}
-        <button
-          onClick={() => setOpen(!open)}
-          className={`flex items-center justify-center h-14 w-14 rounded-full shadow-lg transition-transform ${
-            open ? "bg-slate-700" : "bg-primary-600 hover:bg-primary-700"
-          }`}
-        >
-          {open ? (
-            <X className="h-6 w-6 text-white" />
-          ) : (
-            <Plus className="h-6 w-6 text-white" />
-          )}
-        </button>
-      </div>
-
-      {action === "note" && <QuickNoteModal onClose={() => setAction(null)} />}
-      {action === "task" && <QuickTaskModal onClose={() => setAction(null)} />}
-      {action === "call" && <QuickCallModal onClose={() => setAction(null)} />}
-      {action === "property" && <QuickPropertyModal onClose={() => setAction(null)} />}
-      {action === "scenario" && <QuickScenarioModal onClose={() => setAction(null)} />}
-    </>
-  );
+/**
+ * The desktop app triggers Quick Add from the TopBar "+ New" menu. The
+ * modals themselves are hosted here as a single controlled component that
+ * the AppShell mounts near the top of the tree.
+ */
+export function QuickAddHost({
+  action,
+  onClose,
+}: {
+  action: QuickAction | null;
+  onClose: () => void;
+}) {
+  if (action === "note")     return <QuickNoteModal     onClose={onClose} />;
+  if (action === "task")     return <QuickTaskModal     onClose={onClose} />;
+  if (action === "call")     return <QuickCallModal     onClose={onClose} />;
+  if (action === "property") return <QuickPropertyModal onClose={onClose} />;
+  if (action === "scenario") return <QuickScenarioModal onClose={onClose} />;
+  return null;
 }
+
+export const QUICK_ADD_ITEMS: ReadonlyArray<{
+  type: QuickAction;
+  icon: typeof Home;
+  label: string;
+}> = [
+  { type: "property", icon: Home,        label: "Add property" },
+  { type: "note",     icon: FileText,    label: "Add note" },
+  { type: "call",     icon: Phone,       label: "Log communication" },
+  { type: "task",     icon: CheckSquare, label: "Add task" },
+  { type: "scenario", icon: Calculator,  label: "New scenario" },
+];
 
 function QuickNoteModal({ onClose }: { onClose: () => void }) {
   const [body, setBody] = useState("");
@@ -249,4 +223,14 @@ function QuickScenarioModal({ onClose }: { onClose: () => void }) {
       </form>
     </Modal>
   );
+}
+
+/**
+ * Backward-compat shim: some routes import `QuickAddFab` as a floating
+ * launcher. In the desktop refactor the launcher lives in the TopBar and
+ * the modals are hosted at the AppShell level. This component is now a
+ * no-op so existing route imports keep compiling.
+ */
+export function QuickAddFab() {
+  return null;
 }

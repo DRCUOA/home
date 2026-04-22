@@ -688,7 +688,7 @@ function MapPage() {
   const showPinForm = pendingPinCoords != null;
 
   return (
-    <div className="fixed inset-0 pb-[calc(3rem+env(safe-area-inset-bottom,0px))] flex flex-col">
+    <div className="fixed inset-0 flex flex-col">
       {/* Search + quick goto */}
       <div className="absolute top-0 left-0 right-0 z-20 p-3 pointer-events-none">
         <div className="pointer-events-auto max-w-2xl mx-auto sm:mx-0 sm:ml-3">

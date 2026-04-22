@@ -8,11 +8,14 @@ import {
   X,
   Package,
   CheckCheck,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import type { MoveItem, MoveRoom } from "@hcc/shared";
+import type { MoveItem, MoveRoom, MoveSticker, MoveStickerKind } from "@hcc/shared";
 import { cn } from "@/lib/cn";
+import { StickerGlyph } from "./sticker-icons";
+import type { ExampleRoom, ExampleSticker } from "@/lib/example-plan";
 
 /**
  * HERO feature of the Moving section.
@@ -38,6 +41,8 @@ interface FloorPlanCanvasProps {
   imageUrl: string | null;
   rooms: MoveRoom[];
   items: MoveItem[];
+  /** Freeform sticker overlays — rendered read-only on the inline canvas. */
+  stickers?: MoveSticker[];
   selectedItemIds: Set<string>;
   /** Called when the user drops one or more items onto a room. */
   onDropItems: (itemIds: string[], roomId: string, side: FloorPlanSide) => void;
@@ -47,6 +52,16 @@ interface FloorPlanCanvasProps {
   editing: boolean;
   onToggleEditing: () => void;
   onUploadPlan: () => void;
+  /** Clear the existing plan image from this side. The underlying file
+   *  stays in the user's gallery — only the association is removed. */
+  onRemovePlan?: () => void;
+  /** Example plan rendered as a muted preview when the side has no real
+   *  rooms, stickers, or uploaded image. The user can save the example
+   *  as their own starter plan (see onUseExample). */
+  exampleRooms?: ExampleRoom[];
+  exampleStickers?: ExampleSticker[];
+  /** Clone the example rooms + stickers as real records for this side. */
+  onUseExample?: () => void;
 }
 
 export function FloorPlanCanvas({
@@ -55,6 +70,7 @@ export function FloorPlanCanvas({
   imageUrl,
   rooms,
   items,
+  stickers = [],
   selectedItemIds,
   onDropItems,
   onToggleItemSelected,
@@ -63,7 +79,18 @@ export function FloorPlanCanvas({
   editing,
   onToggleEditing,
   onUploadPlan,
+  onRemovePlan,
+  exampleRooms,
+  exampleStickers,
+  onUseExample,
 }: FloorPlanCanvasProps) {
+  // Show the example layout only when the side is completely empty —
+  // no rooms the user drew, no stickers, no uploaded image. Once they
+  // save the example, real records exist and this preview goes away.
+  const isEmpty =
+    !imageUrl && rooms.length === 0 && stickers.length === 0;
+  const showExample =
+    isEmpty && !!exampleRooms?.length && !!exampleStickers?.length;
   const containerRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState<{ x: number; y: number }[]>([]);
   const [draftName, setDraftName] = useState("");
@@ -115,6 +142,34 @@ export function FloorPlanCanvas({
     return inside;
   };
 
+  /**
+   * Rooms now carry a rectangle (x/y/width/height/rotation) so their
+   * footprint matches the sticker geometry model. A drop hit-test on a
+   * rect-with-rotation is a 2D axis transform: rotate the pointer into
+   * the rect's local frame, then do a trivial AABB check. Legacy rooms
+   * that still only have a polygon fall back to the polygon test.
+   */
+  const pointInRoom = (p: { x: number; y: number }, room: MoveRoom): boolean => {
+    if (room.width && room.width > 0) {
+      const cx = room.x + room.width / 2;
+      const cy = room.y + room.height / 2;
+      const rad = ((room.rotation ?? 0) * Math.PI) / 180;
+      const cos = Math.cos(-rad);
+      const sin = Math.sin(-rad);
+      const dx = p.x - cx;
+      const dy = p.y - cy;
+      const localX = dx * cos - dy * sin + room.width / 2;
+      const localY = dx * sin + dy * cos + room.height / 2;
+      return (
+        localX >= 0 &&
+        localX <= room.width &&
+        localY >= 0 &&
+        localY <= room.height
+      );
+    }
+    return pointInPolygon(p, room.polygon);
+  };
+
   /* ----- Draw-polygon mode ----- */
 
   const handleSvgClick = (e: React.MouseEvent) => {
@@ -143,7 +198,7 @@ export function FloorPlanCanvas({
     e.preventDefault();
     const p = toLocal(e);
     if (!p) return;
-    const hit = rooms.find((r) => pointInPolygon(p, r.polygon));
+    const hit = rooms.find((r) => pointInRoom(p, r));
     setDropRoomId(hit?.id ?? null);
   };
 
@@ -154,7 +209,7 @@ export function FloorPlanCanvas({
       setDropRoomId(null);
       return;
     }
-    const hit = rooms.find((r) => pointInPolygon(p, r.polygon));
+    const hit = rooms.find((r) => pointInRoom(p, r));
     if (!hit) {
       setDropRoomId(null);
       return;
@@ -183,11 +238,14 @@ export function FloorPlanCanvas({
 
   /* ----- Render ----- */
 
+  // Rooms are open polylines (2+ points). We never auto-close — the
+  // user decides whether the last point meets the first.
   const polyToPath = (poly: { x: number; y: number }[]) =>
     poly.length === 0
       ? ""
-      : poly.map((p, i) => `${i === 0 ? "M" : "L"}${p.x * 1000},${p.y * 1000}`).join(" ") +
-        " Z";
+      : poly
+          .map((p, i) => `${i === 0 ? "M" : "L"}${p.x * 1000},${p.y * 1000}`)
+          .join(" ");
 
   return (
     <div className="flex flex-col gap-2 min-w-0 flex-1">
@@ -205,12 +263,12 @@ export function FloorPlanCanvas({
             {editing ? (
               <>
                 <MousePointer2 className="h-3.5 w-3.5" />
-                Done
+                Close editor
               </>
             ) : (
               <>
                 <Pencil className="h-3.5 w-3.5" />
-                Edit rooms
+                Edit plan
               </>
             )}
           </Button>
@@ -222,6 +280,18 @@ export function FloorPlanCanvas({
           >
             {imageUrl ? "Replace plan" : "Upload plan"}
           </Button>
+          {imageUrl && onRemovePlan && (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="min-h-10 text-red-600 dark:text-red-400"
+              onClick={onRemovePlan}
+              title="Remove the uploaded plan from this side (the file stays in your gallery)"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Remove plan
+            </Button>
+          )}
         </div>
       </div>
 
@@ -236,14 +306,18 @@ export function FloorPlanCanvas({
             className="absolute inset-0 w-full h-full object-contain"
             draggable={false}
           />
-        ) : (
+        ) : isEmpty && !showExample ? (
+          // Only when the side is truly empty — no image, no rooms, no
+          // stickers, and no example to fall back on — show the nudge
+          // to upload. Otherwise the SVG below carries the content and
+          // this overlay would just clutter it.
           <div className="absolute inset-0 flex items-center justify-center text-center p-4">
             <p className="text-sm text-slate-500 dark:text-slate-400">
               No floor plan uploaded yet. Click <b>Upload plan</b> above and
               pick a PNG, JPG, or PDF image of your {side === "origin" ? "current" : "new"} home.
             </p>
           </div>
-        )}
+        ) : null}
 
         <svg
           viewBox="0 0 1000 1000"
@@ -254,73 +328,279 @@ export function FloorPlanCanvas({
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
-          {/* Existing room polygons */}
+          {/* ---------- Example plan preview (when empty) ---------- */}
+          {showExample && exampleRooms && exampleStickers && (
+            <g opacity={0.55} style={{ pointerEvents: "none" }}>
+              {exampleRooms.map((room, i) => {
+                const d = polyToPath(room.polygon);
+                const xs = room.polygon.map((p) => p.x);
+                const ys = room.polygon.map((p) => p.y);
+                const lx = Math.min(...xs) * 1000 + 12;
+                const ly = Math.min(...ys) * 1000 + 20;
+                return (
+                  <g key={`ex-room-${i}`}>
+                    <path
+                      d={d}
+                      fill="none"
+                      stroke={room.color}
+                      strokeWidth={3}
+                      strokeDasharray="10 6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <text
+                      x={lx}
+                      y={ly}
+                      textAnchor="start"
+                      dominantBaseline="hanging"
+                      fill="#0f172a"
+                      fontSize={18}
+                      fontWeight={700}
+                      paintOrder="stroke"
+                      stroke="#ffffff"
+                      strokeWidth={4}
+                    >
+                      {room.name}
+                    </text>
+                  </g>
+                );
+              })}
+              {exampleStickers.map((s, i) => (
+                <g
+                  key={`ex-sticker-${i}`}
+                  transform={`translate(${s.x * 1000}, ${s.y * 1000}) rotate(${s.rotation} ${s.width * 500} ${s.height * 500})`}
+                >
+                  {s.kind === "label" ? (
+                    <foreignObject
+                      x={0}
+                      y={0}
+                      width={s.width * 1000}
+                      height={s.height * 1000}
+                    >
+                      <div
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#0f172a",
+                          fontSize: 14,
+                          fontWeight: 700,
+                          textAlign: "center",
+                        }}
+                      >
+                        {s.label ?? "Label"}
+                      </div>
+                    </foreignObject>
+                  ) : (
+                    <g
+                      transform={`scale(${(s.width * 1000) / 100}, ${(s.height * 1000) / 100})`}
+                    >
+                      <StickerGlyph kind={s.kind} />
+                    </g>
+                  )}
+                </g>
+              ))}
+            </g>
+          )}
+
+          {/* Rooms — rendered as rectangles so they match the editor's
+              sticker-style geometry. Legacy polygon-only rooms (created
+              before the rooms-as-stickers refactor and not yet
+              backfilled) fall through to the polyline path. */}
           {rooms.map((room) => {
             const active = dropRoomId === room.id || hoverRoomId === room.id;
+            const hasRect = room.width && room.width > 0;
+            const count = itemsByRoom.get(room.id)?.length ?? 0;
+
+            if (hasRect) {
+              const cx = (room.x + room.width / 2) * 1000;
+              const cy = (room.y + room.height / 2) * 1000;
+              return (
+                <g
+                  key={room.id}
+                  transform={`translate(${room.x * 1000}, ${room.y * 1000}) rotate(${room.rotation ?? 0} ${room.width * 500} ${room.height * 500})`}
+                >
+                  {/* Filled body doubles as the drop hit target — a
+                      rect is much easier to hover than a thin polyline,
+                      which matters because dropping an item chip is
+                      the core interaction of this canvas. */}
+                  <rect
+                    x={0}
+                    y={0}
+                    width={room.width * 1000}
+                    height={room.height * 1000}
+                    fill={room.color}
+                    fillOpacity={active ? 0.28 : 0.14}
+                    stroke={room.color}
+                    strokeOpacity={active ? 1 : 0.85}
+                    strokeWidth={active ? 5 : 3}
+                    rx={6}
+                    ry={6}
+                    onMouseEnter={() => setHoverRoomId(room.id)}
+                    onMouseLeave={() => setHoverRoomId(null)}
+                    style={{ cursor: editing ? "default" : "pointer" }}
+                  />
+                  {/* Centred name (same treatment as the editor) */}
+                  <text
+                    x={room.width * 500}
+                    y={room.height * 500 - (count > 0 ? 10 : 0)}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fill="#0f172a"
+                    fontSize={Math.max(14, Math.min(22, room.height * 1000 * 0.14))}
+                    fontWeight={700}
+                    paintOrder="stroke"
+                    stroke="#ffffff"
+                    strokeWidth={4}
+                    pointerEvents="none"
+                  >
+                    {room.name}
+                  </text>
+                  {count > 0 && (
+                    <text
+                      x={room.width * 500}
+                      y={room.height * 500 + 14}
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      fill="#334155"
+                      fontSize={12}
+                      paintOrder="stroke"
+                      stroke="#ffffff"
+                      strokeWidth={3}
+                      pointerEvents="none"
+                    >
+                      {count} item{count === 1 ? "" : "s"}
+                    </text>
+                  )}
+                  {/* Keep the anchored top-left label suppressed here —
+                      rect rooms use a centred label since the whole
+                      shape is enclosed (no ambiguity about which side
+                      is "inside"). */}
+                  {/* cx / cy reserved for future features (tooltip anchoring) */}
+                  <desc>{`${cx},${cy}`}</desc>
+                </g>
+              );
+            }
+
+            /* Legacy polygon fallback — matches the pre-refactor look. */
+            const d = polyToPath(room.polygon);
             return (
               <g key={room.id}>
                 <path
-                  d={polyToPath(room.polygon)}
-                  fill={room.color}
-                  fillOpacity={active ? 0.45 : 0.18}
-                  stroke={room.color}
-                  strokeOpacity={0.95}
-                  strokeWidth={3}
+                  d={d}
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth={32}
                   onMouseEnter={() => setHoverRoomId(room.id)}
                   onMouseLeave={() => setHoverRoomId(null)}
                   onClick={(e) => {
                     if (editing) e.stopPropagation();
                   }}
-                  style={{ cursor: editing ? "default" : "pointer" }}
+                  style={{
+                    cursor: editing ? "default" : "pointer",
+                    pointerEvents: "stroke",
+                  }}
                 />
-                {/* Room label at polygon centroid */}
-                {room.polygon.length >= 3 && (
+                <path
+                  d={d}
+                  fill="none"
+                  stroke={room.color}
+                  strokeOpacity={active ? 1 : 0.95}
+                  strokeWidth={active ? 5 : 3}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  pointerEvents="none"
+                />
+                {room.polygon.length >= 2 &&
                   (() => {
-                    const cx =
-                      (room.polygon.reduce((s, p) => s + p.x, 0) / room.polygon.length) *
-                      1000;
-                    const cy =
-                      (room.polygon.reduce((s, p) => s + p.y, 0) / room.polygon.length) *
-                      1000;
-                    const count = itemsByRoom.get(room.id)?.length ?? 0;
+                    const xs = room.polygon.map((p) => p.x);
+                    const ys = room.polygon.map((p) => p.y);
+                    const minX = Math.min(...xs) * 1000;
+                    const minY = Math.min(...ys) * 1000;
+                    const lx = minX + 12;
+                    const ly = minY + 20;
                     return (
                       <g>
                         <text
-                          x={cx}
-                          y={cy}
-                          textAnchor="middle"
-                          dominantBaseline="central"
+                          x={lx}
+                          y={ly}
+                          textAnchor="start"
+                          dominantBaseline="hanging"
                           fill="#0f172a"
-                          fontSize={26}
+                          fontSize={18}
                           fontWeight={700}
                           paintOrder="stroke"
                           stroke="#ffffff"
-                          strokeWidth={5}
+                          strokeWidth={4}
                         >
                           {room.name}
                         </text>
                         {count > 0 && (
                           <text
-                            x={cx}
-                            y={cy + 30}
-                            textAnchor="middle"
-                            dominantBaseline="central"
+                            x={lx}
+                            y={ly + 22}
+                            textAnchor="start"
+                            dominantBaseline="hanging"
                             fill="#334155"
-                            fontSize={20}
+                            fontSize={14}
                             paintOrder="stroke"
                             stroke="#ffffff"
-                            strokeWidth={4}
+                            strokeWidth={3}
                           >
                             {count} item{count === 1 ? "" : "s"}
                           </text>
                         )}
                       </g>
                     );
-                  })()
-                )}
+                  })()}
               </g>
             );
           })}
+
+          {/* Read-only sticker overlays */}
+          {stickers.map((s) => (
+            <g
+              key={s.id}
+              transform={`translate(${s.x * 1000}, ${s.y * 1000}) rotate(${s.rotation} ${s.width * 500} ${s.height * 500})`}
+              style={{ pointerEvents: "none" }}
+            >
+              {s.kind === "label" ? (
+                <foreignObject
+                  x={0}
+                  y={0}
+                  width={s.width * 1000}
+                  height={s.height * 1000}
+                >
+                  <div
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: s.color ?? "#0f172a",
+                      fontSize: 16,
+                      fontWeight: 700,
+                      textAlign: "center",
+                    }}
+                  >
+                    {s.label ?? "Label"}
+                  </div>
+                </foreignObject>
+              ) : (
+                <g
+                  transform={`scale(${(s.width * 1000) / 100}, ${(s.height * 1000) / 100})`}
+                >
+                  <StickerGlyph
+                    kind={s.kind as MoveStickerKind}
+                    stroke={s.color ?? undefined}
+                  />
+                </g>
+              )}
+            </g>
+          ))}
 
           {/* Draft polygon being drawn */}
           {editing && draft.length > 0 && (
@@ -372,6 +652,23 @@ export function FloorPlanCanvas({
         {editing && draft.length < 3 && (
           <div className="absolute left-2 right-2 top-2 bg-white/95 dark:bg-slate-900/95 rounded-md px-2.5 py-1.5 text-xs text-slate-600 dark:text-slate-300 shadow border border-slate-200 dark:border-slate-700">
             Click the plan to place corners — at least 3 to form a room.
+          </div>
+        )}
+
+        {/* Example-plan CTA: appears only when the canvas is empty and an
+            example is provided. Saves the example rooms + stickers as
+            real records the user can then edit freely. */}
+        {showExample && onUseExample && (
+          <div className="absolute left-2 right-2 bottom-2 bg-white/95 dark:bg-slate-900/95 rounded-lg shadow-lg border border-primary-300 dark:border-primary-700 p-2 flex gap-2 items-center">
+            <Sparkles className="h-4 w-4 text-primary-500 shrink-0" />
+            <p className="text-xs text-slate-700 dark:text-slate-200 flex-1 min-w-0">
+              Example plan — <b>save it as your own</b> to start editing, or
+              draw your own from scratch.
+            </p>
+            <Button size="sm" className="min-h-10" onClick={onUseExample}>
+              <Check className="h-3.5 w-3.5" />
+              Save as my plan
+            </Button>
           </div>
         )}
       </div>

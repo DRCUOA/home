@@ -24,7 +24,6 @@ import { PageShell } from "@/components/layout/page-shell";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
-import { QuickAddFab } from "@/components/features/quick-add";
 import { CommModal } from "@/components/features/comm-modal";
 import { useUpdate } from "@/hooks/use-query-helpers";
 import { apiGet } from "@/lib/api";
@@ -170,17 +169,22 @@ function DashboardPage() {
   }
 
   return (
-    <PageShell title="Home">
-      <div className="space-y-5">
+    <PageShell
+      title="Home"
+      subtitle="Your sale, your buy, and everything in-between at a glance."
+    >
+      <div className="flex flex-col gap-6">
         {hasError && (
           <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200">
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
             <span>
-              Some data could not be loaded. Pull to refresh or try again shortly.
+              Some data could not be loaded. Try again shortly.
             </span>
           </div>
         )}
 
+        {/* Row 1: Sale + Buy side-by-side on desktop */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <section className="space-y-3">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Sale
@@ -320,7 +324,10 @@ function DashboardPage() {
             </Card>
           )}
         </section>
+        </div>
 
+        {/* Row 2: Next tasks + Money + Activity as a 3-column row on xl */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
         <section className="space-y-3">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Next tasks
@@ -447,9 +454,8 @@ function DashboardPage() {
             </CardContent>
           </Card>
         </section>
+        </div>
       </div>
-
-      <QuickAddFab />
 
       <CommModal
         key={editingCommId ?? "new-comm"}

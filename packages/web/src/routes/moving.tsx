@@ -13,12 +13,16 @@ import {
   Trash2,
   Pencil,
   Upload,
+  Images,
+  Check,
 } from "lucide-react";
 import type {
   Move,
   MoveBox,
   MoveItem,
   MoveRoom,
+  MoveSticker,
+  MoveStickerKind,
   Project,
   Property,
   FileRecord,
@@ -48,8 +52,10 @@ import {
 } from "@/hooks/use-query-helpers";
 import { apiGet, apiPost, apiUpload } from "@/lib/api";
 import { capitalize } from "@/lib/format";
+import { EXAMPLE_ROOMS, EXAMPLE_STICKERS } from "@/lib/example-plan";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { FloorPlanCanvas } from "@/components/features/floor-plan-canvas";
+import { FloorPlanEditor } from "@/components/features/floor-plan-editor";
 import { BarcodeScanner } from "@/components/features/barcode-scanner";
 import { LabelSheet } from "@/components/features/label-sheet";
 import { CameraCapture } from "@/components/features/camera-capture";
@@ -109,10 +115,17 @@ function MovingPage() {
       apiGet<ListResponse<MoveBox>>(`/moves/${selectedMoveId}/boxes`),
     enabled: !!selectedMoveId,
   });
+  const stickersQuery = useQuery({
+    queryKey: ["move-stickers", selectedMoveId],
+    queryFn: () =>
+      apiGet<ListResponse<MoveSticker>>(`/moves/${selectedMoveId}/stickers`),
+    enabled: !!selectedMoveId,
+  });
 
   const rooms = roomsQuery.data?.data ?? [];
   const items = itemsQuery.data?.data ?? [];
   const boxes = boxesQuery.data?.data ?? [];
+  const stickers = stickersQuery.data?.data ?? [];
 
   const createMove = useCreate<Move>("moves", "/moves");
   const updateMove = useUpdate<Move>("moves", "/moves");
@@ -240,6 +253,7 @@ function MovingPage() {
                 move={selectedMove}
                 rooms={rooms}
                 items={items}
+                stickers={stickers}
                 onRefreshMove={() =>
                   qc.invalidateQueries({ queryKey: ["moves"] })
                 }
@@ -539,11 +553,13 @@ function PlansTab({
   move,
   rooms,
   items,
+  stickers,
   onRefreshMove,
 }: {
   move: Move;
   rooms: MoveRoom[];
   items: MoveItem[];
+  stickers: MoveSticker[];
   onRefreshMove: () => void;
 }) {
   const qc = useQueryClient();
@@ -553,6 +569,8 @@ function PlansTab({
 
   const originRooms = rooms.filter((r) => r.side === "origin");
   const destRooms = rooms.filter((r) => r.side === "destination");
+  const originStickers = stickers.filter((s) => s.side === "origin");
+  const destStickers = stickers.filter((s) => s.side === "destination");
 
   const originImage = useFloorPlanImage(move.origin_floor_plan_file_id);
   const destImage = useFloorPlanImage(move.destination_floor_plan_file_id);
@@ -560,6 +578,40 @@ function PlansTab({
   const createRoom = useMutation({
     mutationFn: (data: Record<string, unknown>) => apiPost("/move-rooms", data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["move-rooms", move.id] }),
+  });
+  // Rooms are now edited with sticker-like UX (move/resize/rotate), so
+  // they need the same optimistic-update treatment: patch the cache in
+  // onMutate so the drag feels instant, roll back on error, invalidate
+  // on settle. This mirrors the `updateSticker` mutation below.
+  const updateRoom = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      fetch(`/api/v1/move-rooms/${id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }).then((r) => r.json()),
+    onMutate: async ({ id, data }) => {
+      await qc.cancelQueries({ queryKey: ["move-rooms", move.id] });
+      const prev = qc.getQueryData<ListResponse<MoveRoom>>([
+        "move-rooms",
+        move.id,
+      ]);
+      if (prev) {
+        qc.setQueryData<ListResponse<MoveRoom>>(["move-rooms", move.id], {
+          ...prev,
+          data: prev.data.map((r) =>
+            r.id === id ? ({ ...r, ...data } as MoveRoom) : r
+          ),
+        });
+      }
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["move-rooms", move.id], ctx.prev);
+    },
+    onSettled: () =>
+      qc.invalidateQueries({ queryKey: ["move-rooms", move.id] }),
   });
   const deleteRoom = useMutation({
     mutationFn: (id: string) =>
@@ -581,6 +633,186 @@ function PlansTab({
       }).then((r) => r.json()),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["move-items", move.id] }),
   });
+
+  const createSticker = useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      apiPost("/move-stickers", data),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["move-stickers", move.id] }),
+  });
+  const updateSticker = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      fetch(`/api/v1/move-stickers/${id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }).then((r) => r.json()),
+    // Optimistic update so drag feels smooth — we update the cache right
+    // away, then invalidate after the server responds.
+    onMutate: async ({ id, data }) => {
+      await qc.cancelQueries({ queryKey: ["move-stickers", move.id] });
+      const prev = qc.getQueryData<ListResponse<MoveSticker>>([
+        "move-stickers",
+        move.id,
+      ]);
+      if (prev) {
+        qc.setQueryData<ListResponse<MoveSticker>>(
+          ["move-stickers", move.id],
+          {
+            ...prev,
+            data: prev.data.map((s) =>
+              s.id === id ? ({ ...s, ...data } as MoveSticker) : s
+            ),
+          }
+        );
+      }
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) {
+        qc.setQueryData(["move-stickers", move.id], ctx.prev);
+      }
+    },
+    onSettled: () =>
+      qc.invalidateQueries({ queryKey: ["move-stickers", move.id] }),
+  });
+  const deleteSticker = useMutation({
+    mutationFn: (id: string) =>
+      fetch(`/api/v1/move-stickers/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      }).then((r) => r.json()),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["move-stickers", move.id] }),
+  });
+
+  // Clears the floor-plan-file association on the move (doesn't delete
+  // the file itself — the image stays in the user's gallery so they can
+  // re-attach it later or attach it elsewhere).
+  const removePlan = useMutation({
+    mutationFn: (targetSide: "origin" | "destination") => {
+      const key =
+        targetSide === "origin"
+          ? "origin_floor_plan_file_id"
+          : "destination_floor_plan_file_id";
+      return fetch(`/api/v1/moves/${move.id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [key]: null }),
+      }).then((r) => r.json());
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["moves"] });
+      onRefreshMove();
+    },
+  });
+
+  const handleRemovePlan = (targetSide: "origin" | "destination") => {
+    if (
+      !confirm(
+        "Remove this floor plan? The image will stay in your file gallery — only the link to this move is cleared."
+      )
+    ) {
+      return;
+    }
+    removePlan.mutate(targetSide);
+  };
+
+  /**
+   * Clone the built-in EXAMPLE plan into real rooms + stickers for this
+   * side. Rooms come first (so sticker POSTs happen in the meantime),
+   * then stickers fan out in parallel. After both finish, caches are
+   * invalidated so the canvas swaps from the dashed preview to the real
+   * records the user can freely rename and edit.
+   *
+   * We intentionally do NOT prefix room names with a plan title here —
+   * the labels are drawn on top of the plan and extra prefixes crowd the
+   * canvas. The user can rename any room on the Edit plan screen.
+   */
+  const handleUseExample = async (targetSide: "origin" | "destination") => {
+    if (
+      !confirm(
+        "Save this example as your own plan? You can rename, move, or delete any room or sticker afterwards."
+      )
+    ) {
+      return;
+    }
+    try {
+      // Rooms are created sequentially so the sort_order stays stable.
+      // We send both polygon (legacy) and rect (new sticker-compatible
+      // geometry) — the editor renders from the rect, drop targets use
+      // the rect, and polygon stays for any older client that still
+      // reads from it.
+      for (let i = 0; i < EXAMPLE_ROOMS.length; i++) {
+        const room = EXAMPLE_ROOMS[i];
+        await apiPost("/move-rooms", {
+          move_id: move.id,
+          side: targetSide,
+          name: room.name,
+          color: room.color,
+          polygon: room.polygon,
+          x: room.x,
+          y: room.y,
+          width: room.width,
+          height: room.height,
+          rotation: room.rotation,
+          sort_order: i,
+        });
+      }
+      // Stickers are independent — fire them in parallel.
+      await Promise.all(
+        EXAMPLE_STICKERS.map((s, i) =>
+          apiPost("/move-stickers", {
+            move_id: move.id,
+            side: targetSide,
+            kind: s.kind,
+            x: s.x,
+            y: s.y,
+            width: s.width,
+            height: s.height,
+            rotation: s.rotation,
+            label: s.label,
+            sort_order: i,
+          })
+        )
+      );
+      qc.invalidateQueries({ queryKey: ["move-rooms", move.id] });
+      qc.invalidateQueries({ queryKey: ["move-stickers", move.id] });
+    } catch (err) {
+      console.error("Failed to save example plan", err);
+      alert(
+        "Something went wrong saving the example plan. Please try again."
+      );
+    }
+  };
+
+  const handleCreateSticker = (
+    side: "origin" | "destination",
+    partial: {
+      kind: MoveStickerKind;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      rotation: number;
+      label?: string;
+    }
+  ) => {
+    createSticker.mutate({
+      move_id: move.id,
+      side,
+      kind: partial.kind,
+      x: partial.x,
+      y: partial.y,
+      width: partial.width,
+      height: partial.height,
+      rotation: partial.rotation,
+      label: partial.label,
+      sort_order: stickers.filter((s) => s.side === side).length,
+    });
+  };
 
   const toggleItemSelected = (id: string) => {
     setSelectedItemIds((prev) => {
@@ -604,10 +836,24 @@ function PlansTab({
     setSelectedItemIds(new Set());
   };
 
+  /**
+   * Create a room. Historically rooms were drawn as polygons; after the
+   * rooms-as-stickers refactor, the editor stamps a rectangle instead.
+   * We keep the old polygon-based call sites (FloorPlanCanvas's inline
+   * draw tool) working by accepting an optional polygon, and prefer
+   * rect fields when the caller supplies them.
+   */
   const handleCreateRoom = (
     side: "origin" | "destination",
-    polygon: { x: number; y: number }[],
-    name: string
+    partial: {
+      name: string;
+      polygon?: { x: number; y: number }[];
+      x?: number;
+      y?: number;
+      width?: number;
+      height?: number;
+      rotation?: number;
+    }
   ) => {
     const color =
       ROOM_COLORS[
@@ -616,20 +862,52 @@ function PlansTab({
     createRoom.mutate({
       move_id: move.id,
       side,
-      name,
-      polygon,
+      name: partial.name,
       color,
+      ...(partial.polygon ? { polygon: partial.polygon } : {}),
+      ...(partial.x !== undefined ? { x: partial.x } : {}),
+      ...(partial.y !== undefined ? { y: partial.y } : {}),
+      ...(partial.width !== undefined ? { width: partial.width } : {}),
+      ...(partial.height !== undefined ? { height: partial.height } : {}),
+      ...(partial.rotation !== undefined ? { rotation: partial.rotation } : {}),
       sort_order: rooms.filter((r) => r.side === side).length,
     });
   };
 
+  // The banner wording depends on state. When there are no items yet,
+  // "drag items between plans" is misleading — the user needs to add
+  // items on the Items tab before anything is draggable.
+  const hasItems = items.length > 0;
+  const hasAnyRooms = rooms.length > 0;
+
   return (
     <div className="space-y-3">
-      <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-        <b>Drag items between plans</b> — tap items to multi-select, then
-        drag any one of them onto a room on the new-home plan. Click{" "}
-        <b>Edit rooms</b> to outline a room on a floor plan.
-      </div>
+      {hasItems ? (
+        <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+          <b>Drag items between plans</b> — tap item chips to multi-select,
+          then drag any one of them onto a room on the new-home plan. Click{" "}
+          <b>Edit plan</b> to open the full editor and add rooms, doors,
+          windows, furniture stickers and more.
+        </div>
+      ) : (
+        <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 px-3 py-2 text-xs text-blue-800 dark:text-blue-200">
+          {hasAnyRooms ? (
+            <>
+              <b>Nice — your rooms are drawn.</b> Now add items on the{" "}
+              <b>Items</b> tab. They'll show up as draggable chips below each
+              room so you can assign them from your current home to your new
+              home by dragging.
+            </>
+          ) : (
+            <>
+              <b>Start your plan.</b> Either click <b>Save as my plan</b> on
+              the example below, click <b>Edit plan</b> to draw your own, or
+              click <b>Upload plan</b> to add a photo. Once you have rooms,
+              add items on the <b>Items</b> tab and drag them between plans.
+            </>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-col sm:flex-row gap-3">
         <FloorPlanCanvas
@@ -637,42 +915,60 @@ function PlansTab({
           title="Current home"
           imageUrl={originImage}
           rooms={originRooms}
+          stickers={originStickers}
           items={items}
           selectedItemIds={selectedItemIds}
           onDropItems={handleDrop}
           onToggleItemSelected={toggleItemSelected}
-          onCreateRoom={(poly, name) => handleCreateRoom("origin", poly, name)}
+          onCreateRoom={(poly, name) =>
+            handleCreateRoom("origin", { name, polygon: poly })
+          }
           onDeleteRoom={(id) => {
             if (confirm("Delete this room? Items in it become unassigned.")) {
               deleteRoom.mutate(id);
             }
           }}
-          editing={editing === "origin"}
-          onToggleEditing={() =>
-            setEditing((prev) => (prev === "origin" ? null : "origin"))
-          }
+          editing={false}
+          onToggleEditing={() => setEditing("origin")}
           onUploadPlan={() => setUploadSide("origin")}
+          onRemovePlan={
+            move.origin_floor_plan_file_id
+              ? () => handleRemovePlan("origin")
+              : undefined
+          }
+          exampleRooms={EXAMPLE_ROOMS}
+          exampleStickers={EXAMPLE_STICKERS}
+          onUseExample={() => handleUseExample("origin")}
         />
         <FloorPlanCanvas
           side="destination"
           title="New home"
           imageUrl={destImage}
           rooms={destRooms}
+          stickers={destStickers}
           items={items}
           selectedItemIds={selectedItemIds}
           onDropItems={handleDrop}
           onToggleItemSelected={toggleItemSelected}
-          onCreateRoom={(poly, name) => handleCreateRoom("destination", poly, name)}
+          onCreateRoom={(poly, name) =>
+            handleCreateRoom("destination", { name, polygon: poly })
+          }
           onDeleteRoom={(id) => {
             if (confirm("Delete this room? Items targeting it become unassigned.")) {
               deleteRoom.mutate(id);
             }
           }}
-          editing={editing === "destination"}
-          onToggleEditing={() =>
-            setEditing((prev) => (prev === "destination" ? null : "destination"))
-          }
+          editing={false}
+          onToggleEditing={() => setEditing("destination")}
           onUploadPlan={() => setUploadSide("destination")}
+          onRemovePlan={
+            move.destination_floor_plan_file_id
+              ? () => handleRemovePlan("destination")
+              : undefined
+          }
+          exampleRooms={EXAMPLE_ROOMS}
+          exampleStickers={EXAMPLE_STICKERS}
+          onUseExample={() => handleUseExample("destination")}
         />
       </div>
 
@@ -686,6 +982,38 @@ function PlansTab({
           onRefreshMove();
         }}
       />
+
+      {editing && (
+        <FloorPlanEditor
+          side={editing}
+          title={editing === "origin" ? "Current home" : "New home"}
+          imageUrl={editing === "origin" ? originImage : destImage}
+          rooms={editing === "origin" ? originRooms : destRooms}
+          stickers={editing === "origin" ? originStickers : destStickers}
+          onClose={() => setEditing(null)}
+          onUploadPlan={() => setUploadSide(editing)}
+          onRemovePlan={
+            (editing === "origin"
+              ? move.origin_floor_plan_file_id
+              : move.destination_floor_plan_file_id)
+              ? () => handleRemovePlan(editing)
+              : undefined
+          }
+          onCreateRoom={(partial) => handleCreateRoom(editing, partial)}
+          onUpdateRoom={(id, changes) =>
+            updateRoom.mutate({
+              id,
+              data: changes as Record<string, unknown>,
+            })
+          }
+          onDeleteRoom={(id) => deleteRoom.mutate(id)}
+          onCreateSticker={(partial) => handleCreateSticker(editing, partial)}
+          onUpdateSticker={(id, changes) =>
+            updateSticker.mutate({ id, data: changes as Record<string, unknown> })
+          }
+          onDeleteSticker={(id) => deleteSticker.mutate(id)}
+        />
+      )}
     </div>
   );
 }
@@ -738,44 +1066,76 @@ function UploadFloorPlanModal({
   onUploaded: () => void;
 }) {
   const qc = useQueryClient();
+  const [mode, setMode] = useState<"upload" | "gallery">("upload");
   const [file, setFile] = useState<File | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // Gallery source — list existing image files the user already uploaded.
+  const galleryQuery = useQuery({
+    queryKey: ["files"],
+    queryFn: () => apiGet<ListResponse<FileRecord>>("/files"),
+    enabled: open && mode === "gallery",
+  });
+  const galleryImages = useMemo(() => {
+    const all = galleryQuery.data?.data ?? [];
+    return all
+      .filter((f) => f.mime_type.startsWith("image/"))
+      .sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+  }, [galleryQuery.data]);
 
   useEffect(() => {
     if (!open) {
+      setMode("upload");
       setFile(null);
       setCameraOpen(false);
+      setSelectedFileId(null);
     }
   }, [open]);
 
+  const patchMoveWithFile = async (fileId: string) => {
+    if (!side) return;
+    const key =
+      side === "origin"
+        ? "origin_floor_plan_file_id"
+        : "destination_floor_plan_file_id";
+    await fetch(`/api/v1/moves/${moveId}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [key]: fileId }),
+    });
+    qc.invalidateQueries({ queryKey: ["moves"] });
+    onUploaded();
+  };
+
   const submit = async () => {
-    if (!file || !side) return;
-    setUploading(true);
+    if (!side) return;
+    setSaving(true);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("category", "other");
-      const res = await apiUpload<{ data: FileRecord }>("/files/upload", fd);
-      const fileId = res.data.id;
-      const key =
-        side === "origin"
-          ? "origin_floor_plan_file_id"
-          : "destination_floor_plan_file_id";
-      await fetch(`/api/v1/moves/${moveId}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ [key]: fileId }),
-      });
-      qc.invalidateQueries({ queryKey: ["moves"] });
-      onUploaded();
+      if (mode === "gallery") {
+        if (!selectedFileId) return;
+        await patchMoveWithFile(selectedFileId);
+      } else {
+        if (!file) return;
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("category", "other");
+        const res = await apiUpload<{ data: FileRecord }>("/files/upload", fd);
+        await patchMoveWithFile(res.data.id);
+      }
     } finally {
-      setUploading(false);
+      setSaving(false);
     }
   };
 
   if (!side) return null;
+
+  const canSave = mode === "gallery" ? !!selectedFileId : !!file;
 
   return (
     <Modal
@@ -784,28 +1144,108 @@ function UploadFloorPlanModal({
       title={`Upload ${side === "origin" ? "current home" : "new home"} floor plan`}
     >
       <div className="space-y-4">
-        <div className="flex gap-2">
+        {/* Source switcher */}
+        <div className="flex gap-2 border-b border-slate-200 dark:border-slate-700 -mx-1 px-1 pb-3">
           <Button
             type="button"
-            variant="secondary"
-            className="min-h-12"
-            onClick={() => setCameraOpen(true)}
+            variant={mode === "upload" ? "primary" : "secondary"}
+            size="sm"
+            className="min-h-10"
+            onClick={() => setMode("upload")}
           >
-            <Camera className="h-4 w-4" />
-            Take photo
+            <Upload className="h-4 w-4" />
+            New upload
+          </Button>
+          <Button
+            type="button"
+            variant={mode === "gallery" ? "primary" : "secondary"}
+            size="sm"
+            className="min-h-10"
+            onClick={() => setMode("gallery")}
+          >
+            <Images className="h-4 w-4" />
+            From Gallery
           </Button>
         </div>
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          className="block w-full text-sm"
-        />
-        {file && (
-          <p className="text-xs text-slate-500">
-            {file.name} — {(file.size / 1024).toFixed(1)} KB
-          </p>
+
+        {mode === "upload" ? (
+          <>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                className="min-h-12"
+                onClick={() => setCameraOpen(true)}
+              >
+                <Camera className="h-4 w-4" />
+                Take photo
+              </Button>
+            </div>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="block w-full text-sm"
+            />
+            {file && (
+              <p className="text-xs text-slate-500">
+                {file.name} — {(file.size / 1024).toFixed(1)} KB
+              </p>
+            )}
+          </>
+        ) : (
+          <div className="space-y-2">
+            {galleryQuery.isLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+              </div>
+            ) : galleryImages.length === 0 ? (
+              <EmptyState
+                icon={<Images className="h-10 w-10" />}
+                title="Gallery is empty"
+                description="Take photos or upload images in the Gallery tab first, then you can reuse them here."
+              />
+            ) : (
+              <>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Tap an image to use it as the floor plan.
+                </p>
+                <div className="grid grid-cols-3 gap-2 max-h-[50vh] overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-2">
+                  {galleryImages.map((img) => {
+                    const selected = selectedFileId === img.id;
+                    return (
+                      <button
+                        key={img.id}
+                        type="button"
+                        onClick={() => setSelectedFileId(img.id)}
+                        className={
+                          "relative aspect-square overflow-hidden rounded-md border-2 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 " +
+                          (selected
+                            ? "border-primary-500 ring-2 ring-primary-500/40"
+                            : "border-transparent hover:border-slate-300 dark:hover:border-slate-600")
+                        }
+                        title={img.filename ?? ""}
+                      >
+                        <img
+                          src={`/api/v1/files/${img.id}/download`}
+                          alt={img.filename ?? ""}
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                        />
+                        {selected && (
+                          <div className="absolute top-1 right-1 bg-primary-500 text-white rounded-full p-0.5 shadow">
+                            <Check className="h-3.5 w-3.5" />
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
         )}
+
         <div className="flex gap-2 pt-2">
           <Button type="button" variant="secondary" className="flex-1 min-h-12" onClick={onClose}>
             Cancel
@@ -813,11 +1253,17 @@ function UploadFloorPlanModal({
           <Button
             type="button"
             className="flex-1 min-h-12"
-            disabled={!file || uploading}
+            disabled={!canSave || saving}
             onClick={submit}
           >
-            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-            Upload
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : mode === "gallery" ? (
+              <Check className="h-4 w-4" />
+            ) : (
+              <Upload className="h-4 w-4" />
+            )}
+            {mode === "gallery" ? "Use selected" : "Upload"}
           </Button>
         </div>
       </div>

@@ -2,38 +2,126 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ------------------------------------------------------------------
+ * Design tokens are defined in src/design-system.ts. The variables
+ * below mirror that file and are the ONLY values Tailwind references
+ * in its @theme block. To change the design scheme, edit
+ * design-system.ts, then (if you add a new token) mirror it here.
+ * ------------------------------------------------------------------ */
+
+:root {
+  /* Brand primary */
+  --ds-color-primary-50:  #edfff4;
+  --ds-color-primary-100: #d5ffe6;
+  --ds-color-primary-200: #adffd0;
+  --ds-color-primary-300: #6fffab;
+  --ds-color-primary-400: #2bff7e;
+  --ds-color-primary-500: #00e85c;
+  --ds-color-primary-600: #00c94e;
+  --ds-color-primary-700: #009d3d;
+  --ds-color-primary-800: #067a34;
+  --ds-color-primary-900: #08652e;
+
+  /* Neutrals (slate) */
+  --ds-color-neutral-50:  #f8fafc;
+  --ds-color-neutral-100: #f1f5f9;
+  --ds-color-neutral-200: #e2e8f0;
+  --ds-color-neutral-300: #cbd5e1;
+  --ds-color-neutral-400: #94a3b8;
+  --ds-color-neutral-500: #64748b;
+  --ds-color-neutral-600: #475569;
+  --ds-color-neutral-700: #334155;
+  --ds-color-neutral-800: #1e293b;
+  --ds-color-neutral-900: #0f172a;
+  --ds-color-neutral-950: #020617;
+
+  /* Semantic */
+  --ds-color-success: #16a34a;
+  --ds-color-warning: #d97706;
+  --ds-color-danger:  #dc2626;
+  --ds-color-info:    #2563eb;
+
+  /* Type */
+  --ds-font-display: "Nunito", ui-sans-serif, system-ui, sans-serif;
+  --ds-font-body:    "Inter", ui-sans-serif, system-ui, sans-serif;
+  --ds-font-mono:    ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Layout (desktop) */
+  --ds-sidebar-width:           15rem;
+  --ds-sidebar-width-collapsed: 3.75rem;
+  --ds-topbar-height:           3.5rem;
+  --ds-content-max:             84rem;
+  --ds-reading-max:             48rem;
+  --ds-grid-gutter:             1.5rem;
+
+  /* Shadows */
+  --ds-shadow-xs: 0 1px 2px 0 rgb(15 23 42 / 0.04);
+  --ds-shadow-sm: 0 1px 3px 0 rgb(15 23 42 / 0.06), 0 1px 2px -1px rgb(15 23 42 / 0.04);
+  --ds-shadow-md: 0 4px 8px -2px rgb(15 23 42 / 0.08), 0 2px 4px -2px rgb(15 23 42 / 0.04);
+  --ds-shadow-lg: 0 12px 24px -8px rgb(15 23 42 / 0.12), 0 4px 8px -4px rgb(15 23 42 / 0.06);
+  --ds-shadow-xl: 0 24px 48px -16px rgb(15 23 42 / 0.18), 0 8px 16px -8px rgb(15 23 42 / 0.08);
+  --ds-shadow-focus: 0 0 0 3px rgb(0 201 78 / 0.35);
+
+  /* Radii */
+  --ds-radius-sm:  0.25rem;
+  --ds-radius-md:  0.5rem;
+  --ds-radius-lg:  0.75rem;
+  --ds-radius-xl:  1rem;
+  --ds-radius-2xl: 1.25rem;
+  --ds-radius-full: 9999px;
+
+  /* Motion */
+  --ds-duration-fast: 120ms;
+  --ds-duration-base: 180ms;
+  --ds-duration-slow: 260ms;
+  --ds-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ds-easing-entrance: cubic-bezier(0, 0, 0, 1);
+  --ds-easing-exit:     cubic-bezier(0.4, 0, 1, 1);
+}
+
+/* Tailwind theme: every token it exposes as a utility is sourced from
+   a --ds-* variable so changing design-system.ts is sufficient. */
 @theme {
-  --font-display: "Nunito", ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--ds-font-display);
+  --font-body:    var(--ds-font-body);
+  --font-mono:    var(--ds-font-mono);
 
-  --color-primary-50: #edfff4;
-  --color-primary-100: #d5ffe6;
-  --color-primary-200: #adffd0;
-  --color-primary-300: #6fffab;
-  --color-primary-400: #2bff7e;
-  --color-primary-500: #00e85c;
-  --color-primary-600: #00c94e;
-  --color-primary-700: #009d3d;
-  --color-primary-800: #067a34;
-  --color-primary-900: #08652e;
+  --color-primary-50:  var(--ds-color-primary-50);
+  --color-primary-100: var(--ds-color-primary-100);
+  --color-primary-200: var(--ds-color-primary-200);
+  --color-primary-300: var(--ds-color-primary-300);
+  --color-primary-400: var(--ds-color-primary-400);
+  --color-primary-500: var(--ds-color-primary-500);
+  --color-primary-600: var(--ds-color-primary-600);
+  --color-primary-700: var(--ds-color-primary-700);
+  --color-primary-800: var(--ds-color-primary-800);
+  --color-primary-900: var(--ds-color-primary-900);
 
-  --color-success: #16a34a;
-  --color-warning: #d97706;
-  --color-danger: #dc2626;
+  --color-success: var(--ds-color-success);
+  --color-warning: var(--ds-color-warning);
+  --color-danger:  var(--ds-color-danger);
+  --color-info:    var(--ds-color-info);
 }
 
-html {
-  -webkit-tap-highlight-color: transparent;
-}
-
+/* Desktop baseline — dropped iOS/PWA-specific rules (tap highlight,
+   overscroll-none, 16px font-size hack). Desktop browsers don't need them. */
+html,
 body {
-  overscroll-behavior: none;
+  min-width: 1024px;
+  font-family: var(--ds-font-body);
+  background: var(--ds-color-neutral-50);
+  color: var(--ds-color-neutral-900);
 }
 
-input, textarea, select {
-  font-size: 16px; /* prevents iOS zoom on focus */
+.dark html,
+.dark body,
+html.dark,
+html.dark body {
+  background: var(--ds-color-neutral-950);
+  color: var(--ds-color-neutral-100);
 }
 
-/* Dense map measure dropdowns: smaller menu text (scoped so other selects keep 16px) */
+/* Dense map measure dropdowns (retained; scoped). */
 select.measure-location-select,
 select.measure-location-select option,
 select.measure-location-select optgroup {
@@ -43,7 +131,7 @@ select.measure-location-select optgroup {
 
 .maplibregl-popup-content {
   padding: 0 !important;
-  border-radius: 0.75rem !important;
+  border-radius: var(--ds-radius-lg) !important;
   overflow: hidden;
   background: transparent !important;
   box-shadow: none !important;
@@ -59,10 +147,10 @@ select.measure-location-select optgroup {
 
 .maplibregl-ctrl-scale {
   background-color: rgba(255, 255, 255, 0.85) !important;
-  border-color: #334155 !important;
+  border-color: var(--ds-color-neutral-700) !important;
   border-width: 2px !important;
   border-top: none !important;
-  color: #334155 !important;
+  color: var(--ds-color-neutral-700) !important;
   font-size: 11px !important;
   font-weight: 600 !important;
   padding: 1px 6px !important;
@@ -73,6 +161,6 @@ select.measure-location-select optgroup {
 
 .dark .maplibregl-ctrl-scale {
   background-color: rgba(15, 23, 42, 0.85) !important;
-  border-color: #94a3b8 !important;
-  color: #e2e8f0 !important;
+  border-color: var(--ds-color-neutral-400) !important;
+  color: var(--ds-color-neutral-200) !important;
 }

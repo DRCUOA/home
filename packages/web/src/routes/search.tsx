@@ -1,88 +1,98 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search as SearchIcon, ArrowLeft } from "lucide-react";
-import { Link } from "@tanstack/react-router";
+import { Search as SearchIcon } from "lucide-react";
 import { apiGet } from "@/lib/api";
+import { PageShell } from "@/components/layout/page-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDate, capitalize } from "@/lib/format";
 
-export const Route = createFileRoute("/search")({ component: SearchPage });
+type SearchParams = { q?: string };
+
+export const Route = createFileRoute("/search")({
+  component: SearchPage,
+  validateSearch: (raw: Record<string, unknown>): SearchParams => ({
+    q: typeof raw.q === "string" ? raw.q : undefined,
+  }),
+});
 
 function SearchPage() {
-  const [query, setQuery] = useState("");
-  const [submitted, setSubmitted] = useState("");
+  const { q } = Route.useSearch();
+  const [query, setQuery] = useState(q ?? "");
+  const [submitted, setSubmitted] = useState(q ?? "");
+
+  useEffect(() => {
+    if (q !== undefined && q !== submitted) {
+      setQuery(q);
+      setSubmitted(q);
+    }
+    // Only run when the URL changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q]);
 
   const { data, isLoading } = useQuery({
     queryKey: ["search", submitted],
-    queryFn: () => apiGet(`/search?q=${encodeURIComponent(submitted)}`),
+    queryFn: () => apiGet<{ data: any[] }>(`/search?q=${encodeURIComponent(submitted)}`),
     enabled: submitted.length >= 2,
   });
 
-  const results = data?.data || [];
+  const results = data?.data ?? [];
 
   return (
-    <div className="min-h-screen pb-20">
-      <div className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 safe-area-top">
-        <div className="flex items-center gap-2 h-14 px-4 max-w-lg mx-auto">
-          <Link to="/" className="p-2 -ml-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800">
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              setSubmitted(query);
-            }}
-            className="flex-1 flex items-center gap-2"
-          >
-            <div className="relative flex-1">
-              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 dark:text-slate-500" />
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search everything..."
-                className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-base focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
-                autoFocus
-              />
-            </div>
-          </form>
-        </div>
-      </div>
+    <PageShell title="Search" subtitle="Notes, communications, properties, contacts, research.">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          setSubmitted(query);
+        }}
+        className="max-w-2xl"
+      >
+        <label className="relative block">
+          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search everything..."
+            autoFocus
+            className="w-full rounded-lg border border-slate-300 bg-white px-9 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800"
+          />
+        </label>
+      </form>
 
-      <main className="max-w-lg mx-auto px-4 py-4">
+      <div className="mt-6">
         {isLoading && (
           <div className="flex justify-center py-12">
-            <div className="h-6 w-6 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
           </div>
         )}
 
         {!isLoading && submitted && results.length === 0 && (
-          <p className="text-center text-sm text-slate-500 dark:text-slate-400 py-12">
+          <p className="py-12 text-center text-sm text-slate-500 dark:text-slate-400">
             No results for "{submitted}"
           </p>
         )}
 
         {results.length > 0 && (
-          <div className="space-y-2">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {results.map((r: any) => (
               <Card key={`${r._type}-${r.id}`}>
                 <CardContent className="py-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="mb-1 flex items-center gap-2">
                         <Badge>{capitalize(r._type)}</Badge>
                       </div>
-                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
+                      <p className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
                         {r.title || r.name || r.address || r.subject || "Untitled"}
                       </p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mt-0.5">
+                      <p className="mt-0.5 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
                         {r.body || r.notes || r.listing_description || r.description || ""}
                       </p>
                     </div>
                     {r.created_at && (
-                      <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0">
+                      <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500">
                         {formatDate(r.created_at)}
                       </span>
                     )}
@@ -94,11 +104,11 @@ function SearchPage() {
         )}
 
         {!submitted && (
-          <p className="text-center text-sm text-slate-500 dark:text-slate-400 py-12">
-            Search across notes, communications, properties, contacts, and research
+          <p className="py-12 text-center text-sm text-slate-500 dark:text-slate-400">
+            Type at least two characters and press Enter to search across your workspace.
           </p>
         )}
-      </main>
-    </div>
+      </div>
+    </PageShell>
   );
 }

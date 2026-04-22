@@ -30,6 +30,7 @@ import {
   OFFER_STATUSES,
   CHECKLIST_STATES,
   FILE_CATEGORIES,
+  DEFAULT_SELL_CHECKLIST_ITEMS,
 } from "@hcc/shared";
 import { PageShell } from "@/components/layout/page-shell";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -231,6 +232,19 @@ function SellPage() {
     },
   });
 
+  const loadDefaultChecklistMutation = useMutation({
+    mutationFn: async () => {
+      if (!sell?.id) throw new Error("No project");
+      return apiPost<ListResponse<ChecklistItem>>(
+        `/projects/${encodeURIComponent(sell.id)}/load-default-checklist`,
+        {}
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["checklists"] });
+    },
+  });
+
   const loading =
     projectsQuery.isLoading ||
     (Boolean(sell?.id) &&
@@ -373,6 +387,9 @@ function SellPage() {
             onChangeState={(id, state) => updateChecklist.mutate({ id, data: { state } })}
             onRemove={(id) => removeChecklist.mutate(id)}
             removePending={removeChecklist.isPending}
+            allItems={checklistItems}
+            onLoadDefaults={() => loadDefaultChecklistMutation.mutate()}
+            loadDefaultsPending={loadDefaultChecklistMutation.isPending}
           />
         )}
 
@@ -1025,6 +1042,9 @@ function ChecklistsTab({
   onChangeState,
   onRemove,
   removePending,
+  allItems,
+  onLoadDefaults,
+  loadDefaultsPending,
 }: {
   preSale: ChecklistItem[];
   documents: ChecklistItem[];
@@ -1034,6 +1054,9 @@ function ChecklistsTab({
   onChangeState: (id: string, state: string) => void;
   onRemove: (id: string) => void;
   removePending: boolean;
+  allItems: ChecklistItem[];
+  onLoadDefaults: () => void;
+  loadDefaultsPending: boolean;
 }) {
   const sections: {
     title: string;
@@ -1047,7 +1070,7 @@ function ChecklistsTab({
       type: "pre_sale",
       items: preSale,
       icon: <ListChecks className="h-4 w-4" />,
-      hint: "Declutter, repairs, and curb appeal before listing.",
+      hint: "Admin, strategy, and engagement before listing.",
     },
     {
       title: "Document checklist",
@@ -1065,6 +1088,15 @@ function ChecklistsTab({
     },
   ];
 
+  // How many of the default items are not yet present in this project?
+  const existingKeys = useMemo(
+    () => new Set(allItems.map((i) => `${i.checklist_type}::${i.label}`)),
+    [allItems]
+  );
+  const missingDefaultCount = DEFAULT_SELL_CHECKLIST_ITEMS.filter(
+    (d) => !existingKeys.has(`${d.checklist_type}::${d.label}`)
+  ).length;
+
   if (loading) {
     return (
       <div className="flex justify-center py-16 text-slate-500 dark:text-slate-400">
@@ -1075,6 +1107,42 @@ function ChecklistsTab({
 
   return (
     <div className="space-y-5">
+      {missingDefaultCount > 0 && (
+        <Card>
+          <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                Default sell checklist
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {missingDefaultCount === DEFAULT_SELL_CHECKLIST_ITEMS.length
+                  ? `Load the standard ${DEFAULT_SELL_CHECKLIST_ITEMS.length}-item sell checklist (agent, title, compliance, staging…).`
+                  : `${missingDefaultCount} of the ${DEFAULT_SELL_CHECKLIST_ITEMS.length} default items are not on this project yet.`}
+              </p>
+            </div>
+            <Button
+              variant="secondary"
+              size="md"
+              className="min-h-11 shrink-0"
+              disabled={loadDefaultsPending}
+              onClick={onLoadDefaults}
+            >
+              {loadDefaultsPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading…
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4" />
+                  Load defaults
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {sections.map((s) => (
         <Card key={s.type}>
           <CardHeader className="flex flex-row items-center justify-between gap-2">

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import { Sidebar } from "./sidebar";
 import { TopBar } from "./top-bar";
 import { QuickAddHost, type QuickAction } from "@/components/features/quick-add";
@@ -18,7 +18,17 @@ export function AppShell({ children }: { children: ReactNode }) {
     : "var(--ds-sidebar-width)";
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+    <div
+      className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100"
+      style={
+        {
+          // Expose the live sidebar width so fixed-overlay pages (e.g. /map)
+          // can anchor themselves to the right of the sidebar without needing
+          // to know about AppShell's collapsed state.
+          "--ds-current-sidebar-width": sidebarWidth,
+        } as CSSProperties
+      }
+    >
       <Sidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed((c) => !c)}

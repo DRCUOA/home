@@ -688,7 +688,17 @@ function MapPage() {
   const showPinForm = pendingPinCoords != null;
 
   return (
-    <div className="fixed inset-0 flex flex-col">
+    <div
+      className="fixed bottom-0 right-0 flex flex-col"
+      style={{
+        // Anchor the map overlay to the area *inside* AppShell's chrome:
+        // below the sticky TopBar and to the right of the Sidebar. Falling
+        // back to 0 keeps this route sensible if ever rendered outside
+        // AppShell (e.g. tests, storybook).
+        top: "var(--ds-topbar-height, 0px)",
+        left: "var(--ds-current-sidebar-width, 0px)",
+      }}
+    >
       {/* Search + quick goto */}
       <div className="absolute top-0 left-0 right-0 z-20 p-3 pointer-events-none">
         <div className="pointer-events-auto max-w-2xl mx-auto sm:mx-0 sm:ml-3">

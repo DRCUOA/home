@@ -736,28 +736,35 @@ function MapPage() {
             <div className="flex items-center gap-2 rounded-xl bg-amber-50/95 dark:bg-amber-900/80 backdrop-blur-sm border border-amber-200 dark:border-amber-700 px-3 py-2 shadow-lg">
               <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
               <p className="text-xs text-amber-800 dark:text-amber-200 flex-1">
-                {geocodeMutation.data && geocodeMutation.data.data.geocoded === 0 ? (
-                  <>
-                    Geocoding failed for{" "}
-                    {geocodeMutation.data.data.failed} of{" "}
-                    {geocodeMutation.data.data.total} properties. Check the
-                    API server logs.
-                  </>
-                ) : geocodeMutation.data ? (
-                  <>
-                    Geocoded {geocodeMutation.data.data.geocoded} of{" "}
-                    {geocodeMutation.data.data.total};{" "}
-                    {geocodeMutation.data.data.failed} failed.
-                  </>
-                ) : (
-                  <>
-                    {ungeocodedCount}{" "}
-                    {ungeocodedCount === 1
-                      ? "property needs"
-                      : "properties need"}{" "}
-                    geocoding to appear on the map.
-                  </>
-                )}
+                {(() => {
+                  const result = geocodeMutation.data?.data;
+                  if (result && result.total > 0) {
+                    if (result.geocoded === 0) {
+                      return (
+                        <>
+                          Geocoding failed for {result.failed} of {result.total}{" "}
+                          {result.total === 1 ? "property" : "properties"}. Check
+                          the API server logs.
+                        </>
+                      );
+                    }
+                    return (
+                      <>
+                        Geocoded {result.geocoded} of {result.total};{" "}
+                        {result.failed} failed.
+                      </>
+                    );
+                  }
+                  return (
+                    <>
+                      {ungeocodedCount}{" "}
+                      {ungeocodedCount === 1
+                        ? "property needs"
+                        : "properties need"}{" "}
+                      geocoding to appear on the map.
+                    </>
+                  );
+                })()}
               </p>
               <Button
                 size="sm"

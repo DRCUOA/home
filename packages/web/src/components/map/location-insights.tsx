@@ -34,6 +34,7 @@ import {
   type AmenityCount,
 } from "./geo-utils";
 import { apiGet } from "@/lib/api";
+import { StreetViewModal, StreetViewPreview } from "./street-view";
 
 interface NearbyData {
   counts: AmenityCount;
@@ -78,6 +79,7 @@ export function LocationInsights({
 }: LocationInsightsProps) {
   const [compareTarget, setCompareTarget] = useState("");
   const [radiusM, setRadiusM] = useState(1000);
+  const [streetViewOpen, setStreetViewOpen] = useState(false);
 
   const nearbyQuery = useQuery({
     queryKey: ["map-nearby", latitude, longitude, radiusM],
@@ -162,6 +164,25 @@ export function LocationInsights({
 
   return (
     <div className="space-y-4">
+      {/* ── Street View ── */}
+      <section>
+        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
+          Street View
+        </p>
+        <StreetViewPreview
+          latitude={latitude}
+          longitude={longitude}
+          onOpen={() => setStreetViewOpen(true)}
+        />
+      </section>
+
+      <StreetViewModal
+        open={streetViewOpen}
+        latitude={latitude}
+        longitude={longitude}
+        onClose={() => setStreetViewOpen(false)}
+      />
+
       {/* ── Distance & commute ── */}
       <section>
         <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">

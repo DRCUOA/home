@@ -6,6 +6,7 @@ import {
   X,
   BarChart3,
   ChevronRight,
+  Camera,
 } from "lucide-react";
 import type { MapPin } from "@hcc/shared";
 import type { MapProperty } from "./types";
@@ -13,6 +14,7 @@ import { getStatusColor, getPrice } from "./types";
 import { formatCurrency, capitalize } from "@/lib/format";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { LocationInsights, type AmenityPoi } from "./location-insights";
+import { StreetViewModal } from "./street-view";
 
 interface PropertyPopupProps {
   property: MapProperty;
@@ -30,6 +32,7 @@ export function PropertyPopup({
   onShowInsights,
 }: PropertyPopupProps) {
   const price = getPrice(property);
+  const [streetViewOpen, setStreetViewOpen] = useState(false);
 
   return (
     <Popup
@@ -101,6 +104,14 @@ export function PropertyPopup({
             <BarChart3 className="h-3.5 w-3.5" />
             Insights
           </button>
+          <button
+            onClick={() => setStreetViewOpen(true)}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-l border-slate-100 dark:border-slate-800"
+            title="Open Street View"
+          >
+            <Camera className="h-3.5 w-3.5" />
+            Street
+          </button>
           {property.listing_url && (
             <a
               href={property.listing_url}
@@ -123,6 +134,14 @@ export function PropertyPopup({
           </a>
         </div>
       </div>
+
+      <StreetViewModal
+        open={streetViewOpen}
+        latitude={property.latitude}
+        longitude={property.longitude}
+        label={property.address}
+        onClose={() => setStreetViewOpen(false)}
+      />
     </Popup>
   );
 }

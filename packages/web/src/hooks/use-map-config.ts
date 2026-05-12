@@ -13,6 +13,7 @@ export interface MapConfig {
   linzStyleUrl: string | null;
   linzAerialUrl: string | null;
   linzApiKey: string | null;
+  googleMapsApiKey: string | null;
   layers: LayerDefinition[];
 }
 

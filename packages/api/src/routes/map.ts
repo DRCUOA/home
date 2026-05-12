@@ -9,6 +9,7 @@ import {
 } from "../services/geocoding.js";
 
 const LINZ_BASEMAP_API_KEY = process.env.LINZ_BASEMAP_API_KEY || "";
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || "";
 const OSRM_BASE_URL =
   process.env.OSRM_BASE_URL || "https://router.project-osrm.org";
 
@@ -206,6 +207,7 @@ export default async function mapRoutes(app: FastifyInstance) {
           linzStyleUrl,
           linzAerialUrl,
           linzApiKey: LINZ_BASEMAP_API_KEY || null,
+          googleMapsApiKey: GOOGLE_MAPS_API_KEY || null,
           layers: LAYER_DEFINITIONS,
         },
       };

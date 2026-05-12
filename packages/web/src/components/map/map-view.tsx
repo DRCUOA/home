@@ -12,11 +12,13 @@ import Map, {
   GeolocateControl,
   ScaleControl,
   Marker,
+  Popup,
   type MapRef,
   type ViewStateChangeEvent,
 } from "react-map-gl/maplibre";
 import type maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { Camera } from "lucide-react";
 import type { MapConfig } from "@/hooks/use-map-config";
 import type { MapPin } from "@hcc/shared";
 import { getAccessToken } from "@/lib/api";
@@ -34,6 +36,7 @@ import {
   type MeasurePoint,
   type MeasureSegment,
 } from "./measure-line";
+import { StreetViewModal } from "./street-view";
 import { useThemeStore } from "@/stores/theme";
 
 export interface MapViewHandle {
@@ -126,6 +129,14 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
     const [viewState, setViewState] = useState(NZ_CENTER);
     const initialFitDone = useRef(false);
     const segmentDragStartRef = useRef<Record<number, { lng: number; lat: number }>>({});
+    const [contextMenu, setContextMenu] = useState<{
+      lng: number;
+      lat: number;
+    } | null>(null);
+    const [streetView, setStreetView] = useState<{
+      lng: number;
+      lat: number;
+    } | null>(null);
 
     const mapStyle =
       config.linzStyleUrl || (isDark ? FALLBACK_DARK_STYLE : FALLBACK_STYLE);
@@ -211,13 +222,23 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
 
     const handleClick = useCallback(
       (e: maplibregl.MapMouseEvent) => {
+        if (contextMenu) setContextMenu(null);
         if (measureMode) {
           onMeasureClick(e.lngLat.lng, e.lngLat.lat);
         } else if (pinDropMode) {
           onMapClick(e.lngLat.lng, e.lngLat.lat);
         }
       },
-      [pinDropMode, measureMode, onMapClick, onMeasureClick]
+      [pinDropMode, measureMode, onMapClick, onMeasureClick, contextMenu]
+    );
+
+    const handleContextMenu = useCallback(
+      (e: maplibregl.MapMouseEvent) => {
+        if (measureMode || pinDropMode) return;
+        e.preventDefault?.();
+        setContextMenu({ lng: e.lngLat.lng, lat: e.lngLat.lat });
+      },
+      [measureMode, pinDropMode]
     );
 
     const segmentMidpoints = useMemo(
@@ -231,11 +252,13 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
     );
 
     return (
+      <>
       <Map
         ref={mapRef}
         {...viewState}
         onMove={handleMove}
         onClick={handleClick}
+        onContextMenu={handleContextMenu}
         mapStyle={mapStyle}
         transformRequest={transformRequest}
         style={{
@@ -380,7 +403,48 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
               </button>
             </Marker>
           ))}
+
+        {contextMenu && (
+          <Popup
+            longitude={contextMenu.lng}
+            latitude={contextMenu.lat}
+            anchor="top"
+            offset={8}
+            closeOnClick={false}
+            onClose={() => setContextMenu(null)}
+            closeButton={false}
+            className="map-context-popup"
+            maxWidth="220px"
+          >
+            <div className="rounded-lg bg-white dark:bg-slate-900 shadow-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => {
+                  setStreetView({ lng: contextMenu.lng, lat: contextMenu.lat });
+                  setContextMenu(null);
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-primary-50 dark:hover:bg-primary-900/30 transition-colors"
+              >
+                <Camera className="h-3.5 w-3.5 text-primary-600 dark:text-primary-400" />
+                Street View here
+              </button>
+              <div className="border-t border-slate-100 dark:border-slate-800 px-3 py-1.5 text-[10px] tabular-nums text-slate-400 dark:text-slate-500">
+                {contextMenu.lat.toFixed(5)}, {contextMenu.lng.toFixed(5)}
+              </div>
+            </div>
+          </Popup>
+        )}
       </Map>
+
+      {streetView && (
+        <StreetViewModal
+          open
+          latitude={streetView.lat}
+          longitude={streetView.lng}
+          onClose={() => setStreetView(null)}
+        />
+      )}
+    </>
     );
   }
 );

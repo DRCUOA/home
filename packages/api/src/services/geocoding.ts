@@ -47,10 +47,21 @@ async function geocodeViaGoogle(query: string): Promise<GeocodingResult | null> 
     const res = await fetch(`${GEOCODE_BASE}?${params}`, {
       signal: AbortSignal.timeout(10000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`[Geocoding] Google HTTP ${res.status} for "${query}"`);
+      return null;
+    }
 
     const data = await res.json();
-    if (data.status !== "OK" || !data.results?.length) return null;
+    if (data.status !== "OK" || !data.results?.length) {
+      if (data.status && data.status !== "ZERO_RESULTS") {
+        console.warn(
+          `[Geocoding] Google status=${data.status} for "${query}"` +
+            (data.error_message ? ` — ${data.error_message}` : "")
+        );
+      }
+      return null;
+    }
 
     const hit = data.results[0];
     const loc = hit.geometry?.location;
@@ -62,7 +73,8 @@ async function geocodeViaGoogle(query: string): Promise<GeocodingResult | null> 
       longitude: loc.lng,
       formatted_address: hit.formatted_address || query,
     };
-  } catch {
+  } catch (err: any) {
+    console.warn(`[Geocoding] Network/parse error for "${query}": ${err?.message ?? err}`);
     return null;
   }
 }
@@ -115,7 +127,11 @@ export async function addressAutocomplete(
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.warn(`[Places autocomplete] HTTP ${res.status}: ${text.slice(0, 300)}`);
+      return [];
+    }
 
     const data = await res.json();
     const suggestions = data.suggestions || [];
@@ -153,7 +169,11 @@ export async function getAddressMetadata(
       },
       signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.warn(`[Place details] HTTP ${res.status}: ${text.slice(0, 300)}`);
+      return null;
+    }
 
     const meta = await res.json();
     const lat = meta.location?.latitude;

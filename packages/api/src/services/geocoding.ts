@@ -1,17 +1,18 @@
-const ADDRESSFINDER_API_KEY = process.env.ADDRESSFINDER_API_KEY || "";
-const ADDRESSFINDER_API_SECRET = process.env.ADDRESSFINDER_API_SECRET || "";
-const AF_BASE = "https://api.addressfinder.io/api/nz";
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || "";
+
+const PLACES_BASE = "https://places.googleapis.com/v1";
+const GEOCODE_BASE = "https://maps.googleapis.com/maps/api/geocode/json";
+const REGION = "nz";
 
 export interface GeocodingResult {
   latitude: number;
   longitude: number;
   formatted_address: string;
-  linz_address_id?: string;
 }
 
 export interface AutocompleteResult {
   address: string;
-  pxid: string;
+  place_id: string;
 }
 
 export interface AutocompleteMetadata {
@@ -20,47 +21,46 @@ export interface AutocompleteMetadata {
   address: string;
   suburb?: string;
   city?: string;
-  linz_address_id?: string;
 }
 
-function afParams(extra: Record<string, string>): URLSearchParams {
-  return new URLSearchParams({
-    key: ADDRESSFINDER_API_KEY,
-    secret: ADDRESSFINDER_API_SECRET,
-    format: "json",
-    ...extra,
-  });
+function extractComponent(
+  components: any[] | undefined,
+  types: string[]
+): string | undefined {
+  if (!components) return undefined;
+  for (const c of components) {
+    const cTypes: string[] = c.types || [];
+    if (types.some((t) => cTypes.includes(t))) {
+      return c.longText || c.long_name || undefined;
+    }
+  }
+  return undefined;
 }
 
-async function tryGeocode(query: string): Promise<GeocodingResult | null> {
+async function geocodeViaGoogle(query: string): Promise<GeocodingResult | null> {
   try {
-    const params = afParams({ q: query, max: "1" });
-    const res = await fetch(`${AF_BASE}/address?${params}`, {
+    const params = new URLSearchParams({
+      address: query,
+      components: `country:${REGION.toUpperCase()}`,
+      key: GOOGLE_MAPS_API_KEY,
+    });
+    const res = await fetch(`${GEOCODE_BASE}?${params}`, {
       signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) return null;
 
     const data = await res.json();
-    const completions = data.completions;
-    if (!completions || completions.length === 0) return null;
+    if (data.status !== "OK" || !data.results?.length) return null;
 
-    const pxid = completions[0].pxid;
-    const metaParams = afParams({ pxid });
-    const metaRes = await fetch(`${AF_BASE}/address/info?${metaParams}`, {
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!metaRes.ok) return null;
-
-    const meta = await metaRes.json();
-    const lat = parseFloat(meta.y);
-    const lng = parseFloat(meta.x);
-    if (isNaN(lat) || isNaN(lng)) return null;
-
+    const hit = data.results[0];
+    const loc = hit.geometry?.location;
+    if (!loc || typeof loc.lat !== "number" || typeof loc.lng !== "number") {
+      return null;
+    }
     return {
-      latitude: lat,
-      longitude: lng,
-      formatted_address: meta.a || completions[0].a || query,
-      linz_address_id: meta.linz_address_id || undefined,
+      latitude: loc.lat,
+      longitude: loc.lng,
+      formatted_address: hit.formatted_address || query,
     };
   } catch {
     return null;
@@ -72,27 +72,19 @@ export async function geocodeAddress(
   suburb?: string,
   city?: string
 ): Promise<GeocodingResult | null> {
-  if (!ADDRESSFINDER_API_KEY) {
-    console.warn("[Geocoding] ADDRESSFINDER_API_KEY not set, skipping");
+  if (!GOOGLE_MAPS_API_KEY) {
+    console.warn("[Geocoding] GOOGLE_MAPS_API_KEY not set, skipping");
     return null;
   }
 
-  // Try progressively simpler queries until one matches.
-  // NZ district names (e.g. "Waimakariri") often confuse the geocoder
-  // when used as city, so we try without city first if suburb is present.
   const queries: string[] = [];
-
-  if (suburb) {
-    queries.push([address, suburb].join(", "));
-  }
+  if (suburb) queries.push([address, suburb].join(", "));
   queries.push([address, suburb, city].filter(Boolean).join(", "));
-  if (city && city !== suburb) {
-    queries.push([address, city].join(", "));
-  }
+  if (city && city !== suburb) queries.push([address, city].join(", "));
   queries.push(address);
 
   for (const q of queries) {
-    const result = await tryGeocode(q);
+    const result = await geocodeViaGoogle(q);
     if (result) return result;
   }
 
@@ -102,51 +94,79 @@ export async function geocodeAddress(
 
 export async function addressAutocomplete(
   query: string,
+  sessionToken?: string,
   max = 8
 ): Promise<AutocompleteResult[]> {
-  if (!ADDRESSFINDER_API_KEY || !query.trim()) return [];
+  if (!GOOGLE_MAPS_API_KEY || !query.trim()) return [];
 
   try {
-    const params = afParams({ q: query.trim(), max: String(max) });
-    const res = await fetch(`${AF_BASE}/address?${params}`, {
+    const body: Record<string, unknown> = {
+      input: query.trim(),
+      includedRegionCodes: [REGION],
+    };
+    if (sessionToken) body.sessionToken = sessionToken;
+
+    const res = await fetch(`${PLACES_BASE}/places:autocomplete`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
+      },
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return [];
 
     const data = await res.json();
-    return (data.completions || []).map((c: any) => ({
-      address: c.a,
-      pxid: c.pxid,
-    }));
+    const suggestions = data.suggestions || [];
+    return suggestions
+      .slice(0, max)
+      .map((s: any) => {
+        const p = s.placePrediction;
+        if (!p?.placeId) return null;
+        return {
+          address: p.text?.text || p.structuredFormat?.mainText?.text || "",
+          place_id: p.placeId,
+        };
+      })
+      .filter((r: AutocompleteResult | null): r is AutocompleteResult => r !== null);
   } catch {
     return [];
   }
 }
 
 export async function getAddressMetadata(
-  pxid: string
+  placeId: string,
+  sessionToken?: string
 ): Promise<AutocompleteMetadata | null> {
-  if (!ADDRESSFINDER_API_KEY) return null;
+  if (!GOOGLE_MAPS_API_KEY) return null;
 
   try {
-    const params = afParams({ pxid });
-    const res = await fetch(`${AF_BASE}/address/info?${params}`, {
+    const url = new URL(`${PLACES_BASE}/places/${encodeURIComponent(placeId)}`);
+    if (sessionToken) url.searchParams.set("sessionToken", sessionToken);
+
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
+        "X-Goog-FieldMask": "location,formattedAddress,addressComponents",
+      },
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return null;
 
     const meta = await res.json();
-    const lat = parseFloat(meta.y);
-    const lng = parseFloat(meta.x);
-    if (isNaN(lat) || isNaN(lng)) return null;
+    const lat = meta.location?.latitude;
+    const lng = meta.location?.longitude;
+    if (typeof lat !== "number" || typeof lng !== "number") return null;
 
+    const components = meta.addressComponents;
     return {
       latitude: lat,
       longitude: lng,
-      address: meta.a || "",
-      suburb: meta.suburb || undefined,
-      city: meta.city || undefined,
-      linz_address_id: meta.linz_address_id || undefined,
+      address: meta.formattedAddress || "",
+      suburb: extractComponent(components, ["sublocality", "sublocality_level_1", "neighborhood"]),
+      city: extractComponent(components, ["locality", "postal_town", "administrative_area_level_1"]),
     };
   } catch {
     return null;

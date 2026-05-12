@@ -349,10 +349,13 @@ export default async function mapRoutes(app: FastifyInstance) {
     "/api/v1/map/address-autocomplete",
     { preHandler: authGuard },
     async (request, _reply) => {
-      const { q } = request.query as { q?: string };
+      const { q, session_token } = request.query as {
+        q?: string;
+        session_token?: string;
+      };
       if (!q) return { data: [] };
 
-      const results = await addressAutocomplete(q);
+      const results = await addressAutocomplete(q, session_token);
       return { data: results };
     }
   );
@@ -361,12 +364,15 @@ export default async function mapRoutes(app: FastifyInstance) {
     "/api/v1/map/address-metadata",
     { preHandler: authGuard },
     async (request, reply) => {
-      const { pxid } = request.query as { pxid?: string };
-      if (!pxid) {
-        return reply.status(400).send({ error: "pxid is required" });
+      const { place_id, session_token } = request.query as {
+        place_id?: string;
+        session_token?: string;
+      };
+      if (!place_id) {
+        return reply.status(400).send({ error: "place_id is required" });
       }
 
-      const meta = await getAddressMetadata(pxid);
+      const meta = await getAddressMetadata(place_id, session_token);
       if (!meta) {
         return reply.status(404).send({ error: "Address not found" });
       }

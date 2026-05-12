@@ -4,7 +4,7 @@ import { apiGet } from "@/lib/api";
 
 interface AutocompleteResult {
   address: string;
-  pxid: string;
+  place_id: string;
 }
 
 interface AddressMetadata {
@@ -33,6 +33,7 @@ export function MapSearch({
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const sessionTokenRef = useRef<string>(crypto.randomUUID());
 
   const search = useCallback(async (q: string) => {
     if (q.length < 3) {
@@ -42,8 +43,12 @@ export function MapSearch({
 
     setLoading(true);
     try {
+      const params = new URLSearchParams({
+        q,
+        session_token: sessionTokenRef.current,
+      });
       const res = await apiGet<{ data: AutocompleteResult[] }>(
-        `/map/address-autocomplete?q=${encodeURIComponent(q)}`
+        `/map/address-autocomplete?${params.toString()}`
       );
       setResults(res.data);
       setIsOpen(true);
@@ -80,12 +85,18 @@ export function MapSearch({
     setIsOpen(false);
 
     try {
+      const params = new URLSearchParams({
+        place_id: result.place_id,
+        session_token: sessionTokenRef.current,
+      });
       const res = await apiGet<{ data: AddressMetadata }>(
-        `/map/address-metadata?pxid=${encodeURIComponent(result.pxid)}`
+        `/map/address-metadata?${params.toString()}`
       );
       onFlyTo(res.data.longitude, res.data.latitude, 16);
     } catch {
       // fall through
+    } finally {
+      sessionTokenRef.current = crypto.randomUUID();
     }
   };
 
@@ -129,7 +140,7 @@ export function MapSearch({
         <div className="absolute top-full left-0 right-0 mt-1 rounded-xl bg-white dark:bg-slate-900 shadow-xl border border-slate-200 dark:border-slate-700 overflow-hidden z-50 max-h-72 overflow-y-auto">
           {results.map((r) => (
             <button
-              key={r.pxid}
+              key={r.place_id}
               onClick={() => selectResult(r)}
               className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left text-sm text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors min-h-[2.75rem]"
             >

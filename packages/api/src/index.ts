@@ -68,10 +68,19 @@ app.setErrorHandler((error: any, _req, reply) => {
     });
   }
 
-  if (error.name === "ZodError" || error.issues) {
+  if (error.name === "ZodError" || Array.isArray(error.issues)) {
+    const issues = (error.issues ?? []).map((i: any) => ({
+      path: Array.isArray(i.path) ? i.path.join(".") : String(i.path ?? ""),
+      message: i.message,
+      code: i.code,
+    }));
+    const summary = issues.length
+      ? issues.map((i: any) => `${i.path || "(root)"}: ${i.message}`).join("; ")
+      : "Validation failed";
     return reply.status(400).send({
       error: "Validation Error",
-      message: error.message,
+      message: summary,
+      issues,
       statusCode: 400,
     });
   }

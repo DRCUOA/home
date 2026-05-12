@@ -5,7 +5,7 @@ import { createWriteStream } from "fs";
 import { pipeline } from "stream/promises";
 import { Readable } from "stream";
 import path from "path";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { authGuard } from "../middleware/auth.js";
 import { db, schema } from "../db/index.js";
 import { createPropertySchema, updatePropertySchema } from "@hcc/shared";
@@ -213,24 +213,27 @@ export default async function propertyRoutes(app: FastifyInstance) {
 
   app.get("/api/v1/properties", async (req) => {
     const { project_id, watchlist_status } = req.query as any;
-    const conditions = [];
 
-    if (project_id) conditions.push(eq(schema.properties.project_id, project_id));
-    if (watchlist_status) conditions.push(eq(schema.properties.watchlist_status, watchlist_status));
-
-    const userProjects = db
+    const userProjects = await db
       .select({ id: schema.projects.id })
       .from(schema.projects)
       .where(eq(schema.projects.user_id, req.userId));
+    const userProjectIds = userProjects.map((p) => p.id);
+    if (userProjectIds.length === 0) return { data: [], total: 0 };
+
+    const conditions = [inArray(schema.properties.project_id, userProjectIds)];
+    if (project_id) {
+      if (!userProjectIds.includes(project_id)) return { data: [], total: 0 };
+      conditions.push(eq(schema.properties.project_id, project_id));
+    }
+    if (watchlist_status) {
+      conditions.push(eq(schema.properties.watchlist_status, watchlist_status));
+    }
 
     const rows = await db
       .select()
       .from(schema.properties)
-      .where(
-        conditions.length > 0
-          ? and(...conditions)
-          : undefined
-      );
+      .where(and(...conditions));
 
     return { data: rows, total: rows.length };
   });

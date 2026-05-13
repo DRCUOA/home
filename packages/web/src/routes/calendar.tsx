@@ -407,20 +407,33 @@ function CalendarPage() {
     return () => observer.disconnect();
   }, []);
 
-  // Wheel-to-zoom anywhere on the calendar. Browsers reserve Ctrl/Cmd+wheel
-  // for page zoom (and macOS trackpad pinch fires wheel events with
-  // ctrlKey: true), so without a non-passive listener that calls
-  // preventDefault, the whole viewport would zoom instead of the calendar
-  // scale. Plain wheel is left alone so it scrolls through dates.
+  // Wheel-to-zoom anywhere on the calendar — same UX as the map's MapLibre
+  // canvas: plain wheel changes scale, no modifier required. The listener
+  // is non-passive so we can preventDefault and stop the page from
+  // scrolling underneath. Date navigation falls to the scrollbar and the
+  // Today button (parallel to the map, which pans by drag, not wheel).
+  // Pinch on macOS trackpads fires the same wheel event with ctrlKey,
+  // which this also covers.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     let accum = 0;
+    let lastFireTime = 0;
     const handler = (e: WheelEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
       e.preventDefault();
+      // Trackpad pinch fires deltaY at finer granularity than mouse wheel.
+      // ctrlKey == true means pinch on macOS; treat it the same as plain wheel
+      // here since both end up changing scale.
       accum += e.deltaY;
-      if (Math.abs(accum) < 40) return;
+      const threshold = e.ctrlKey ? 8 : 40;
+      if (Math.abs(accum) < threshold) return;
+      // Rate-limit so a single fast flick can only change scale every 120ms.
+      const now = performance.now();
+      if (now - lastFireTime < 120) {
+        accum = 0;
+        return;
+      }
+      lastFireTime = now;
       const dir = accum > 0 ? 1 : -1;
       accum = 0;
       setScale((prev) => {
@@ -552,8 +565,13 @@ function CalendarPage() {
 
               <div
                 ref={scrollRef}
-                className="select-none overflow-y-auto"
-                style={{ maxHeight: "calc(100vh - 240px)" }}
+                className="select-none overflow-y-scroll"
+                style={{
+                  maxHeight: "calc(100vh - 240px)",
+                  // Avoid the page jumping when the always-visible scrollbar
+                  // appears or disappears on theme switches etc.
+                  scrollbarGutter: "stable",
+                }}
                 onMouseLeave={() => setHoveredDate(null)}
               >
                 <div ref={topSentinelRef} aria-hidden className="h-px" />
@@ -943,7 +961,7 @@ function ScaleWheel({
         if (next !== value) onChange(next);
       }}
       className="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 focus:outline-none focus:ring-2 focus:ring-primary-500/30"
-      title="Wheel here, or ⌘/Ctrl + wheel (or pinch) anywhere on the calendar, to zoom: Days → Weeks → Months → Years"
+      title="Wheel or pinch anywhere on the calendar to zoom: Days → Weeks → Months → Years"
     >
       {SCALES.map((s) => {
         const active = value === s;
@@ -1076,15 +1094,8 @@ function Legend() {
         |
       </span>
       <span className="hidden md:inline italic">
-        Click + drag to create. Scroll to load more months.{" "}
-        <kbd className="rounded border border-slate-300 dark:border-slate-600 px-1 not-italic">
-          ⌘
-        </kbd>{" "}
-        /{" "}
-        <kbd className="rounded border border-slate-300 dark:border-slate-600 px-1 not-italic">
-          Ctrl
-        </kbd>{" "}
-        + wheel (or pinch) to change scale.
+        Click + drag to create. Wheel or pinch to zoom Days → Weeks → Months
+        → Years. Drag the scrollbar or click Today to navigate dates.
       </span>
     </div>
   );

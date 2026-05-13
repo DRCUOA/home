@@ -243,6 +243,8 @@ export const tasks = pgTable(
     title: varchar("title", { length: 500 }).notNull(),
     description: text("description"),
     due_date: timestamp("due_date"),
+    start_time: varchar("start_time", { length: 5 }),
+    kind: varchar("kind", { length: 10 }).default("task").notNull(),
     priority: varchar("priority", { length: 20 }).default("medium").notNull(),
     status: varchar("status", { length: 20 }).default("todo").notNull(),
     project_id: uuid("project_id").references(() => projects.id),

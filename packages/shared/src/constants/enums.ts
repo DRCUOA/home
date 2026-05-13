@@ -82,6 +82,9 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 export const TASK_PRIORITIES = ["low", "medium", "high", "urgent"] as const;
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 
+export const TASK_KINDS = ["task", "event"] as const;
+export type TaskKind = (typeof TASK_KINDS)[number];
+
 export const CHECKLIST_STATES = [
   "not_started",
   "in_progress",

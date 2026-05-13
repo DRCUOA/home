@@ -97,6 +97,7 @@ export default async function taskRoutes(app: FastifyInstance) {
       {
         ...body,
         due_date: body.due_date ? new Date(body.due_date) : undefined,
+        end_date: body.end_date ? new Date(body.end_date) : undefined,
       },
       req.userId
     );
@@ -108,6 +109,8 @@ export default async function taskRoutes(app: FastifyInstance) {
     const body = updateTaskSchema.parse(req.body);
     const updates: Record<string, any> = { ...body };
     if (body.due_date) updates.due_date = new Date(body.due_date);
+    if (body.end_date) updates.end_date = new Date(body.end_date);
+    else if ("end_date" in body) updates.end_date = null;
     const row = await service.update(id, updates, req.userId);
     if (!row) return reply.status(404).send({ error: "Not Found" });
     return { data: row };

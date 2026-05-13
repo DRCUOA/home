@@ -78,6 +78,13 @@
       "when": 1778100000000,
       "tag": "0010_calendar_kind_time",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1778186400000,
+      "tag": "0011_task_end_date",
+      "breakpoints": true
     }
   ]
 }

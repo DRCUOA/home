@@ -407,6 +407,33 @@ function CalendarPage() {
     return () => observer.disconnect();
   }, []);
 
+  // Wheel-to-zoom anywhere on the calendar. Browsers reserve Ctrl/Cmd+wheel
+  // for page zoom (and macOS trackpad pinch fires wheel events with
+  // ctrlKey: true), so without a non-passive listener that calls
+  // preventDefault, the whole viewport would zoom instead of the calendar
+  // scale. Plain wheel is left alone so it scrolls through dates.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let accum = 0;
+    const handler = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      accum += e.deltaY;
+      if (Math.abs(accum) < 40) return;
+      const dir = accum > 0 ? 1 : -1;
+      accum = 0;
+      setScale((prev) => {
+        const idx = SCALES.indexOf(prev);
+        return SCALES[
+          Math.max(0, Math.min(SCALES.length - 1, idx + dir))
+        ];
+      });
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, []);
+
   // Global mouse handlers active only while dragging.
   useEffect(() => {
     if (!dragStart) return;
@@ -916,7 +943,7 @@ function ScaleWheel({
         if (next !== value) onChange(next);
       }}
       className="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 focus:outline-none focus:ring-2 focus:ring-primary-500/30"
-      title="Scroll the wheel to zoom: Days → Weeks → Months → Years"
+      title="Wheel here, or ⌘/Ctrl + wheel (or pinch) anywhere on the calendar, to zoom: Days → Weeks → Months → Years"
     >
       {SCALES.map((s) => {
         const active = value === s;
@@ -1049,8 +1076,15 @@ function Legend() {
         |
       </span>
       <span className="hidden md:inline italic">
-        Click + drag to create. Scroll the calendar to load more months. Wheel
-        on the scale to zoom.
+        Click + drag to create. Scroll to load more months.{" "}
+        <kbd className="rounded border border-slate-300 dark:border-slate-600 px-1 not-italic">
+          ⌘
+        </kbd>{" "}
+        /{" "}
+        <kbd className="rounded border border-slate-300 dark:border-slate-600 px-1 not-italic">
+          Ctrl
+        </kbd>{" "}
+        + wheel (or pinch) to change scale.
       </span>
     </div>
   );

@@ -19,6 +19,7 @@ import { Route as MapRouteImport } from './routes/map'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as GalleryRouteImport } from './routes/gallery'
+import { Route as CalendarRouteImport } from './routes/calendar'
 import { Route as BuyRouteImport } from './routes/buy'
 import { Route as AssistantRouteImport } from './routes/assistant'
 import { Route as IndexRouteImport } from './routes/index'
@@ -73,6 +74,11 @@ const GalleryRoute = GalleryRouteImport.update({
   path: '/gallery',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CalendarRoute = CalendarRouteImport.update({
+  id: '/calendar',
+  path: '/calendar',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BuyRoute = BuyRouteImport.update({
   id: '/buy',
   path: '/buy',
@@ -93,6 +99,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/assistant': typeof AssistantRoute
   '/buy': typeof BuyRoute
+  '/calendar': typeof CalendarRoute
   '/gallery': typeof GalleryRoute
   '/library': typeof LibraryRoute
   '/login': typeof LoginRoute
@@ -108,6 +115,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/assistant': typeof AssistantRoute
   '/buy': typeof BuyRoute
+  '/calendar': typeof CalendarRoute
   '/gallery': typeof GalleryRoute
   '/library': typeof LibraryRoute
   '/login': typeof LoginRoute
@@ -124,6 +132,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/assistant': typeof AssistantRoute
   '/buy': typeof BuyRoute
+  '/calendar': typeof CalendarRoute
   '/gallery': typeof GalleryRoute
   '/library': typeof LibraryRoute
   '/login': typeof LoginRoute
@@ -141,6 +150,7 @@ export interface FileRouteTypes {
     | '/'
     | '/assistant'
     | '/buy'
+    | '/calendar'
     | '/gallery'
     | '/library'
     | '/login'
@@ -156,6 +166,7 @@ export interface FileRouteTypes {
     | '/'
     | '/assistant'
     | '/buy'
+    | '/calendar'
     | '/gallery'
     | '/library'
     | '/login'
@@ -171,6 +182,7 @@ export interface FileRouteTypes {
     | '/'
     | '/assistant'
     | '/buy'
+    | '/calendar'
     | '/gallery'
     | '/library'
     | '/login'
@@ -187,6 +199,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AssistantRoute: typeof AssistantRoute
   BuyRoute: typeof BuyRoute
+  CalendarRoute: typeof CalendarRoute
   GalleryRoute: typeof GalleryRoute
   LibraryRoute: typeof LibraryRoute
   LoginRoute: typeof LoginRoute
@@ -271,6 +284,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GalleryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/calendar': {
+      id: '/calendar'
+      path: '/calendar'
+      fullPath: '/calendar'
+      preLoaderRoute: typeof CalendarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/buy': {
       id: '/buy'
       path: '/buy'
@@ -299,6 +319,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AssistantRoute: AssistantRoute,
   BuyRoute: BuyRoute,
+  CalendarRoute: CalendarRoute,
   GalleryRoute: GalleryRoute,
   LibraryRoute: LibraryRoute,
   LoginRoute: LoginRoute,

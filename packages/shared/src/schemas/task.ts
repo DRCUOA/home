@@ -13,6 +13,10 @@ export const createTaskSchema = z.object({
   title: z.string().min(1).max(500),
   description: z.string().optional(),
   due_date: z.string().optional(),
+  end_date: z
+    .string()
+    .optional()
+    .transform((v) => (v === "" || v === undefined ? undefined : v)),
   start_time: z
     .union([z.string().regex(timeRegex, "Time must be in HH:MM format"), z.literal("")])
     .optional()

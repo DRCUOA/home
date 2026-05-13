@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Loader2,
   AlertCircle,
@@ -75,6 +75,8 @@ const FILTER_OPTIONS: ReadonlyArray<{
   { value: "buy", label: "Buy", icon: ShoppingCart },
 ];
 
+const MS_PER_DAY = 86_400_000;
+
 function startOfMonth(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), 1);
 }
@@ -116,6 +118,16 @@ function sameDay(a: Date, b: Date) {
   );
 }
 
+function startOfDay(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function diffInDays(a: Date, b: Date) {
+  return Math.round(
+    (startOfDay(a).getTime() - startOfDay(b).getTime()) / MS_PER_DAY
+  );
+}
+
 function formatTimeOfDay(hhmm: string | null | undefined): string | null {
   if (!hhmm) return null;
   const match = /^(\d{2}):(\d{2})$/.exec(hhmm);
@@ -127,6 +139,19 @@ function formatTimeOfDay(hhmm: string | null | undefined): string | null {
   return minute === "00" ? `${display}${suffix}` : `${display}:${minute}${suffix}`;
 }
 
+function formatDaysFromToday(target: Date, today: Date): string {
+  const diff = diffInDays(target, today);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Tomorrow";
+  if (diff === -1) return "Yesterday";
+  if (diff > 0) return `In ${diff} days`;
+  return `${-diff} days ago`;
+}
+
+function formatShortDate(d: Date) {
+  return d.toLocaleDateString("en-NZ", { day: "numeric", month: "short" });
+}
+
 function CalendarPage() {
   const today = useMemo(() => {
     const d = new Date();
@@ -136,11 +161,26 @@ function CalendarPage() {
 
   const [viewMonth, setViewMonth] = useState(() => startOfMonth(new Date()));
   const [filter, setFilter] = useState<ProjectFilter>("all");
+
+  // Modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [defaultDate, setDefaultDate] = useState<string>(formatIsoDate(today));
+  const [defaultStart, setDefaultStart] = useState<string>(formatIsoDate(today));
+  const [defaultEnd, setDefaultEnd] = useState<string | null>(null);
   const [defaultKind, setDefaultKind] = useState<"task" | "event">("event");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // Mouse interaction state
+  const [hoveredDate, setHoveredDate] = useState<Date | null>(null);
+  const [dragStart, setDragStart] = useState<Date | null>(null);
+  const [dragEnd, setDragEnd] = useState<Date | null>(null);
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(
+    null
+  );
+  const dragStartRef = useRef<Date | null>(null);
+  const dragEndRef = useRef<Date | null>(null);
+  dragStartRef.current = dragStart;
+  dragEndRef.current = dragEnd;
 
   const gridStart = useMemo(
     () => startOfMondayWeek(startOfMonth(viewMonth)),
@@ -195,9 +235,28 @@ function CalendarPage() {
     return out;
   }, [gridStart, gridEnd]);
 
-  function openAddModal(date: Date, kind: "task" | "event" = "event") {
+  // Normalize drag range so it works forwards or backwards in time.
+  const dragRange = useMemo(() => {
+    if (!dragStart || !dragEnd) return null;
+    return dragStart <= dragEnd
+      ? { start: dragStart, end: dragEnd }
+      : { start: dragEnd, end: dragStart };
+  }, [dragStart, dragEnd]);
+
+  const dragDays = dragRange
+    ? diffInDays(dragRange.end, dragRange.start) + 1
+    : 0;
+
+  function isInDragRange(d: Date): boolean {
+    if (!dragRange) return false;
+    const t = d.getTime();
+    return t >= dragRange.start.getTime() && t <= dragRange.end.getTime();
+  }
+
+  function openModalForRange(start: Date, end: Date, kind: "task" | "event") {
     setEditingId(null);
-    setDefaultDate(formatIsoDate(date));
+    setDefaultStart(formatIsoDate(start));
+    setDefaultEnd(sameDay(start, end) ? null : formatIsoDate(end));
     setDefaultKind(kind);
     setModalOpen(true);
   }
@@ -216,6 +275,36 @@ function CalendarPage() {
     entriesQuery.refetch();
   }
 
+  // Global mouse handlers active only while dragging. Attaching to window
+  // means we still get the release even if the cursor leaves the grid.
+  useEffect(() => {
+    if (!dragStart) return;
+
+    const onMove = (e: MouseEvent) => {
+      setCursorPos({ x: e.clientX, y: e.clientY });
+    };
+
+    const onUp = () => {
+      const s = dragStartRef.current;
+      const e = dragEndRef.current;
+      if (s && e) {
+        const start = s <= e ? s : e;
+        const end = s <= e ? e : s;
+        openModalForRange(start, end, "event");
+      }
+      setDragStart(null);
+      setDragEnd(null);
+      setCursorPos(null);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [dragStart]);
+
   const monthLabel = viewMonth.toLocaleDateString("en-NZ", {
     month: "long",
     year: "numeric",
@@ -223,10 +312,12 @@ function CalendarPage() {
 
   const loading = entriesQuery.isLoading || projectsQuery.isLoading;
   const hasError = entriesQuery.isError;
-
   const editingEntry = editingId
     ? entries.find((e) => e.id === editingId)
     : undefined;
+
+  const showHoverTooltip =
+    hoveredDate && !dragStart && cursorPos !== null;
 
   const actions = (
     <div className="flex gap-2">
@@ -234,7 +325,7 @@ function CalendarPage() {
         variant="secondary"
         size="md"
         className="min-h-11"
-        onClick={() => openAddModal(today, "task")}
+        onClick={() => openModalForRange(today, today, "task")}
       >
         <CheckSquare className="h-4 w-4" />
         Add task
@@ -242,7 +333,7 @@ function CalendarPage() {
       <Button
         size="md"
         className="min-h-11"
-        onClick={() => openAddModal(today, "event")}
+        onClick={() => openModalForRange(today, today, "event")}
       >
         <Plus className="h-4 w-4" />
         Add event
@@ -325,26 +416,45 @@ function CalendarPage() {
                   </div>
                 ))}
               </div>
-              <div className="grid grid-cols-7">
+              <div
+                className="grid grid-cols-7 select-none"
+                onMouseLeave={() => setHoveredDate(null)}
+              >
                 {days.map((day) => {
                   const iso = formatIsoDate(day);
                   const dayEntries = entriesByDate.get(iso) ?? [];
                   const inMonth = day.getMonth() === viewMonth.getMonth();
                   const isToday = sameDay(day, today);
+                  const inRange = isInDragRange(day);
+
                   return (
-                    <button
-                      type="button"
+                    <div
                       key={iso}
-                      onDoubleClick={() => openAddModal(day, "event")}
-                      onClick={() => {
-                        if (dayEntries.length === 0) openAddModal(day, "event");
+                      onMouseDown={(e) => {
+                        // Ignore right/middle clicks and modifier clicks.
+                        if (e.button !== 0) return;
+                        e.preventDefault();
+                        setCursorPos({ x: e.clientX, y: e.clientY });
+                        setDragStart(day);
+                        setDragEnd(day);
+                      }}
+                      onMouseEnter={(e) => {
+                        setHoveredDate(day);
+                        setCursorPos({ x: e.clientX, y: e.clientY });
+                        if (dragStartRef.current) setDragEnd(day);
+                      }}
+                      onMouseMove={(e) => {
+                        // Keep the hover tooltip glued to the cursor.
+                        setCursorPos({ x: e.clientX, y: e.clientY });
                       }}
                       className={cn(
-                        "min-h-[120px] flex flex-col items-stretch gap-1 border-b border-r border-slate-100 dark:border-slate-800 p-2 text-left transition-colors",
+                        "min-h-[120px] flex flex-col items-stretch gap-1 border-b border-r border-slate-100 dark:border-slate-800 p-2 text-left transition-colors cursor-pointer",
                         inMonth
                           ? "bg-white dark:bg-slate-900"
                           : "bg-slate-50/60 dark:bg-slate-900/40",
-                        "hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                        inRange
+                          ? "bg-slate-200/80 dark:bg-slate-700/60 ring-1 ring-primary-400 dark:ring-primary-600"
+                          : "hover:bg-slate-50 dark:hover:bg-slate-800/50"
                       )}
                     >
                       <div className="flex items-center justify-between">
@@ -375,10 +485,15 @@ function CalendarPage() {
                               e.stopPropagation();
                               openEditModal(entry.id);
                             }}
+                            onMouseDown={(e) => {
+                              // Prevent the day-cell from starting a drag when
+                              // the user is just trying to click a chip.
+                              e.stopPropagation();
+                            }}
                           />
                         ))}
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -399,13 +514,35 @@ function CalendarPage() {
         )}
       </div>
 
+      {/* Floating indicators. position:fixed so they follow the cursor without
+          getting clipped by the grid's overflow. pointer-events:none so they
+          don't break the drag. */}
+      {showHoverTooltip && cursorPos && hoveredDate && (
+        <FloatingLabel x={cursorPos.x} y={cursorPos.y}>
+          <span className="text-slate-200">
+            {formatDaysFromToday(hoveredDate, today)}
+          </span>
+        </FloatingLabel>
+      )}
+      {dragRange && cursorPos && (
+        <FloatingLabel x={cursorPos.x} y={cursorPos.y} highlight>
+          <span className="font-semibold">
+            {dragDays} day{dragDays === 1 ? "" : "s"} selected
+          </span>
+          <span className="block text-[11px] opacity-80">
+            {formatShortDate(dragRange.start)} → {formatShortDate(dragRange.end)}
+          </span>
+        </FloatingLabel>
+      )}
+
       <EntryModal
-        key={editingId ?? `new-${defaultDate}-${defaultKind}`}
+        key={editingId ?? `new-${defaultStart}-${defaultEnd ?? ""}-${defaultKind}`}
         open={modalOpen}
         onClose={closeModal}
         projects={projects}
         existing={editingEntry}
-        defaultDate={defaultDate}
+        defaultStart={defaultStart}
+        defaultEnd={defaultEnd}
         defaultKind={defaultKind}
         defaultProjectType={filter === "all" ? undefined : filter}
         submitting={createTask.isPending || updateTask.isPending}
@@ -482,6 +619,40 @@ function CalendarPage() {
   );
 }
 
+function FloatingLabel({
+  x,
+  y,
+  highlight,
+  children,
+}: {
+  x: number;
+  y: number;
+  highlight?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        position: "fixed",
+        left: x + 14,
+        top: y + 14,
+        zIndex: 60,
+        pointerEvents: "none",
+      }}
+      className={cn(
+        "rounded-md px-2 py-1 text-xs shadow-lg",
+        highlight
+          ? "bg-primary-600 text-white"
+          : "bg-slate-900/90 text-slate-100 dark:bg-slate-800/95"
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 function ErrorBanner({ text }: { text: string }) {
   return (
     <div className="flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 px-3 py-2.5 text-sm text-amber-900 dark:text-amber-200">
@@ -551,6 +722,12 @@ function Legend() {
         <span className="h-2 w-2 rounded-full bg-blue-500" aria-hidden />
         Buy
       </span>
+      <span className="hidden md:inline text-slate-300 dark:text-slate-600">
+        |
+      </span>
+      <span className="hidden md:inline italic">
+        Click + drag to create a multi-day entry.
+      </span>
     </div>
   );
 }
@@ -558,13 +735,18 @@ function Legend() {
 function EntryChip({
   entry,
   onClick,
+  onMouseDown,
 }: {
   entry: CalendarEntry;
   onClick: (e: React.MouseEvent) => void;
+  onMouseDown: (e: React.MouseEvent) => void;
 }) {
   const isEvent = entry.kind === "event";
   const Icon = isEvent ? Clock : CheckSquare;
   const time = isEvent ? formatTimeOfDay(entry.start_time) : null;
+  const endIso = entry.end_date?.slice(0, 10);
+  const startIso = entry.due_date?.slice(0, 10);
+  const isMultiDay = !!(endIso && startIso && endIso !== startIso);
 
   const dotColor =
     entry.project_type === "sell"
@@ -582,6 +764,7 @@ function EntryChip({
       role="button"
       tabIndex={0}
       onClick={onClick}
+      onMouseDown={onMouseDown}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
@@ -589,7 +772,7 @@ function EntryChip({
         }
       }}
       className={cn(
-        "flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-1.5 py-1 text-left text-[11px] leading-tight",
+        "flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-1.5 py-1 text-left text-[11px] leading-tight cursor-pointer",
         "hover:border-primary-300 dark:hover:border-primary-700",
         entry.status === "done" && "opacity-60"
       )}
@@ -613,6 +796,11 @@ function EntryChip({
       >
         {entry.title}
       </span>
+      {isMultiDay && endIso && (
+        <span className="hidden md:inline shrink-0 text-[10px] text-slate-500 dark:text-slate-400 tabular-nums">
+          →{formatShortDate(new Date(endIso))}
+        </span>
+      )}
       <Badge
         variant={PRIORITY_VARIANT[entry.priority] ?? "default"}
         className="hidden sm:inline-flex shrink-0 !px-1.5 !py-0 !text-[10px]"
@@ -628,7 +816,8 @@ function EntryModal({
   onClose,
   projects,
   existing,
-  defaultDate,
+  defaultStart,
+  defaultEnd,
   defaultKind,
   defaultProjectType,
   onSubmit,
@@ -639,7 +828,8 @@ function EntryModal({
   onClose: () => void;
   projects: Project[];
   existing: CalendarEntry | undefined;
-  defaultDate: string;
+  defaultStart: string;
+  defaultEnd: string | null;
   defaultKind: "task" | "event";
   defaultProjectType: "sell" | "buy" | undefined;
   onSubmit: (data: Record<string, unknown>) => void;
@@ -649,6 +839,7 @@ function EntryModal({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [startTime, setStartTime] = useState("");
   const [kind, setKind] = useState<"task" | "event">("event");
   const [priority, setPriority] = useState("medium");
@@ -660,7 +851,8 @@ function EntryModal({
     if (existing) {
       setTitle(existing.title);
       setDescription(existing.description ?? "");
-      setDueDate(existing.due_date?.slice(0, 10) ?? defaultDate);
+      setDueDate(existing.due_date?.slice(0, 10) ?? defaultStart);
+      setEndDate(existing.end_date?.slice(0, 10) ?? "");
       setStartTime(existing.start_time ?? "");
       setKind(
         (existing.kind === "event" ? "event" : "task") as "task" | "event"
@@ -674,7 +866,8 @@ function EntryModal({
         : undefined;
       setTitle("");
       setDescription("");
-      setDueDate(defaultDate);
+      setDueDate(defaultStart);
+      setEndDate(defaultEnd ?? "");
       setStartTime("");
       setKind(defaultKind);
       setPriority("medium");
@@ -684,7 +877,8 @@ function EntryModal({
   }, [
     open,
     existing?.id,
-    defaultDate,
+    defaultStart,
+    defaultEnd,
     defaultKind,
     defaultProjectType,
     projects,
@@ -697,6 +891,11 @@ function EntryModal({
 
   const isEvent = kind === "event";
   const KindIcon = isEvent ? Clock : CheckSquare;
+  const hasRange = endDate && endDate !== dueDate;
+  const rangeDays =
+    dueDate && endDate
+      ? diffInDays(new Date(endDate), new Date(dueDate)) + 1
+      : 1;
 
   return (
     <Modal
@@ -720,6 +919,7 @@ function EntryModal({
             title: title.trim(),
             description: description || undefined,
             due_date: dueDate || undefined,
+            end_date: hasRange ? endDate : null,
             start_time: isEvent && startTime ? startTime : null,
             kind,
             priority,
@@ -780,28 +980,35 @@ function EntryModal({
           onChange={(e) => setDescription(e.target.value)}
           rows={3}
         />
-        <div
-          className={cn(
-            "grid gap-3",
-            isEvent ? "grid-cols-2" : "grid-cols-1"
-          )}
-        >
+        <div className="grid grid-cols-2 gap-3">
           <Input
             type="date"
-            label="Date"
+            label="Start date"
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
             required
           />
-          {isEvent && (
-            <Input
-              type="time"
-              label="Time"
-              value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-            />
-          )}
+          <Input
+            type="date"
+            label="End date (optional)"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            min={dueDate || undefined}
+          />
         </div>
+        {hasRange && (
+          <p className="-mt-2 text-xs text-primary-700 dark:text-primary-300">
+            Spans {rangeDays} day{rangeDays === 1 ? "" : "s"}.
+          </p>
+        )}
+        {isEvent && (
+          <Input
+            type="time"
+            label="Time"
+            value={startTime}
+            onChange={(e) => setStartTime(e.target.value)}
+          />
+        )}
         <div className="grid grid-cols-2 gap-3">
           <Select
             label="Priority"

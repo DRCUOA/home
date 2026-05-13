@@ -108,9 +108,21 @@ export default async function taskRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const body = updateTaskSchema.parse(req.body);
     const updates: Record<string, any> = { ...body };
+
+    // Date fields: null means "clear", string means "set", undefined/absent
+    // means "leave alone". We delete undefined keys so service.update
+    // doesn't write them.
     if (body.due_date) updates.due_date = new Date(body.due_date);
+    else if (body.due_date === null) updates.due_date = null;
+    else delete updates.due_date;
+
     if (body.end_date) updates.end_date = new Date(body.end_date);
-    else if ("end_date" in body) updates.end_date = null;
+    else if (body.end_date === null) updates.end_date = null;
+    else delete updates.end_date;
+
+    if (body.start_time === undefined) delete updates.start_time;
+    // start_time === null is preserved as-is to clear the column.
+
     const row = await service.update(id, updates, req.userId);
     if (!row) return reply.status(404).send({ error: "Not Found" });
     return { data: row };

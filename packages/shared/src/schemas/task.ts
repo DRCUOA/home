@@ -13,14 +13,21 @@ export const createTaskSchema = z.object({
   title: z.string().min(1).max(500),
   description: z.string().optional(),
   due_date: z.string().optional(),
+  // end_date and start_time accept null as "clear this field" from the
+  // calendar's edit modal. Empty string is also normalized to null so the
+  // tasks route can write the column without further branching.
   end_date: z
-    .string()
+    .union([z.string(), z.null()])
     .optional()
-    .transform((v) => (v === "" || v === undefined ? undefined : v)),
+    .transform((v) => (v === "" || v === null ? null : v)),
   start_time: z
-    .union([z.string().regex(timeRegex, "Time must be in HH:MM format"), z.literal("")])
+    .union([
+      z.string().regex(timeRegex, "Time must be in HH:MM format"),
+      z.literal(""),
+      z.null(),
+    ])
     .optional()
-    .transform((v) => (v === "" || v === undefined ? undefined : v)),
+    .transform((v) => (v === "" || v === null ? null : v)),
   kind: z.enum(TASK_KINDS).default("task"),
   priority: z.enum(TASK_PRIORITIES).default("medium"),
   status: z.enum(TASK_STATUSES).default("todo"),

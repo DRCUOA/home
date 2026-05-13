@@ -1,17 +1,22 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Loader2,
   AlertCircle,
   Plus,
-  ChevronLeft,
-  ChevronRight,
   CalendarDays,
   TrendingDown,
   ShoppingCart,
   Layers,
   Clock,
   CheckSquare,
+  Crosshair,
 } from "lucide-react";
 import type { Task, Project } from "@hcc/shared";
 import { TASK_STATUSES, TASK_PRIORITIES, TASK_KINDS } from "@hcc/shared";
@@ -36,6 +41,8 @@ import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/cn";
 
 type ProjectFilter = "all" | "sell" | "buy";
+
+type Scale = "days" | "weeks" | "months" | "years";
 
 type CalendarEntry = Task & { project_type: "sell" | "buy" | null };
 
@@ -75,6 +82,28 @@ const FILTER_OPTIONS: ReadonlyArray<{
   { value: "buy", label: "Buy", icon: ShoppingCart },
 ];
 
+const SCALES: readonly Scale[] = ["days", "weeks", "months", "years"];
+
+const SCALE_LABELS: Record<Scale, string> = {
+  days: "Days",
+  weeks: "Weeks",
+  months: "Months",
+  years: "Years",
+};
+
+// Each scale just scales the day cell's size — same Mon-Sun grid, denser
+// presentation. Entry chips degrade to dots and then to background tints.
+const CELL_MIN_H: Record<Scale, string> = {
+  days: "min-h-[120px]",
+  weeks: "min-h-[60px]",
+  months: "min-h-[28px]",
+  years: "min-h-[14px]",
+};
+
+const PRELOAD_MONTHS = 6;
+const EXTEND_BY = 6;
+const MAX_LOADED_MONTHS = 60; // hard ceiling so memory doesn't grow forever
+
 const MS_PER_DAY = 86_400_000;
 
 function startOfMonth(d: Date) {
@@ -108,6 +137,10 @@ function formatIsoDate(d: Date) {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+function monthKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
 function sameDay(a: Date, b: Date) {
@@ -152,6 +185,19 @@ function formatShortDate(d: Date) {
   return d.toLocaleDateString("en-NZ", { day: "numeric", month: "short" });
 }
 
+function formatMonthYear(d: Date) {
+  return d.toLocaleDateString("en-NZ", { month: "long", year: "numeric" });
+}
+
+function buildInitialMonths(anchor: Date): Date[] {
+  const base = startOfMonth(anchor);
+  const months: Date[] = [];
+  for (let i = -PRELOAD_MONTHS; i <= PRELOAD_MONTHS; i++) {
+    months.push(new Date(base.getFullYear(), base.getMonth() + i, 1));
+  }
+  return months;
+}
+
 function CalendarPage() {
   const today = useMemo(() => {
     const d = new Date();
@@ -159,7 +205,11 @@ function CalendarPage() {
     return d;
   }, []);
 
-  const [viewMonth, setViewMonth] = useState(() => startOfMonth(new Date()));
+  const [scale, setScale] = useState<Scale>("days");
+  const [loadedMonths, setLoadedMonths] = useState<Date[]>(() =>
+    buildInitialMonths(today)
+  );
+
   const [filter, setFilter] = useState<ProjectFilter>("all");
 
   // Modal state
@@ -182,25 +232,38 @@ function CalendarPage() {
   dragStartRef.current = dragStart;
   dragEndRef.current = dragEnd;
 
-  const gridStart = useMemo(
-    () => startOfMondayWeek(startOfMonth(viewMonth)),
-    [viewMonth]
+  // Infinite-scroll refs
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const topSentinelRef = useRef<HTMLDivElement>(null);
+  const bottomSentinelRef = useRef<HTMLDivElement>(null);
+  const monthRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  // Captured scrollHeight just before a prepend, used to keep the user's
+  // current visual position stable when new months arrive at the top.
+  const pendingPrependHeight = useRef<number | null>(null);
+  const didInitialScroll = useRef(false);
+
+  // The fetched range covers the full visible grid (each month is padded
+  // to include leading/trailing weekday cells from adjacent months).
+  const rangeStart = useMemo(
+    () => startOfMondayWeek(startOfMonth(loadedMonths[0])),
+    [loadedMonths]
   );
-  const gridEnd = useMemo(
-    () => endOfSundayWeek(endOfMonth(viewMonth)),
-    [viewMonth]
+  const rangeEnd = useMemo(
+    () =>
+      endOfSundayWeek(endOfMonth(loadedMonths[loadedMonths.length - 1])),
+    [loadedMonths]
   );
 
   const entriesQuery = useQuery({
     queryKey: [
       "calendar-events",
       filter,
-      formatIsoDate(gridStart),
-      formatIsoDate(gridEnd),
+      formatIsoDate(rangeStart),
+      formatIsoDate(rangeEnd),
     ],
     queryFn: () =>
       apiGet<ListResponse<CalendarEntry>>(
-        `/calendar/events?from=${gridStart.toISOString()}&to=${gridEnd.toISOString()}&project_type=${filter}`
+        `/calendar/events?from=${rangeStart.toISOString()}&to=${rangeEnd.toISOString()}&project_type=${filter}`
       ),
   });
 
@@ -225,17 +288,6 @@ function CalendarPage() {
     return map;
   }, [entries]);
 
-  const days = useMemo(() => {
-    const out: Date[] = [];
-    const cursor = new Date(gridStart);
-    while (cursor <= gridEnd) {
-      out.push(new Date(cursor));
-      cursor.setDate(cursor.getDate() + 1);
-    }
-    return out;
-  }, [gridStart, gridEnd]);
-
-  // Normalize drag range so it works forwards or backwards in time.
   const dragRange = useMemo(() => {
     if (!dragStart || !dragEnd) return null;
     return dragStart <= dragEnd
@@ -275,8 +327,87 @@ function CalendarPage() {
     entriesQuery.refetch();
   }
 
-  // Global mouse handlers active only while dragging. Attaching to window
-  // means we still get the release even if the cursor leaves the grid.
+  function extendForward() {
+    setLoadedMonths((prev) => {
+      const last = prev[prev.length - 1];
+      const next: Date[] = [];
+      for (let i = 1; i <= EXTEND_BY; i++) {
+        next.push(new Date(last.getFullYear(), last.getMonth() + i, 1));
+      }
+      const merged = [...prev, ...next];
+      // Trim from the start if we go over the ceiling — keeps memory bounded
+      // without surprising the user (they're scrolling away from those months).
+      return merged.length > MAX_LOADED_MONTHS
+        ? merged.slice(merged.length - MAX_LOADED_MONTHS)
+        : merged;
+    });
+  }
+
+  function extendBackward() {
+    const container = scrollRef.current;
+    if (!container) return;
+    pendingPrependHeight.current = container.scrollHeight;
+    setLoadedMonths((prev) => {
+      const first = prev[0];
+      const next: Date[] = [];
+      for (let i = EXTEND_BY; i >= 1; i--) {
+        next.push(new Date(first.getFullYear(), first.getMonth() - i, 1));
+      }
+      const merged = [...next, ...prev];
+      return merged.length > MAX_LOADED_MONTHS
+        ? merged.slice(0, MAX_LOADED_MONTHS)
+        : merged;
+    });
+  }
+
+  // Restore the user's visual position after a prepend by shifting scrollTop
+  // by exactly the height of the newly-prepended content.
+  useLayoutEffect(() => {
+    if (pendingPrependHeight.current === null) return;
+    const container = scrollRef.current;
+    if (!container) {
+      pendingPrependHeight.current = null;
+      return;
+    }
+    const delta = container.scrollHeight - pendingPrependHeight.current;
+    container.scrollTop += delta;
+    pendingPrependHeight.current = null;
+  }, [loadedMonths]);
+
+  // Scroll to today's month on first render.
+  useEffect(() => {
+    if (didInitialScroll.current) return;
+    const el = monthRefs.current.get(monthKey(today));
+    if (!el) return;
+    didInitialScroll.current = true;
+    el.scrollIntoView({ block: "start" });
+  }, [today]);
+
+  // IntersectionObserver-driven infinite scroll: prepend/append when sentinels
+  // come into view. rootMargin gives us a little lead time before the user
+  // hits the absolute edge.
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const observer = new IntersectionObserver(
+      (records) => {
+        for (const record of records) {
+          if (!record.isIntersecting) continue;
+          if (record.target === topSentinelRef.current) {
+            extendBackward();
+          } else if (record.target === bottomSentinelRef.current) {
+            extendForward();
+          }
+        }
+      },
+      { root: container, rootMargin: "300px" }
+    );
+    if (topSentinelRef.current) observer.observe(topSentinelRef.current);
+    if (bottomSentinelRef.current) observer.observe(bottomSentinelRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  // Global mouse handlers active only while dragging.
   useEffect(() => {
     if (!dragStart) return;
 
@@ -305,10 +436,16 @@ function CalendarPage() {
     };
   }, [dragStart]);
 
-  const monthLabel = viewMonth.toLocaleDateString("en-NZ", {
-    month: "long",
-    year: "numeric",
-  });
+  function jumpToToday() {
+    const el = monthRefs.current.get(monthKey(today));
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    // If today's month isn't currently loaded, rebuild the window around it.
+    setLoadedMonths(buildInitialMonths(today));
+    didInitialScroll.current = false;
+  }
 
   const loading = entriesQuery.isLoading || projectsQuery.isLoading;
   const hasError = entriesQuery.isError;
@@ -316,11 +453,19 @@ function CalendarPage() {
     ? entries.find((e) => e.id === editingId)
     : undefined;
 
-  const showHoverTooltip =
-    hoveredDate && !dragStart && cursorPos !== null;
+  const showHoverTooltip = hoveredDate && !dragStart && cursorPos !== null;
 
   const actions = (
-    <div className="flex gap-2">
+    <div className="flex flex-wrap gap-2">
+      <Button
+        variant="outline"
+        size="md"
+        className="min-h-11"
+        onClick={jumpToToday}
+      >
+        <Crosshair className="h-4 w-4" />
+        Today
+      </Button>
       <Button
         variant="secondary"
         size="md"
@@ -354,51 +499,12 @@ function CalendarPage() {
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <FilterSelector value={filter} onChange={setFilter} />
-
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="md"
-              className="min-h-11"
-              onClick={() =>
-                setViewMonth(
-                  new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1)
-                )
-              }
-              aria-label="Previous month"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <div className="min-w-[10rem] text-center text-sm font-semibold text-slate-800 dark:text-slate-200">
-              {monthLabel}
-            </div>
-            <Button
-              variant="outline"
-              size="md"
-              className="min-h-11"
-              onClick={() =>
-                setViewMonth(
-                  new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1)
-                )
-              }
-              aria-label="Next month"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="secondary"
-              size="md"
-              className="min-h-11"
-              onClick={() => setViewMonth(startOfMonth(new Date()))}
-            >
-              Today
-            </Button>
-          </div>
+          <ScaleWheel value={scale} onChange={setScale} />
         </div>
 
         <Legend />
 
-        {loading ? (
+        {loading && entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-20 text-slate-500 dark:text-slate-400">
             <Loader2 className="h-8 w-8 animate-spin text-primary-600" />
             <p className="text-sm">Loading calendar…</p>
@@ -406,7 +512,7 @@ function CalendarPage() {
         ) : (
           <Card>
             <CardContent className="px-0 py-0">
-              <div className="grid grid-cols-7 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60">
+              <div className="sticky top-0 z-10 grid grid-cols-7 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 backdrop-blur">
                 {WEEKDAYS.map((w) => (
                   <div
                     key={w}
@@ -416,86 +522,50 @@ function CalendarPage() {
                   </div>
                 ))}
               </div>
+
               <div
-                className="grid grid-cols-7 select-none"
+                ref={scrollRef}
+                className="select-none overflow-y-auto"
+                style={{ maxHeight: "calc(100vh - 240px)" }}
                 onMouseLeave={() => setHoveredDate(null)}
               >
-                {days.map((day) => {
-                  const iso = formatIsoDate(day);
-                  const dayEntries = entriesByDate.get(iso) ?? [];
-                  const inMonth = day.getMonth() === viewMonth.getMonth();
-                  const isToday = sameDay(day, today);
-                  const inRange = isInDragRange(day);
+                <div ref={topSentinelRef} aria-hidden className="h-px" />
 
-                  return (
-                    <div
-                      key={iso}
-                      onMouseDown={(e) => {
-                        // Ignore right/middle clicks and modifier clicks.
-                        if (e.button !== 0) return;
-                        e.preventDefault();
-                        setCursorPos({ x: e.clientX, y: e.clientY });
-                        setDragStart(day);
-                        setDragEnd(day);
-                      }}
-                      onMouseEnter={(e) => {
-                        setHoveredDate(day);
-                        setCursorPos({ x: e.clientX, y: e.clientY });
-                        if (dragStartRef.current) setDragEnd(day);
-                      }}
-                      onMouseMove={(e) => {
-                        // Keep the hover tooltip glued to the cursor.
-                        setCursorPos({ x: e.clientX, y: e.clientY });
-                      }}
-                      className={cn(
-                        "min-h-[120px] flex flex-col items-stretch gap-1 border-b border-r border-slate-100 dark:border-slate-800 p-2 text-left transition-colors cursor-pointer",
-                        inMonth
-                          ? "bg-white dark:bg-slate-900"
-                          : "bg-slate-50/60 dark:bg-slate-900/40",
-                        inRange
-                          ? "bg-slate-200/80 dark:bg-slate-700/60 ring-1 ring-primary-400 dark:ring-primary-600"
-                          : "hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                      )}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span
-                          className={cn(
-                            "inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
-                            isToday
-                              ? "bg-primary-600 text-white"
-                              : inMonth
-                              ? "text-slate-700 dark:text-slate-200"
-                              : "text-slate-400 dark:text-slate-500"
-                          )}
-                        >
-                          {day.getDate()}
-                        </span>
-                        {dayEntries.length > 0 && (
-                          <span className="text-[10px] text-slate-400 dark:text-slate-500">
-                            {dayEntries.length}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        {dayEntries.map((entry) => (
-                          <EntryChip
-                            key={entry.id}
-                            entry={entry}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openEditModal(entry.id);
-                            }}
-                            onMouseDown={(e) => {
-                              // Prevent the day-cell from starting a drag when
-                              // the user is just trying to click a chip.
-                              e.stopPropagation();
-                            }}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
+                {loadedMonths.map((monthDate) => (
+                  <MonthSection
+                    key={monthKey(monthDate)}
+                    monthDate={monthDate}
+                    today={today}
+                    scale={scale}
+                    entriesByDate={entriesByDate}
+                    inDragRange={isInDragRange}
+                    onDayMouseDown={(day, e) => {
+                      if (e.button !== 0) return;
+                      e.preventDefault();
+                      setCursorPos({ x: e.clientX, y: e.clientY });
+                      setDragStart(day);
+                      setDragEnd(day);
+                    }}
+                    onDayMouseEnter={(day, e) => {
+                      setHoveredDate(day);
+                      setCursorPos({ x: e.clientX, y: e.clientY });
+                      if (dragStartRef.current) setDragEnd(day);
+                    }}
+                    onDayMouseMove={(e) => {
+                      setCursorPos({ x: e.clientX, y: e.clientY });
+                    }}
+                    onEntryClick={(entryId, e) => {
+                      e.stopPropagation();
+                      openEditModal(entryId);
+                    }}
+                    registerRef={(key, el) => {
+                      if (el) monthRefs.current.set(key, el);
+                      else monthRefs.current.delete(key);
+                    }}
+                  />
+                ))}
+
+                <div ref={bottomSentinelRef} aria-hidden className="h-px" />
               </div>
             </CardContent>
           </Card>
@@ -506,17 +576,14 @@ function CalendarPage() {
             <CardContent className="py-8">
               <EmptyState
                 icon={<CalendarDays className="h-9 w-9" />}
-                title="Nothing scheduled this month"
-                description="Add an event or task, or switch the filter to see more."
+                title="Nothing scheduled in this window"
+                description="Add an event or task, or scroll to load more months."
               />
             </CardContent>
           </Card>
         )}
       </div>
 
-      {/* Floating indicators. position:fixed so they follow the cursor without
-          getting clipped by the grid's overflow. pointer-events:none so they
-          don't break the drag. */}
       {showHoverTooltip && cursorPos && hoveredDate && (
         <FloatingLabel x={cursorPos.x} y={cursorPos.y}>
           <span className="text-slate-200">
@@ -616,6 +683,262 @@ function CalendarPage() {
         </div>
       </Modal>
     </PageShell>
+  );
+}
+
+function MonthSection({
+  monthDate,
+  today,
+  scale,
+  entriesByDate,
+  inDragRange,
+  onDayMouseDown,
+  onDayMouseEnter,
+  onDayMouseMove,
+  onEntryClick,
+  registerRef,
+}: {
+  monthDate: Date;
+  today: Date;
+  scale: Scale;
+  entriesByDate: Map<string, CalendarEntry[]>;
+  inDragRange: (d: Date) => boolean;
+  onDayMouseDown: (day: Date, e: React.MouseEvent) => void;
+  onDayMouseEnter: (day: Date, e: React.MouseEvent) => void;
+  onDayMouseMove: (e: React.MouseEvent) => void;
+  onEntryClick: (entryId: string, e: React.MouseEvent) => void;
+  registerRef: (key: string, el: HTMLDivElement | null) => void;
+}) {
+  const key = monthKey(monthDate);
+  const monthEnd = endOfMonth(monthDate);
+  const daysInMonth = monthEnd.getDate();
+  // Pad with empty cells so the 1st lands on the right weekday column.
+  const padStart = (monthDate.getDay() + 6) % 7;
+
+  return (
+    <div
+      ref={(el) => registerRef(key, el)}
+      data-month={key}
+      className="border-b-2 border-slate-200 dark:border-slate-700"
+    >
+      <div className="sticky top-9 z-[5] flex items-center justify-between border-b border-slate-100 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur px-4 py-1.5">
+        <h3 className="font-display text-sm font-extrabold tracking-tight text-slate-800 dark:text-slate-200">
+          {formatMonthYear(monthDate)}
+        </h3>
+      </div>
+      <div className="grid grid-cols-7">
+        {Array.from({ length: padStart }, (_, i) => (
+          <div
+            key={`pad-${i}`}
+            className={cn(
+              CELL_MIN_H[scale],
+              "border-b border-r border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/30"
+            )}
+          />
+        ))}
+        {Array.from({ length: daysInMonth }, (_, i) => {
+          const day = new Date(
+            monthDate.getFullYear(),
+            monthDate.getMonth(),
+            i + 1
+          );
+          const iso = formatIsoDate(day);
+          const dayEntries = entriesByDate.get(iso) ?? [];
+          const isToday = sameDay(day, today);
+          const inRange = inDragRange(day);
+          return (
+            <DayCell
+              key={iso}
+              day={day}
+              scale={scale}
+              isToday={isToday}
+              inRange={inRange}
+              entries={dayEntries}
+              onMouseDown={(e) => onDayMouseDown(day, e)}
+              onMouseEnter={(e) => onDayMouseEnter(day, e)}
+              onMouseMove={onDayMouseMove}
+              onEntryClick={onEntryClick}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function DayCell({
+  day,
+  scale,
+  isToday,
+  inRange,
+  entries,
+  onMouseDown,
+  onMouseEnter,
+  onMouseMove,
+  onEntryClick,
+}: {
+  day: Date;
+  scale: Scale;
+  isToday: boolean;
+  inRange: boolean;
+  entries: CalendarEntry[];
+  onMouseDown: (e: React.MouseEvent) => void;
+  onMouseEnter: (e: React.MouseEvent) => void;
+  onMouseMove: (e: React.MouseEvent) => void;
+  onEntryClick: (entryId: string, e: React.MouseEvent) => void;
+}) {
+  const showFullChips = scale === "days";
+  const showDots = scale === "weeks" || scale === "months";
+  const showNumber = scale !== "years";
+
+  return (
+    <div
+      onMouseDown={onMouseDown}
+      onMouseEnter={onMouseEnter}
+      onMouseMove={onMouseMove}
+      className={cn(
+        CELL_MIN_H[scale],
+        "flex flex-col items-stretch gap-1 border-b border-r border-slate-100 dark:border-slate-800 p-1 text-left transition-colors cursor-pointer bg-white dark:bg-slate-900",
+        inRange
+          ? "bg-slate-200/80 dark:bg-slate-700/60 ring-1 ring-primary-400 dark:ring-primary-600"
+          : entries.length > 0 && (scale === "months" || scale === "years")
+          ? "bg-primary-50/60 dark:bg-primary-900/20 hover:bg-primary-100/70"
+          : "hover:bg-slate-50 dark:hover:bg-slate-800/50"
+      )}
+    >
+      {showNumber && (
+        <div className="flex items-center justify-between">
+          <span
+            className={cn(
+              "inline-flex items-center justify-center rounded-full font-semibold",
+              scale === "days" ? "h-6 w-6 text-xs" : "h-5 w-5 text-[10px]",
+              isToday
+                ? "bg-primary-600 text-white"
+                : "text-slate-700 dark:text-slate-200"
+            )}
+          >
+            {day.getDate()}
+          </span>
+          {scale === "days" && entries.length > 0 && (
+            <span className="text-[10px] text-slate-400 dark:text-slate-500">
+              {entries.length}
+            </span>
+          )}
+        </div>
+      )}
+
+      {showFullChips && (
+        <div className="flex flex-col gap-1">
+          {entries.map((entry) => (
+            <EntryChip
+              key={entry.id}
+              entry={entry}
+              onClick={(e) => onEntryClick(entry.id, e)}
+              onMouseDown={(e) => e.stopPropagation()}
+            />
+          ))}
+        </div>
+      )}
+
+      {showDots && entries.length > 0 && (
+        <div className="flex flex-wrap items-center gap-0.5">
+          {entries.slice(0, 6).map((entry) => (
+            <span
+              key={entry.id}
+              title={entry.title}
+              className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                entry.project_type === "sell"
+                  ? "bg-emerald-500"
+                  : entry.project_type === "buy"
+                  ? "bg-blue-500"
+                  : "bg-slate-400"
+              )}
+            />
+          ))}
+          {entries.length > 6 && (
+            <span className="text-[9px] text-slate-400 dark:text-slate-500">
+              +{entries.length - 6}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ScaleWheel({
+  value,
+  onChange,
+}: {
+  value: Scale;
+  onChange: (next: Scale) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const wheelAccum = useRef(0);
+
+  // Use a native non-passive listener so we can preventDefault on the
+  // wheel event. Without this, the page would scroll instead of changing
+  // the scale.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      // Accumulate deltas so a flick on a trackpad doesn't skip past every
+      // scale in a single frame.
+      wheelAccum.current += e.deltaY;
+      if (Math.abs(wheelAccum.current) < 40) return;
+      const dir = wheelAccum.current > 0 ? 1 : -1;
+      wheelAccum.current = 0;
+      const idx = SCALES.indexOf(valueRef.current);
+      const next = SCALES[Math.max(0, Math.min(SCALES.length - 1, idx + dir))];
+      if (next !== valueRef.current) onChange(next);
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, [onChange]);
+
+  return (
+    <div
+      ref={containerRef}
+      role="radiogroup"
+      aria-label="Time scale"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        e.preventDefault();
+        const idx = SCALES.indexOf(value);
+        const dir = e.key === "ArrowRight" ? 1 : -1;
+        const next = SCALES[Math.max(0, Math.min(SCALES.length - 1, idx + dir))];
+        if (next !== value) onChange(next);
+      }}
+      className="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+      title="Scroll the wheel to zoom: Days → Weeks → Months → Years"
+    >
+      {SCALES.map((s) => {
+        const active = value === s;
+        return (
+          <button
+            key={s}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => onChange(s)}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors min-h-9",
+              active
+                ? "bg-primary-600 text-white"
+                : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+            )}
+          >
+            {SCALE_LABELS[s]}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -726,7 +1049,8 @@ function Legend() {
         |
       </span>
       <span className="hidden md:inline italic">
-        Click + drag to create a multi-day entry.
+        Click + drag to create. Scroll the calendar to load more months. Wheel
+        on the scale to zoom.
       </span>
     </div>
   );

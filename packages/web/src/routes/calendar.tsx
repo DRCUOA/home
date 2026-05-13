@@ -10,9 +10,11 @@ import {
   TrendingDown,
   ShoppingCart,
   Layers,
+  Clock,
+  CheckSquare,
 } from "lucide-react";
 import type { Task, Project } from "@hcc/shared";
-import { TASK_STATUSES, TASK_PRIORITIES } from "@hcc/shared";
+import { TASK_STATUSES, TASK_PRIORITIES, TASK_KINDS } from "@hcc/shared";
 import { PageShell } from "@/components/layout/page-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -35,7 +37,7 @@ import { cn } from "@/lib/cn";
 
 type ProjectFilter = "all" | "sell" | "buy";
 
-type CalendarEvent = Task & { project_type: "sell" | "buy" | null };
+type CalendarEntry = Task & { project_type: "sell" | "buy" | null };
 
 type ListResponse<T> = { data: T[]; total: number };
 
@@ -114,6 +116,17 @@ function sameDay(a: Date, b: Date) {
   );
 }
 
+function formatTimeOfDay(hhmm: string | null | undefined): string | null {
+  if (!hhmm) return null;
+  const match = /^(\d{2}):(\d{2})$/.exec(hhmm);
+  if (!match) return hhmm;
+  const hour = Number(match[1]);
+  const minute = match[2];
+  const suffix = hour >= 12 ? "pm" : "am";
+  const display = ((hour + 11) % 12) + 1;
+  return minute === "00" ? `${display}${suffix}` : `${display}:${minute}${suffix}`;
+}
+
 function CalendarPage() {
   const today = useMemo(() => {
     const d = new Date();
@@ -126,6 +139,7 @@ function CalendarPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [defaultDate, setDefaultDate] = useState<string>(formatIsoDate(today));
+  const [defaultKind, setDefaultKind] = useState<"task" | "event">("event");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const gridStart = useMemo(
@@ -137,7 +151,7 @@ function CalendarPage() {
     [viewMonth]
   );
 
-  const eventsQuery = useQuery({
+  const entriesQuery = useQuery({
     queryKey: [
       "calendar-events",
       filter,
@@ -145,31 +159,31 @@ function CalendarPage() {
       formatIsoDate(gridEnd),
     ],
     queryFn: () =>
-      apiGet<ListResponse<CalendarEvent>>(
+      apiGet<ListResponse<CalendarEntry>>(
         `/calendar/events?from=${gridStart.toISOString()}&to=${gridEnd.toISOString()}&project_type=${filter}`
       ),
   });
 
   const projectsQuery = useList<Project>("projects", "/projects");
 
-  const events = eventsQuery.data?.data ?? [];
+  const entries = entriesQuery.data?.data ?? [];
   const projects = projectsQuery.data?.data ?? [];
 
   const createTask = useCreate<Task>("tasks", "/tasks");
   const updateTask = useUpdate<Task>("tasks", "/tasks");
   const removeTask = useRemove("tasks", "/tasks");
 
-  const eventsByDate = useMemo(() => {
-    const map = new Map<string, CalendarEvent[]>();
-    for (const event of events) {
-      if (!event.due_date) continue;
-      const iso = event.due_date.slice(0, 10);
+  const entriesByDate = useMemo(() => {
+    const map = new Map<string, CalendarEntry[]>();
+    for (const entry of entries) {
+      if (!entry.due_date) continue;
+      const iso = entry.due_date.slice(0, 10);
       const list = map.get(iso) ?? [];
-      list.push(event);
+      list.push(entry);
       map.set(iso, list);
     }
     return map;
-  }, [events]);
+  }, [entries]);
 
   const days = useMemo(() => {
     const out: Date[] = [];
@@ -181,14 +195,15 @@ function CalendarPage() {
     return out;
   }, [gridStart, gridEnd]);
 
-  function openAddModal(date: Date) {
+  function openAddModal(date: Date, kind: "task" | "event" = "event") {
     setEditingId(null);
     setDefaultDate(formatIsoDate(date));
+    setDefaultKind(kind);
     setModalOpen(true);
   }
 
-  function openEditModal(eventId: string) {
-    setEditingId(eventId);
+  function openEditModal(entryId: string) {
+    setEditingId(entryId);
     setModalOpen(true);
   }
 
@@ -198,7 +213,7 @@ function CalendarPage() {
   }
 
   function invalidateCalendar() {
-    eventsQuery.refetch();
+    entriesQuery.refetch();
   }
 
   const monthLabel = viewMonth.toLocaleDateString("en-NZ", {
@@ -206,22 +221,33 @@ function CalendarPage() {
     year: "numeric",
   });
 
-  const loading = eventsQuery.isLoading || projectsQuery.isLoading;
-  const hasError = eventsQuery.isError;
+  const loading = entriesQuery.isLoading || projectsQuery.isLoading;
+  const hasError = entriesQuery.isError;
 
-  const editingEvent = editingId
-    ? events.find((e) => e.id === editingId)
+  const editingEntry = editingId
+    ? entries.find((e) => e.id === editingId)
     : undefined;
 
   const actions = (
-    <Button
-      size="md"
-      className="min-h-11"
-      onClick={() => openAddModal(today)}
-    >
-      <Plus className="h-4 w-4" />
-      Add event
-    </Button>
+    <div className="flex gap-2">
+      <Button
+        variant="secondary"
+        size="md"
+        className="min-h-11"
+        onClick={() => openAddModal(today, "task")}
+      >
+        <CheckSquare className="h-4 w-4" />
+        Add task
+      </Button>
+      <Button
+        size="md"
+        className="min-h-11"
+        onClick={() => openAddModal(today, "event")}
+      >
+        <Plus className="h-4 w-4" />
+        Add event
+      </Button>
+    </div>
   );
 
   return (
@@ -232,7 +258,7 @@ function CalendarPage() {
     >
       <div className="space-y-4 pb-4">
         {hasError && (
-          <ErrorBanner text="Could not load calendar events. Try refreshing." />
+          <ErrorBanner text="Could not load calendar entries. Try refreshing." />
         )}
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -279,6 +305,8 @@ function CalendarPage() {
           </div>
         </div>
 
+        <Legend />
+
         {loading ? (
           <div className="flex flex-col items-center justify-center gap-3 py-20 text-slate-500 dark:text-slate-400">
             <Loader2 className="h-8 w-8 animate-spin text-primary-600" />
@@ -300,16 +328,16 @@ function CalendarPage() {
               <div className="grid grid-cols-7">
                 {days.map((day) => {
                   const iso = formatIsoDate(day);
-                  const dayEvents = eventsByDate.get(iso) ?? [];
+                  const dayEntries = entriesByDate.get(iso) ?? [];
                   const inMonth = day.getMonth() === viewMonth.getMonth();
                   const isToday = sameDay(day, today);
                   return (
                     <button
                       type="button"
                       key={iso}
-                      onDoubleClick={() => openAddModal(day)}
+                      onDoubleClick={() => openAddModal(day, "event")}
                       onClick={() => {
-                        if (dayEvents.length === 0) openAddModal(day);
+                        if (dayEntries.length === 0) openAddModal(day, "event");
                       }}
                       className={cn(
                         "min-h-[120px] flex flex-col items-stretch gap-1 border-b border-r border-slate-100 dark:border-slate-800 p-2 text-left transition-colors",
@@ -332,20 +360,20 @@ function CalendarPage() {
                         >
                           {day.getDate()}
                         </span>
-                        {dayEvents.length > 0 && (
+                        {dayEntries.length > 0 && (
                           <span className="text-[10px] text-slate-400 dark:text-slate-500">
-                            {dayEvents.length}
+                            {dayEntries.length}
                           </span>
                         )}
                       </div>
                       <div className="flex flex-col gap-1">
-                        {dayEvents.map((event) => (
-                          <EventChip
-                            key={event.id}
-                            event={event}
+                        {dayEntries.map((entry) => (
+                          <EntryChip
+                            key={entry.id}
+                            entry={entry}
                             onClick={(e) => {
                               e.stopPropagation();
-                              openEditModal(event.id);
+                              openEditModal(entry.id);
                             }}
                           />
                         ))}
@@ -358,26 +386,27 @@ function CalendarPage() {
           </Card>
         )}
 
-        {!loading && events.length === 0 && !hasError && (
+        {!loading && entries.length === 0 && !hasError && (
           <Card>
             <CardContent className="py-8">
               <EmptyState
                 icon={<CalendarDays className="h-9 w-9" />}
-                title="No events this month"
-                description="Add a task with a due date, or switch the filter to see more."
+                title="Nothing scheduled this month"
+                description="Add an event or task, or switch the filter to see more."
               />
             </CardContent>
           </Card>
         )}
       </div>
 
-      <EventModal
-        key={editingId ?? `new-${defaultDate}`}
+      <EntryModal
+        key={editingId ?? `new-${defaultDate}-${defaultKind}`}
         open={modalOpen}
         onClose={closeModal}
         projects={projects}
-        existing={editingEvent}
+        existing={editingEntry}
         defaultDate={defaultDate}
+        defaultKind={defaultKind}
         defaultProjectType={filter === "all" ? undefined : filter}
         submitting={createTask.isPending || updateTask.isPending}
         onSubmit={(payload) => {
@@ -409,11 +438,11 @@ function CalendarPage() {
       <Modal
         open={confirmDeleteId !== null}
         onClose={() => setConfirmDeleteId(null)}
-        title="Delete event"
+        title="Delete entry"
       >
         <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">
           Are you sure you want to delete &ldquo;
-          {events.find((e) => e.id === confirmDeleteId)?.title}
+          {entries.find((e) => e.id === confirmDeleteId)?.title}
           &rdquo;? This cannot be undone.
         </p>
         <div className="flex gap-2 pt-2">
@@ -500,19 +529,53 @@ function FilterSelector({
   );
 }
 
-function EventChip({
-  event,
+function Legend() {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+      <span className="inline-flex items-center gap-1.5">
+        <Clock className="h-3.5 w-3.5 text-primary-600 dark:text-primary-400" />
+        Event (timed)
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <CheckSquare className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" />
+        Task
+      </span>
+      <span className="hidden sm:inline text-slate-300 dark:text-slate-600">
+        |
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
+        Sell
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="h-2 w-2 rounded-full bg-blue-500" aria-hidden />
+        Buy
+      </span>
+    </div>
+  );
+}
+
+function EntryChip({
+  entry,
   onClick,
 }: {
-  event: CalendarEvent;
+  entry: CalendarEntry;
   onClick: (e: React.MouseEvent) => void;
 }) {
+  const isEvent = entry.kind === "event";
+  const Icon = isEvent ? Clock : CheckSquare;
+  const time = isEvent ? formatTimeOfDay(entry.start_time) : null;
+
   const dotColor =
-    event.project_type === "sell"
+    entry.project_type === "sell"
       ? "bg-emerald-500"
-      : event.project_type === "buy"
+      : entry.project_type === "buy"
       ? "bg-blue-500"
       : "bg-slate-400";
+
+  const iconColor = isEvent
+    ? "text-primary-600 dark:text-primary-400"
+    : "text-slate-500 dark:text-slate-400";
 
   return (
     <div
@@ -528,37 +591,45 @@ function EventChip({
       className={cn(
         "flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-1.5 py-1 text-left text-[11px] leading-tight",
         "hover:border-primary-300 dark:hover:border-primary-700",
-        event.status === "done" && "opacity-60"
+        entry.status === "done" && "opacity-60"
       )}
+      aria-label={`${isEvent ? "Event" : "Task"}: ${entry.title}`}
     >
       <span
         className={cn("h-2 w-2 shrink-0 rounded-full", dotColor)}
         aria-hidden="true"
       />
+      <Icon className={cn("h-3 w-3 shrink-0", iconColor)} aria-hidden="true" />
+      {time && (
+        <span className="shrink-0 font-semibold tabular-nums text-slate-600 dark:text-slate-300">
+          {time}
+        </span>
+      )}
       <span
         className={cn(
           "flex-1 truncate font-medium text-slate-800 dark:text-slate-200",
-          event.status === "done" && "line-through"
+          entry.status === "done" && "line-through"
         )}
       >
-        {event.title}
+        {entry.title}
       </span>
       <Badge
-        variant={PRIORITY_VARIANT[event.priority] ?? "default"}
+        variant={PRIORITY_VARIANT[entry.priority] ?? "default"}
         className="hidden sm:inline-flex shrink-0 !px-1.5 !py-0 !text-[10px]"
       >
-        {event.priority[0]?.toUpperCase()}
+        {entry.priority[0]?.toUpperCase()}
       </Badge>
     </div>
   );
 }
 
-function EventModal({
+function EntryModal({
   open,
   onClose,
   projects,
   existing,
   defaultDate,
+  defaultKind,
   defaultProjectType,
   onSubmit,
   onDelete,
@@ -567,8 +638,9 @@ function EventModal({
   open: boolean;
   onClose: () => void;
   projects: Project[];
-  existing: CalendarEvent | undefined;
+  existing: CalendarEntry | undefined;
   defaultDate: string;
+  defaultKind: "task" | "event";
   defaultProjectType: "sell" | "buy" | undefined;
   onSubmit: (data: Record<string, unknown>) => void;
   onDelete: () => void;
@@ -577,6 +649,8 @@ function EventModal({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [kind, setKind] = useState<"task" | "event">("event");
   const [priority, setPriority] = useState("medium");
   const [status, setStatus] = useState("todo");
   const [projectId, setProjectId] = useState("");
@@ -587,6 +661,10 @@ function EventModal({
       setTitle(existing.title);
       setDescription(existing.description ?? "");
       setDueDate(existing.due_date?.slice(0, 10) ?? defaultDate);
+      setStartTime(existing.start_time ?? "");
+      setKind(
+        (existing.kind === "event" ? "event" : "task") as "task" | "event"
+      );
       setPriority(existing.priority);
       setStatus(existing.status);
       setProjectId(existing.project_id ?? "");
@@ -597,22 +675,42 @@ function EventModal({
       setTitle("");
       setDescription("");
       setDueDate(defaultDate);
+      setStartTime("");
+      setKind(defaultKind);
       setPriority("medium");
       setStatus("todo");
       setProjectId(preferred?.id ?? projects[0]?.id ?? "");
     }
-  }, [open, existing?.id, defaultDate, defaultProjectType, projects]);
+  }, [
+    open,
+    existing?.id,
+    defaultDate,
+    defaultKind,
+    defaultProjectType,
+    projects,
+  ]);
 
   const projectOptions = projects.map((p) => ({
     value: p.id,
     label: `${p.name} (${capitalize(p.type)})`,
   }));
 
+  const isEvent = kind === "event";
+  const KindIcon = isEvent ? Clock : CheckSquare;
+
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={existing ? "Edit event" : "New event"}
+      title={
+        existing
+          ? isEvent
+            ? "Edit event"
+            : "Edit task"
+          : isEvent
+          ? "New event"
+          : "New task"
+      }
     >
       <form
         className="space-y-4"
@@ -622,12 +720,54 @@ function EventModal({
             title: title.trim(),
             description: description || undefined,
             due_date: dueDate || undefined,
+            start_time: isEvent && startTime ? startTime : null,
+            kind,
             priority,
             status,
             project_id: projectId || undefined,
           });
         }}
       >
+        <div>
+          <span className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+            Kind
+          </span>
+          <div
+            role="radiogroup"
+            aria-label="Entry kind"
+            className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-1"
+          >
+            {TASK_KINDS.map((k) => {
+              const active = kind === k;
+              const Icon = k === "event" ? Clock : CheckSquare;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => setKind(k)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors min-h-9",
+                    active
+                      ? "bg-primary-600 text-white"
+                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span>{capitalize(k)}</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            <KindIcon className="inline h-3 w-3 -mt-0.5" />{" "}
+            {isEvent
+              ? "Events are scheduled at a specific time of day."
+              : "Tasks are to-do items with a due date but no time."}
+          </p>
+        </div>
+
         <Input
           label="Title"
           value={title}
@@ -640,13 +780,28 @@ function EventModal({
           onChange={(e) => setDescription(e.target.value)}
           rows={3}
         />
-        <Input
-          type="date"
-          label="Date"
-          value={dueDate}
-          onChange={(e) => setDueDate(e.target.value)}
-          required
-        />
+        <div
+          className={cn(
+            "grid gap-3",
+            isEvent ? "grid-cols-2" : "grid-cols-1"
+          )}
+        >
+          <Input
+            type="date"
+            label="Date"
+            value={dueDate}
+            onChange={(e) => setDueDate(e.target.value)}
+            required
+          />
+          {isEvent && (
+            <Input
+              type="time"
+              label="Time"
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+            />
+          )}
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <Select
             label="Priority"

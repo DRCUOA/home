@@ -103,6 +103,8 @@ export interface Task extends BaseEntity {
   title: string;
   description?: string;
   due_date?: string;
+  start_time?: string | null;
+  kind: string;
   priority: string;
   status: string;
   project_id?: string;

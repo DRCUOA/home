@@ -2,14 +2,22 @@ import { z } from "zod";
 import {
   TASK_STATUSES,
   TASK_PRIORITIES,
+  TASK_KINDS,
   CHECKLIST_TYPES,
   CHECKLIST_STATES,
 } from "../constants/enums.js";
+
+const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export const createTaskSchema = z.object({
   title: z.string().min(1).max(500),
   description: z.string().optional(),
   due_date: z.string().optional(),
+  start_time: z
+    .union([z.string().regex(timeRegex, "Time must be in HH:MM format"), z.literal("")])
+    .optional()
+    .transform((v) => (v === "" || v === undefined ? undefined : v)),
+  kind: z.enum(TASK_KINDS).default("task"),
   priority: z.enum(TASK_PRIORITIES).default("medium"),
   status: z.enum(TASK_STATUSES).default("todo"),
   project_id: z.string().uuid().optional(),

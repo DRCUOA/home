@@ -1,6 +1,6 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { and, eq, gte, lte, inArray } from "drizzle-orm";
+import { and, eq, gte, lte, inArray, asc, sql } from "drizzle-orm";
 import { authGuard } from "../middleware/auth.js";
 import { db, schema } from "../db/index.js";
 import { PROJECT_TYPES } from "@hcc/shared";
@@ -62,7 +62,11 @@ export default async function calendarRoutes(app: FastifyInstance) {
       .select()
       .from(schema.tasks)
       .where(and(...baseConditions))
-      .orderBy(schema.tasks.due_date);
+      .orderBy(
+        asc(schema.tasks.due_date),
+        sql`${schema.tasks.start_time} ASC NULLS LAST`,
+        asc(schema.tasks.title)
+      );
 
     const events = rows.map((row) => ({
       ...row,

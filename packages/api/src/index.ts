@@ -26,6 +26,7 @@ import auditLogRoutes from "./routes/audit-logs.js";
 import billingRoutes from "./routes/billing.js";
 import mapRoutes from "./routes/map.js";
 import movingRoutes from "./routes/moving.js";
+import calendarRoutes from "./routes/calendar.js";
 
 const app = Fastify({ logger: true });
 
@@ -58,6 +59,7 @@ await app.register(auditLogRoutes);
 await app.register(billingRoutes);
 await app.register(mapRoutes);
 await app.register(movingRoutes);
+await app.register(calendarRoutes);
 
 app.setErrorHandler((error: any, _req, reply) => {
   if (error.validation) {

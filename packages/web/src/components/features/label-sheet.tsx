@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { Printer, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import type { MoveBox, MoveItem, MoveRoom } from "@hcc/shared";
+import type { MoveBox, MoveItem, MoveRoom, MoveLabelTemplate } from "@hcc/shared";
 import { code128Svg } from "@/lib/code128";
 import { qrSvg } from "@/lib/qrcode";
 
@@ -10,22 +10,229 @@ import { qrSvg } from "@/lib/qrcode";
  * Printable label sheet for boxes. Renders a grid of labels and gives
  * the user a "Print" button that opens the browser's Print dialog.
  *
- * Each label contains: label text, destination room, priority/fragile
- * indicators, an item summary, and a barcode — QR by default, Code 128
- * for boxes that opted into the wide-bar format.
+ * Templates control the cell-size and content density:
+ *   - a4-8up: large 99×67mm cells (Avery L7165 / J8165 stock). Full
+ *     content: heading, destination, fragile/priority chips, contents
+ *     list, large barcode. The default.
+ *   - lc30:   compact 64×25mm cells (LC30 inkjet stock). Two-column
+ *     content: QR on the left, bold name + destination + barcode text
+ *     on the right. Fragile is rendered as a red left-edge bar (no
+ *     room for chip text). Contents list omitted.
  *
- * Layout assumes A4 @ 8 labels per sheet (2 cols x 4 rows). Printed
- * @page margins are tight so most desktop printers will reproduce the
- * grid faithfully onto plain paper — the user can cut and tape them,
- * or print onto standard shipping-label paper.
+ * Print uses each template's own @page + grid rules so cell edges line
+ * up with the physical die-cuts. The on-screen preview mirrors the
+ * print layout at scaled-down dimensions so the user sees what will
+ * come out.
  */
 
-/** Render the appropriate symbology for a box. QR is the default; the
- *  scanner reads both, but renderers need to pick one. */
-function barcodeSvgFor(box: MoveBox): string {
-  return box.code_type === "code128"
-    ? code128Svg(box.barcode)
-    : qrSvg(box.barcode);
+/* ============ Template specs ============ */
+
+interface TemplateSpec {
+  /** Cells per page — used by the on-screen preview header. */
+  perPage: number;
+  /** Human label for the picker. */
+  label: string;
+  /** Physical sheet description shown in the picker tooltip. */
+  description: string;
+  /** Number of preview columns on screen. */
+  previewCols: number;
+  /** Symbology to render for a given box. lc30 forces QR (Code 128 is
+   *  unreadable at 64mm width on a short label). */
+  symbology(box: MoveBox): "qr" | "code128";
+  /** Tailwind classes applied to the on-screen preview cell. */
+  previewCellClass: string;
+  /** Per-template CSS rules embedded in the print window. */
+  pageCss: string;
+  /** Render a single label cell. Used for both preview and print. */
+  renderCell(args: {
+    box: MoveBox;
+    barcodeSvg: string;
+    destination: string;
+    contents: MoveItem[];
+  }): React.ReactNode;
+}
+
+const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
+  "a4-8up": {
+    perPage: 8,
+    label: "A4 — 8 labels (99×67mm)",
+    description: "Avery L7165 / J8165",
+    previewCols: 2,
+    symbology: (box) => (box.code_type === "code128" ? "code128" : "qr"),
+    previewCellClass:
+      "label rounded border-2 border-dashed border-slate-400 bg-white p-3 text-slate-900",
+    pageCss: `
+      @page { size: A4; margin: 10mm; }
+      .sheet { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6mm; padding: 0; }
+      .label {
+        border: 1.5pt dashed #94a3b8;
+        border-radius: 4pt;
+        padding: 6mm;
+        page-break-inside: avoid;
+        break-inside: avoid;
+        min-height: 60mm;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+      .label h2 { font-size: 18pt; margin: 0 0 2mm; font-weight: 800; }
+      .label .sub { font-size: 10pt; color: #475569; margin-bottom: 2mm; }
+      .label .tags { font-size: 9pt; color: #334155; margin-bottom: 2mm; display: flex; gap: 4mm; flex-wrap: wrap; }
+      .label .tag { border: 0.75pt solid #cbd5e1; border-radius: 999pt; padding: 1pt 6pt; }
+      .label .tag.fragile { border-color: #dc2626; color: #dc2626; }
+      .label .tag.priority-first_night { border-color: #d97706; color: #d97706; }
+      .label .tag.priority-high { border-color: #2563eb; color: #2563eb; }
+      .label ul { margin: 2mm 0; padding-left: 4mm; font-size: 9pt; color: #475569; }
+      .label ul li { margin: 0; }
+      .label .barcode-wrap { margin-top: 3mm; text-align: center; }
+      .label .barcode-wrap.code128 svg { width: 100%; height: 18mm; }
+      .label .barcode-wrap.qr { display: flex; justify-content: center; }
+      .label .barcode-wrap.qr svg { width: 28mm; height: 28mm; }
+      .label .code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 10pt; letter-spacing: 0.5pt; text-align: center; margin-top: 1mm; }
+    `,
+    renderCell({ box, barcodeSvg, destination, contents }) {
+      const sym = box.code_type === "code128" ? "code128" : "qr";
+      return (
+        <>
+          <h2>{box.label}</h2>
+          {destination && <div className="sub">→ {destination}</div>}
+          <div className="tags">
+            {box.priority && box.priority !== "normal" && (
+              <span className={`tag priority-${box.priority}`}>
+                {box.priority === "first_night" ? "First night" : box.priority}
+              </span>
+            )}
+            {box.fragile && <span className="tag fragile">FRAGILE</span>}
+          </div>
+          {contents.length > 0 && (
+            <ul>
+              {contents.slice(0, 6).map((c) => (
+                <li key={c.id}>
+                  {c.name}
+                  {c.quantity > 1 ? ` ×${c.quantity}` : ""}
+                </li>
+              ))}
+              {contents.length > 6 && <li>…and {contents.length - 6} more</li>}
+            </ul>
+          )}
+          <div className={`barcode-wrap ${sym}`}>
+            <div
+              // eslint-disable-next-line react/no-danger
+              dangerouslySetInnerHTML={{ __html: barcodeSvg }}
+            />
+            <div className="code">{box.barcode}</div>
+          </div>
+        </>
+      );
+    },
+  },
+
+  /* LC30 — 30-up 64×25mm small-label layout.
+   *
+   * 64×25mm leaves room for a 20mm QR + ~40×22mm text area. We use
+   * Code 128 boxes' barcode value but force the renderer to QR
+   * because a 1D barcode at this width is too compressed to scan
+   * reliably. The fragile state becomes a red 2mm left bar — chip
+   * text doesn't fit. Contents list is dropped entirely. */
+  lc30: {
+    perPage: 30,
+    label: "LC30 — 30 labels (64×25mm)",
+    description: "LC30 inkjet, 3 cols × 10 rows",
+    previewCols: 3,
+    symbology: () => "qr",
+    previewCellClass:
+      "lc30-label relative flex items-stretch gap-2 rounded-sm border border-slate-300 bg-white p-1.5 text-slate-900 min-h-[60px]",
+    pageCss: `
+      /* LC30 sheet: 3 cols × 10 rows of 64×25mm labels, ~7mm side
+         margins, ~13mm top/bottom margins, no inter-cell gap.
+         Margins set on @page so the grid starts at the first die. */
+      @page { size: A4; margin: 13.5mm 7mm; }
+      .sheet {
+        display: grid;
+        grid-template-columns: repeat(3, 64mm);
+        grid-auto-rows: 25mm;
+        column-gap: 0;
+        row-gap: 0;
+      }
+      .label {
+        width: 64mm;
+        height: 25mm;
+        padding: 1.5mm 2mm;
+        display: flex;
+        align-items: center;
+        gap: 2mm;
+        page-break-inside: avoid;
+        break-inside: avoid;
+        position: relative;
+        overflow: hidden;
+      }
+      /* Red edge bar for fragile boxes — visual alternative to a chip
+         text that wouldn't fit on a 25mm-tall label. */
+      .label.fragile::before {
+        content: "";
+        position: absolute;
+        left: 0; top: 0; bottom: 0;
+        width: 2mm;
+        background: #dc2626;
+      }
+      .label .qr-wrap { flex-shrink: 0; width: 20mm; height: 20mm; display: flex; align-items: center; justify-content: center; }
+      .label .qr-wrap svg { width: 20mm; height: 20mm; }
+      .label .text { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+      .label .text h2 {
+        font-size: 11pt;
+        font-weight: 800;
+        line-height: 1.1;
+        margin: 0;
+        /* Truncate long labels — Box names should be short anyway. */
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .label .text .sub {
+        font-size: 7.5pt;
+        line-height: 1.15;
+        color: #475569;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        margin-top: 0.5mm;
+      }
+      .label .text .code {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 7pt;
+        letter-spacing: 0.3pt;
+        color: #334155;
+        margin-top: 0.5mm;
+      }
+    `,
+    renderCell({ box, barcodeSvg, destination }) {
+      // Always render QR for LC30 regardless of box.code_type — see the
+      // template's `symbology()` above.
+      return (
+        <>
+          <div className="qr-wrap">
+            <div
+              // eslint-disable-next-line react/no-danger
+              dangerouslySetInnerHTML={{ __html: barcodeSvg }}
+            />
+          </div>
+          <div className="text">
+            <h2>{box.label}</h2>
+            {destination && <div className="sub">→ {destination}</div>}
+            <div className="code">{box.barcode}</div>
+          </div>
+        </>
+      );
+    },
+  },
+};
+
+/** Render the appropriate symbology SVG for a box, given the template
+ *  the caller is using. Templates can force a symbology (LC30 forces
+ *  QR) even when the box opted into Code 128. */
+function barcodeSvgFor(box: MoveBox, template: MoveLabelTemplate): string {
+  const sym = TEMPLATES[template].symbology(box);
+  return sym === "code128" ? code128Svg(box.barcode) : qrSvg(box.barcode);
 }
 
 interface LabelSheetProps {
@@ -34,6 +241,7 @@ interface LabelSheetProps {
   boxes: MoveBox[];
   items: MoveItem[];
   rooms: MoveRoom[];
+  template?: MoveLabelTemplate;
   title?: string;
 }
 
@@ -43,9 +251,12 @@ export function LabelSheet({
   boxes,
   items,
   rooms,
+  template = "a4-8up",
   title = "Print labels",
 }: LabelSheetProps) {
   const printRef = useRef<HTMLDivElement>(null);
+
+  const spec = TEMPLATES[template];
 
   const roomName = (id?: string) =>
     id ? rooms.find((r) => r.id === id)?.name ?? "" : "";
@@ -73,37 +284,9 @@ export function LabelSheet({
   <meta charset="utf-8">
   <title>Move labels</title>
   <style>
-    @page { size: A4; margin: 10mm; }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0f172a; }
-    .sheet { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6mm; padding: 0; }
-    .label {
-      border: 1.5pt dashed #94a3b8;
-      border-radius: 4pt;
-      padding: 6mm;
-      page-break-inside: avoid;
-      break-inside: avoid;
-      min-height: 60mm;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-    }
-    .label h2 { font-size: 18pt; margin: 0 0 2mm; font-weight: 800; }
-    .label .sub { font-size: 10pt; color: #475569; margin-bottom: 2mm; }
-    .label .tags { font-size: 9pt; color: #334155; margin-bottom: 2mm; display: flex; gap: 4mm; flex-wrap: wrap; }
-    .label .tag { border: 0.75pt solid #cbd5e1; border-radius: 999pt; padding: 1pt 6pt; }
-    .label .tag.fragile { border-color: #dc2626; color: #dc2626; }
-    .label .tag.priority-first_night { border-color: #d97706; color: #d97706; }
-    .label .tag.priority-high { border-color: #2563eb; color: #2563eb; }
-    .label ul { margin: 2mm 0; padding-left: 4mm; font-size: 9pt; color: #475569; }
-    .label ul li { margin: 0; }
-    .label .barcode-wrap { margin-top: 3mm; text-align: center; }
-    /* Code 128 (wide format) fills the row at a fixed height. */
-    .label .barcode-wrap.code128 svg { width: 100%; height: 18mm; }
-    /* QR (square format) sits in a fixed box centered in the row. */
-    .label .barcode-wrap.qr { display: flex; justify-content: center; }
-    .label .barcode-wrap.qr svg { width: 28mm; height: 28mm; }
-    .label .code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 10pt; letter-spacing: 0.5pt; text-align: center; margin-top: 1mm; }
+    ${spec.pageCss}
   </style>
 </head>
 <body>
@@ -126,13 +309,16 @@ export function LabelSheet({
 
   if (!open) return null;
 
+  const pages = Math.ceil(boxes.length / spec.perPage);
+
   return (
     <Modal open={open} onClose={onClose} title={title}>
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-2">
           <p className="text-sm text-slate-600 dark:text-slate-400">
-            {boxes.length} {boxes.length === 1 ? "label" : "labels"} ready
-            — preview below, then print.
+            {boxes.length} {boxes.length === 1 ? "label" : "labels"}
+            {pages > 0 && ` across ${pages} ${pages === 1 ? "page" : "pages"}`}
+            {" — "}{spec.label}
           </p>
           <div className="flex gap-2">
             <Button variant="secondary" size="sm" className="min-h-10" onClick={onClose}>
@@ -150,49 +336,27 @@ export function LabelSheet({
         <div className="max-h-[60vh] overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
           <div
             ref={printRef}
-            className="grid grid-cols-2 gap-3"
+            className="grid gap-2"
+            style={{ gridTemplateColumns: `repeat(${spec.previewCols}, minmax(0, 1fr))` }}
           >
             {boxes.map((box) => {
               const contents = itemsByBox.get(box.id) ?? [];
               const dest = roomName(box.destination_room_id);
+              const barcodeSvg = barcodeSvgFor(box, template);
               return (
                 <div
                   key={box.id}
-                  className="label rounded border-2 border-dashed border-slate-400 bg-white p-3 text-slate-900"
+                  className={`${spec.previewCellClass}${box.fragile ? " fragile" : ""}`}
                 >
-                  <h2>{box.label}</h2>
-                  {dest && <div className="sub">→ {dest}</div>}
-                  <div className="tags">
-                    {box.priority && box.priority !== "normal" && (
-                      <span className={`tag priority-${box.priority}`}>
-                        {box.priority === "first_night" ? "First night" : box.priority}
-                      </span>
-                    )}
-                    {box.fragile && <span className="tag fragile">FRAGILE</span>}
-                  </div>
-                  {contents.length > 0 && (
-                    <ul>
-                      {contents.slice(0, 6).map((c) => (
-                        <li key={c.id}>
-                          {c.name}
-                          {c.quantity > 1 ? ` ×${c.quantity}` : ""}
-                        </li>
-                      ))}
-                      {contents.length > 6 && <li>…and {contents.length - 6} more</li>}
-                    </ul>
-                  )}
-                  <div className={`barcode-wrap ${box.code_type === "code128" ? "code128" : "qr"}`}>
-                    <div
-                      // eslint-disable-next-line react/no-danger
-                      dangerouslySetInnerHTML={{ __html: barcodeSvgFor(box) }}
-                    />
-                    <div className="code">{box.barcode}</div>
-                  </div>
+                  {spec.renderCell({ box, barcodeSvg, destination: dest, contents })}
                 </div>
               );
             })}
             {boxes.length === 0 && (
-              <div className="col-span-2 text-center text-sm text-slate-500 py-8">
+              <div
+                className="text-center text-sm text-slate-500 py-8"
+                style={{ gridColumn: `span ${spec.previewCols}` }}
+              >
                 No boxes yet — add some in the Boxes tab and they'll appear here.
               </div>
             )}

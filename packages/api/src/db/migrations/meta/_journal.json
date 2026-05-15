@@ -85,6 +85,13 @@
       "when": 1778186400000,
       "tag": "0011_task_end_date",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1779235200000,
+      "tag": "0012_move_barcode_workflow",
+      "breakpoints": true
     }
   ]
 }

@@ -11,6 +11,9 @@ import {
   updateMoveItemSchema,
   createMoveBoxSchema,
   updateMoveBoxSchema,
+  bulkCreateMoveBoxesSchema,
+  transitionMoveBoxStatusSchema,
+  createMoveScanEventSchema,
   createMoveStickerSchema,
   updateMoveStickerSchema,
   assignItemsRoomSchema,
@@ -22,6 +25,10 @@ import {
   updateMoveAnnotationSchema,
   createMoveLayerSchema,
   updateMoveLayerSchema,
+  MOVE_BOX_STATUSES,
+  MOVE_SCAN_ACTIONS,
+  type MoveBoxStatus,
+  type MoveScanAction,
 } from "@hcc/shared";
 
 /** Default layer seed — applied the first time the client GETs the layer
@@ -49,6 +56,34 @@ async function assertOwnsMove(userId: string, moveId: string) {
     )
     .limit(1);
   return !!row;
+}
+
+/** Maps a scan action to the box status it advances to, when relevant.
+ *  Returns null for non-advancing actions (transit, lookup) so the
+ *  scan still gets logged but the box status is left alone. */
+function statusForAction(action: MoveScanAction): MoveBoxStatus | null {
+  switch (action) {
+    case "pack":
+      return "packed";
+    case "load":
+      return "loaded";
+    case "arrive":
+      return "delivered";
+    case "unpack":
+      return "unpacked";
+    case "transit":
+    case "lookup":
+      return null;
+  }
+}
+
+/** Short, human-readable barcode (8 hex chars from a UUID). Used by
+ *  bulk-create so the user can print labels before packing without
+ *  having to invent codes. Collisions are checked at insert time. */
+function generateBoxBarcode(): string {
+  // crypto.randomUUID is available in Node 20+; first 8 hex chars give
+  // 16^8 = ~4B options, plenty for the small per-move scopes we use.
+  return crypto.randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase();
 }
 
 export default async function movingRoutes(app: FastifyInstance) {
@@ -408,6 +443,227 @@ export default async function movingRoutes(app: FastifyInstance) {
       .where(eq(schema.moveBoxes.id, id))
       .returning();
     return { data: row };
+  });
+
+  /**
+   * Pre-generate N empty boxes so the user can print a stack of labels
+   * before packing day. Each new box gets an auto-generated 8-hex
+   * barcode, a sequential label ("Box 12", "Box 13", …), and starts in
+   * `preparing` status. The user assigns destinations and labels as
+   * they pack and scan.
+   */
+  app.post("/api/v1/moves/:moveId/boxes/bulk-create", async (req, reply) => {
+    const { moveId } = req.params as { moveId: string };
+    if (!(await assertOwnsMove(req.userId, moveId))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    const body = bulkCreateMoveBoxesSchema.parse({
+      ...(req.body as object),
+      move_id: moveId,
+    });
+
+    // Find next free label suffix so "Box 1, Box 2 …" continues from
+    // where the user left off rather than restarting.
+    const existing = await db
+      .select({ label: schema.moveBoxes.label })
+      .from(schema.moveBoxes)
+      .where(eq(schema.moveBoxes.move_id, moveId));
+    const prefix = body.label_prefix ?? "Box";
+    const labelRe = new RegExp(`^${prefix}\\s+(\\d+)$`);
+    const maxN = existing.reduce((acc, r) => {
+      const m = r.label.match(labelRe);
+      if (!m) return acc;
+      const n = parseInt(m[1], 10);
+      return Number.isFinite(n) && n > acc ? n : acc;
+    }, 0);
+
+    // Existing barcodes for the move — used to skip collisions when
+    // generating new short codes. Realistically each generated code is
+    // unique on first try, but cheap to check.
+    const existingCodes = new Set(
+      (
+        await db
+          .select({ barcode: schema.moveBoxes.barcode })
+          .from(schema.moveBoxes)
+          .where(eq(schema.moveBoxes.move_id, moveId))
+      ).map((r) => r.barcode)
+    );
+
+    const rows: typeof schema.moveBoxes.$inferInsert[] = [];
+    for (let i = 0; i < body.count; i++) {
+      let barcode = generateBoxBarcode();
+      while (existingCodes.has(barcode)) barcode = generateBoxBarcode();
+      existingCodes.add(barcode);
+      rows.push({
+        move_id: moveId,
+        barcode,
+        code_type: body.code_type ?? "qr",
+        label: `${prefix} ${maxN + i + 1}`,
+        status: "preparing",
+      });
+    }
+    const inserted = await db.insert(schema.moveBoxes).values(rows).returning();
+    return reply.status(201).send({ data: inserted, total: inserted.length });
+  });
+
+  /**
+   * Status-only transition for a box. Used by scan-mode UI — every
+   * call also appends a `move_scan_events` row tagged with the scan
+   * action that triggered the transition. Permissive: we don't reject
+   * out-of-order transitions (real-world moves have corrections), but
+   * we do record them in the audit log.
+   */
+  app.patch("/api/v1/move-boxes/:id/status", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = transitionMoveBoxStatusSchema.parse(req.body);
+    const [existing] = await db
+      .select()
+      .from(schema.moveBoxes)
+      .where(eq(schema.moveBoxes.id, id))
+      .limit(1);
+    if (!existing) return reply.status(404).send({ error: "Not Found" });
+    if (!(await assertOwnsMove(req.userId, existing.move_id))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    if (!MOVE_BOX_STATUSES.includes(body.status)) {
+      return reply.status(400).send({ error: "Invalid status" });
+    }
+    const [row] = await db
+      .update(schema.moveBoxes)
+      .set({ status: body.status, updated_at: new Date() })
+      .where(eq(schema.moveBoxes.id, id))
+      .returning();
+
+    // Derive the canonical action from the target status so the
+    // scan-mode UI doesn't have to pass it explicitly.
+    const action: MoveScanAction =
+      body.status === "packed"
+        ? "pack"
+        : body.status === "loaded"
+        ? "load"
+        : body.status === "delivered"
+        ? "arrive"
+        : body.status === "unpacked"
+        ? "unpack"
+        : "lookup";
+
+    await db.insert(schema.moveScanEvents).values({
+      move_id: existing.move_id,
+      user_id: req.userId,
+      code: existing.barcode,
+      target_kind: "box",
+      target_id: existing.id,
+      action,
+      note: body.note,
+    });
+
+    return { data: row };
+  });
+
+  /* ---------- Move Items: barcode lookup ---------- */
+
+  // Symmetric to the box lookup; used by scan-mode when an item carries
+  // its own per-item barcode (high-value items tracked outside a box).
+  app.get("/api/v1/move-items/by-barcode/:code", async (req, reply) => {
+    const { code } = req.params as { code: string };
+    const rows = await db
+      .select({
+        item: schema.moveItems,
+        move: schema.moves,
+      })
+      .from(schema.moveItems)
+      .innerJoin(schema.moves, eq(schema.moveItems.move_id, schema.moves.id))
+      .where(
+        and(
+          eq(schema.moveItems.barcode, code),
+          eq(schema.moves.user_id, req.userId)
+        )
+      )
+      .limit(1);
+    if (rows.length === 0) return reply.status(404).send({ error: "Not Found" });
+    return { data: rows[0].item };
+  });
+
+  /* ---------- Move Scan Events ---------- */
+
+  app.get("/api/v1/moves/:moveId/scan-events", async (req, reply) => {
+    const { moveId } = req.params as { moveId: string };
+    if (!(await assertOwnsMove(req.userId, moveId))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    const rows = await db
+      .select()
+      .from(schema.moveScanEvents)
+      .where(eq(schema.moveScanEvents.move_id, moveId))
+      .orderBy(schema.moveScanEvents.scanned_at);
+    return { data: rows, total: rows.length };
+  });
+
+  /**
+   * Append a scan event and (when the action advances state) update the
+   * target box's status. Unrecognized scans are still logged with a
+   * null target_id so the user can diagnose mis-printed labels.
+   */
+  app.post("/api/v1/move-scan-events", async (req, reply) => {
+    const body = createMoveScanEventSchema.parse(req.body);
+    if (!(await assertOwnsMove(req.userId, body.move_id))) {
+      return reply.status(403).send({ error: "Move not owned by user" });
+    }
+    if (!MOVE_SCAN_ACTIONS.includes(body.action)) {
+      return reply.status(400).send({ error: "Invalid action" });
+    }
+
+    // Re-verify the target exists and belongs to this move. If
+    // target_id is supplied but doesn't match, log the scan with
+    // target_id=null so the audit trail still reflects it.
+    let resolvedTargetId: string | null = body.target_id ?? null;
+    if (resolvedTargetId) {
+      if (body.target_kind === "box") {
+        const [box] = await db
+          .select({ id: schema.moveBoxes.id, move_id: schema.moveBoxes.move_id })
+          .from(schema.moveBoxes)
+          .where(eq(schema.moveBoxes.id, resolvedTargetId))
+          .limit(1);
+        if (!box || box.move_id !== body.move_id) resolvedTargetId = null;
+      } else {
+        const [item] = await db
+          .select({ id: schema.moveItems.id, move_id: schema.moveItems.move_id })
+          .from(schema.moveItems)
+          .where(eq(schema.moveItems.id, resolvedTargetId))
+          .limit(1);
+        if (!item || item.move_id !== body.move_id) resolvedTargetId = null;
+      }
+    }
+
+    const [event] = await db
+      .insert(schema.moveScanEvents)
+      .values({
+        move_id: body.move_id,
+        user_id: req.userId,
+        code: body.code,
+        target_kind: body.target_kind,
+        target_id: resolvedTargetId,
+        action: body.action,
+        note: body.note,
+      })
+      .returning();
+
+    // Advance box status when relevant. Items aren't auto-advanced
+    // here — the item-status vocabulary is broader and item state is
+    // typically driven by box status anyway.
+    const newStatus = statusForAction(body.action);
+    if (
+      newStatus &&
+      body.target_kind === "box" &&
+      resolvedTargetId
+    ) {
+      await db
+        .update(schema.moveBoxes)
+        .set({ status: newStatus, updated_at: new Date() })
+        .where(eq(schema.moveBoxes.id, resolvedTargetId));
+    }
+
+    return reply.status(201).send({ data: event });
   });
 
   /* ---------- Move Stickers ---------- */

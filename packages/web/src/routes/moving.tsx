@@ -1,10 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   Truck,
   Loader2,
   Plus,
   Package,
+  PackageOpen,
   Home,
   Camera,
   ScanLine,
@@ -15,14 +16,19 @@ import {
   Upload,
   Images,
   Check,
+  Search,
+  Navigation,
+  X,
 } from "lucide-react";
 import type {
   Move,
   MoveBox,
   MoveItem,
   MoveRoom,
+  MoveScanEvent,
   MoveSticker,
   MoveStickerKind,
+  MoveScanAction,
   Project,
   Property,
   FileRecord,
@@ -32,6 +38,7 @@ import {
   MOVE_ITEM_STATUSES,
   MOVE_ITEM_CATEGORIES,
   MOVE_BOX_PRIORITIES,
+  MOVE_CODE_TYPES,
 } from "@hcc/shared";
 import { PageShell } from "@/components/layout/page-shell";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -132,7 +139,7 @@ function MovingPage() {
   const removeMove = useRemove("moves", "/moves");
 
   const [tab, setTab] = useState<
-    "overview" | "plans" | "inventory" | "boxes" | "labels"
+    "overview" | "plans" | "inventory" | "boxes" | "scan" | "labels"
   >("overview");
 
   /* ---------- Loading / empty states ---------- */
@@ -195,6 +202,7 @@ function MovingPage() {
     { id: "plans", label: "Floor plans", count: rooms.length },
     { id: "inventory", label: "Inventory", count: items.length },
     { id: "boxes", label: "Boxes", count: boxes.length },
+    { id: "scan", label: "Scan" },
     { id: "labels", label: "Labels" },
   ];
 
@@ -264,6 +272,9 @@ function MovingPage() {
             )}
             {tab === "boxes" && (
               <BoxesTab move={selectedMove} rooms={rooms} boxes={boxes} items={items} />
+            )}
+            {tab === "scan" && (
+              <ScanTab move={selectedMove} boxes={boxes} items={items} rooms={rooms} />
             )}
             {tab === "labels" && (
               <LabelsTab boxes={boxes} items={items} rooms={rooms} />
@@ -1302,6 +1313,9 @@ function InventoryTab({
   const [editing, setEditing] = useState<MoveItem | null>(null);
   const [filterRoom, setFilterRoom] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
+  const [filterBoxId, setFilterBoxId] = useState<string | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
 
   const createItem = useMutation({
     mutationFn: (data: Record<string, unknown>) => apiPost("/move-items", data),
@@ -1331,18 +1345,65 @@ function InventoryTab({
       );
     }
     if (filterStatus) list = list.filter((i) => i.status === filterStatus);
+    if (filterBoxId) list = list.filter((i) => i.box_id === filterBoxId);
     return list;
-  }, [items, filterRoom, filterStatus]);
+  }, [items, filterRoom, filterStatus, filterBoxId]);
+
+  // Scan lookup: items first (per-item barcodes are rare but specific),
+  // then boxes (filter inventory to the box's contents — the natural
+  // "what's in this box?" gesture). Unknown codes get a flash message.
+  const handleScan = (code: string) => {
+    setScannerOpen(false);
+    const item = items.find((i) => i.barcode === code);
+    if (item) {
+      setScanMessage(`✓ ${item.name}`);
+      setEditing(item);
+      setTimeout(() => setModalOpen(true), 50);
+      return;
+    }
+    const box = boxes.find((b) => b.barcode === code);
+    if (box) {
+      const n = items.filter((i) => i.box_id === box.id).length;
+      setFilterBoxId(box.id);
+      setScanMessage(`Box ${box.label} → showing ${n} item${n === 1 ? "" : "s"}`);
+      return;
+    }
+    setScanMessage(`No item or box matches "${code}".`);
+  };
+
+  const filterBox = filterBoxId ? boxes.find((b) => b.id === filterBoxId) : null;
 
   return (
     <div className="space-y-3">
       <div className="flex justify-between items-center gap-2">
         <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Inventory</h2>
-        <Button size="md" className="min-h-11" onClick={() => { setEditing(null); setModalOpen(true); }}>
-          <Plus className="h-4 w-4" />
-          Add item
-        </Button>
+        <div className="flex gap-2">
+          <Button size="md" variant="secondary" className="min-h-11" onClick={() => setScannerOpen(true)}>
+            <ScanLine className="h-4 w-4" />
+            Scan
+          </Button>
+          <Button size="md" className="min-h-11" onClick={() => { setEditing(null); setModalOpen(true); }}>
+            <Plus className="h-4 w-4" />
+            Add item
+          </Button>
+        </div>
       </div>
+
+      {scanMessage && (
+        <div className="flex items-center justify-between gap-2 text-xs px-3 py-2 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+          <span className="truncate">{scanMessage}</span>
+          {(filterBox || scanMessage) && (
+            <button
+              type="button"
+              onClick={() => { setFilterBoxId(null); setScanMessage(null); }}
+              className="text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 shrink-0"
+              aria-label="Clear"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-2">
         <Select
@@ -1446,6 +1507,13 @@ function InventoryTab({
           }
         }}
       />
+
+      <BarcodeScanner
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={handleScan}
+        title="Scan item or box"
+      />
     </div>
   );
 }
@@ -1474,6 +1542,8 @@ function ItemModal({
   const [category, setCategory] = useState<string>("");
   const [fragile, setFragile] = useState(false);
   const [notes, setNotes] = useState("");
+  const [barcode, setBarcode] = useState("");
+  const [codeType, setCodeType] = useState<string>("qr");
 
   useEffect(() => {
     if (!open) return;
@@ -1486,6 +1556,8 @@ function ItemModal({
     setCategory(existing?.category ?? "");
     setFragile(existing?.fragile ?? false);
     setNotes(existing?.notes ?? "");
+    setBarcode(existing?.barcode ?? "");
+    setCodeType(existing?.code_type ?? "qr");
   }, [open, existing?.id]);
 
   return (
@@ -1504,6 +1576,10 @@ function ItemModal({
             category: category || undefined,
             fragile,
             notes: notes || undefined,
+            // Empty string clears an existing per-item barcode; the
+            // schema accepts null via .nullish().
+            barcode: barcode.trim() ? barcode.trim() : null,
+            code_type: codeType,
           });
         }}
       >
@@ -1559,6 +1635,23 @@ function ItemModal({
           />
           Fragile
         </label>
+        <Input
+          label="Per-item barcode (optional)"
+          value={barcode}
+          onChange={(e) => setBarcode(e.target.value)}
+          placeholder="Leave blank unless this item is tracked on its own"
+        />
+        {barcode.trim() && (
+          <Select
+            label="Barcode type"
+            value={codeType}
+            onChange={(e) => setCodeType(e.target.value)}
+            options={MOVE_CODE_TYPES.map((c) => ({
+              value: c,
+              label: c === "qr" ? "QR code" : "Code 128 (1D)",
+            }))}
+          />
+        )}
         <Textarea label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
 
         <div className="flex gap-2 pt-2">
@@ -1594,9 +1687,15 @@ function BoxesTab({
   const [editing, setEditing] = useState<MoveBox | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const createBox = useMutation({
     mutationFn: (data: Record<string, unknown>) => apiPost("/move-boxes", data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["move-boxes", move.id] }),
+  });
+  const bulkCreateBoxes = useMutation({
+    mutationFn: (data: { count: number; code_type: string; label_prefix: string }) =>
+      apiPost(`/moves/${move.id}/boxes/bulk-create`, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["move-boxes", move.id] }),
   });
   const updateBox = useMutation({
@@ -1648,6 +1747,10 @@ function BoxesTab({
           <Button size="md" variant="secondary" className="min-h-11" onClick={() => setScannerOpen(true)}>
             <ScanLine className="h-4 w-4" />
             Scan
+          </Button>
+          <Button size="md" variant="secondary" className="min-h-11" onClick={() => setBulkOpen(true)}>
+            <Package className="h-4 w-4" />
+            Bulk create
           </Button>
           <Button size="md" className="min-h-11" onClick={() => { setEditing(null); setModalOpen(true); }}>
             <Plus className="h-4 w-4" />
@@ -1748,7 +1851,98 @@ function BoxesTab({
         onScan={handleScan}
         title="Scan box barcode"
       />
+
+      <BulkCreateBoxesModal
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        existingCount={boxes.length}
+        pending={bulkCreateBoxes.isPending}
+        onSubmit={(payload) =>
+          bulkCreateBoxes.mutate(payload, {
+            onSuccess: () => setBulkOpen(false),
+          })
+        }
+      />
     </div>
+  );
+}
+
+function BulkCreateBoxesModal({
+  open,
+  onClose,
+  existingCount,
+  pending,
+  onSubmit,
+}: {
+  open: boolean;
+  onClose: () => void;
+  existingCount: number;
+  pending: boolean;
+  onSubmit: (data: { count: number; code_type: string; label_prefix: string }) => void;
+}) {
+  const [count, setCount] = useState(20);
+  const [codeType, setCodeType] = useState<string>("qr");
+  const [labelPrefix, setLabelPrefix] = useState("Box");
+
+  useEffect(() => {
+    if (!open) return;
+    setCount(20);
+    setCodeType("qr");
+    setLabelPrefix("Box");
+  }, [open]);
+
+  return (
+    <Modal open={open} onClose={onClose} title="Bulk create boxes">
+      <form
+        className="space-y-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit({ count, code_type: codeType, label_prefix: labelPrefix.trim() || "Box" });
+        }}
+      >
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Pre-generate empty boxes with auto-numbered labels and unique
+          barcodes. Print the labels now, stick them on cardboard, and
+          assign destinations as you pack.
+        </p>
+        <Input
+          label="How many?"
+          type="number"
+          min={1}
+          max={200}
+          value={count}
+          onChange={(e) => setCount(Math.max(1, Math.min(200, Number(e.target.value) || 1)))}
+          required
+        />
+        <Input
+          label="Label prefix"
+          value={labelPrefix}
+          onChange={(e) => setLabelPrefix(e.target.value)}
+          placeholder="Box"
+        />
+        <Select
+          label="Barcode type"
+          value={codeType}
+          onChange={(e) => setCodeType(e.target.value)}
+          options={MOVE_CODE_TYPES.map((c) => ({
+            value: c,
+            label: c === "qr" ? "QR code (recommended)" : "Code 128 (1D barcode)",
+          }))}
+        />
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Labels will continue numbering from where existing boxes leave off
+          ({existingCount} so far).
+        </p>
+        <div className="flex gap-2 pt-2">
+          <Button type="button" variant="secondary" className="flex-1 min-h-12" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" className="flex-1 min-h-12" disabled={pending || count < 1}>
+            {pending ? "Creating…" : `Create ${count} ${count === 1 ? "box" : "boxes"}`}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -1780,6 +1974,7 @@ function BoxModal({
 }) {
   const [label, setLabel] = useState("");
   const [barcode, setBarcode] = useState("");
+  const [codeType, setCodeType] = useState<string>("qr");
   const [destRoom, setDestRoom] = useState("");
   const [priority, setPriority] = useState("normal");
   const [fragile, setFragile] = useState(false);
@@ -1789,6 +1984,7 @@ function BoxModal({
     if (!open) return;
     setLabel(existing?.label ?? "");
     setBarcode(existing?.barcode ?? generateBarcode(existingBarcodes));
+    setCodeType(existing?.code_type ?? "qr");
     setDestRoom(existing?.destination_room_id ?? "");
     setPriority(existing?.priority ?? "normal");
     setFragile(existing?.fragile ?? false);
@@ -1804,6 +2000,7 @@ function BoxModal({
           onSubmit({
             label: label.trim(),
             barcode: barcode.trim(),
+            code_type: codeType,
             destination_room_id: destRoom || undefined,
             priority,
             fragile,
@@ -1823,6 +2020,15 @@ function BoxModal({
             Regenerate
           </Button>
         </div>
+        <Select
+          label="Barcode type"
+          value={codeType}
+          onChange={(e) => setCodeType(e.target.value)}
+          options={MOVE_CODE_TYPES.map((c) => ({
+            value: c,
+            label: c === "qr" ? "QR code" : "Code 128 (1D)",
+          }))}
+        />
         <Select
           label="Destination room"
           value={destRoom}
@@ -1858,6 +2064,181 @@ function BoxModal({
 }
 
 /* =========================================================== */
+/*  Scan mode                                                   */
+/* =========================================================== */
+
+const SCAN_ACTIONS: { id: MoveScanAction; label: string; icon: typeof Package }[] = [
+  { id: "pack", label: "Pack", icon: Package },
+  { id: "load", label: "Load on truck", icon: Truck },
+  { id: "transit", label: "In transit", icon: Navigation },
+  { id: "arrive", label: "Arrived", icon: MapPin },
+  { id: "unpack", label: "Unpack", icon: PackageOpen },
+  { id: "lookup", label: "Look up", icon: Search },
+];
+
+/**
+ * "Scan" tab on /moving — a launch-pad rather than the scan UI itself.
+ * The actual scanning happens at /scan, a full-screen route designed
+ * for phone-in-hand walking around the house. This tab lets the user:
+ *   - pre-select an action so it's primed when scanning starts
+ *   - see at-a-glance status counts for every box
+ *   - review the persisted scan log
+ */
+function ScanTab({
+  move,
+  boxes,
+  items,
+  rooms,
+}: {
+  move: Move;
+  boxes: MoveBox[];
+  items: MoveItem[];
+  rooms: MoveRoom[];
+}) {
+  const navigate = useNavigate();
+  const [action, setAction] = useState<MoveScanAction>("pack");
+
+  const { data: logResp } = useQuery({
+    queryKey: ["move-scan-events", move.id],
+    queryFn: () =>
+      apiGet<ListResponse<MoveScanEvent>>(`/moves/${move.id}/scan-events`),
+    enabled: !!move.id,
+  });
+  const log = logResp?.data ?? [];
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      preparing: 0,
+      packed: 0,
+      loaded: 0,
+      delivered: 0,
+      unpacked: 0,
+    };
+    for (const b of boxes) counts[b.status] = (counts[b.status] ?? 0) + 1;
+    return counts;
+  }, [boxes]);
+
+  const roomById = (id?: string) => (id ? rooms.find((r) => r.id === id) : null);
+
+  return (
+    <div className="space-y-3">
+      <Card>
+        <CardContent className="pt-4 pb-4 space-y-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Scan mode
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Pick an action, then open the full-screen scanner. Every
+              scan is logged and advances the box's lifecycle.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {SCAN_ACTIONS.map((a) => {
+              const Icon = a.icon;
+              const active = a.id === action;
+              return (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => setAction(a.id)}
+                  className={
+                    "flex flex-col items-center justify-center rounded-lg border-2 py-3 px-2 text-xs font-medium transition-colors min-h-16 " +
+                    (active
+                      ? "border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-200"
+                      : "border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-300")
+                  }
+                  aria-pressed={active}
+                >
+                  <Icon className="h-5 w-5 mb-1" />
+                  {a.label}
+                </button>
+              );
+            })}
+          </div>
+          <Button
+            size="lg"
+            className="w-full min-h-14"
+            onClick={() =>
+              navigate({
+                to: "/scan",
+                search: { move: move.id, action },
+              })
+            }
+          >
+            <ScanLine className="h-5 w-5" />
+            Open full-screen scanner
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Status roll-up — quick at-a-glance of where every box is */}
+      <Card>
+        <CardContent className="pt-3 pb-3">
+          <p className="text-xs uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 mb-2">
+            Box lifecycle
+          </p>
+          <div className="grid grid-cols-5 gap-2 text-center">
+            {(["preparing", "packed", "loaded", "delivered", "unpacked"] as const).map((s) => (
+              <div key={s} className="rounded-md bg-slate-50 dark:bg-slate-800/50 py-2">
+                <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                  {statusCounts[s] ?? 0}
+                </div>
+                <div className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  {capitalize(s)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Persisted scan log — recent first */}
+      <Card>
+        <CardContent className="pt-3 pb-3 space-y-2">
+          <div className="flex items-baseline justify-between">
+            <p className="text-xs uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+              Scan log
+            </p>
+            <span className="text-[10px] text-slate-400">{log.length} total</span>
+          </div>
+          {log.length === 0 ? (
+            <p className="text-xs text-slate-500 dark:text-slate-400 py-2">
+              No scans yet. Open the scanner above to start.
+            </p>
+          ) : (
+            <div className="space-y-1 max-h-64 overflow-y-auto">
+              {[...log].reverse().slice(0, 50).map((ev) => {
+                const box = ev.target_kind === "box" && ev.target_id
+                  ? boxes.find((b) => b.id === ev.target_id)
+                  : null;
+                const item = ev.target_kind === "item" && ev.target_id
+                  ? items.find((i) => i.id === ev.target_id)
+                  : null;
+                const targetLabel = box?.label ?? item?.name ?? `Unknown (${ev.code})`;
+                const room = box ? roomById(box.destination_room_id) : null;
+                return (
+                  <div key={ev.id} className="flex items-center gap-2 text-xs py-1 border-b border-slate-100 dark:border-slate-800 last:border-b-0">
+                    <Badge variant="default">{capitalize(ev.action)}</Badge>
+                    <span className="flex-1 truncate">
+                      {targetLabel}
+                      {room && <span className="text-slate-400"> → {room.name}</span>}
+                    </span>
+                    <span className="text-[10px] text-slate-400 whitespace-nowrap">
+                      {new Date(ev.scanned_at).toLocaleTimeString()}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/* =========================================================== */
 /*  Labels (print)                                              */
 /* =========================================================== */
 
@@ -1882,7 +2263,7 @@ function LabelsTab({
             </p>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {boxes.length} {boxes.length === 1 ? "box" : "boxes"} ready to print.
-              Each label includes a Code 128 barcode, contents summary, and destination room.
+              Each label includes a QR or Code 128 barcode, contents summary, and destination room.
             </p>
           </div>
           <Button className="min-h-11" onClick={() => setPrintOpen(true)} disabled={boxes.length === 0}>

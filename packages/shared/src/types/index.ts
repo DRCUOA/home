@@ -320,10 +320,14 @@ export interface MoveRoom extends BaseEntity {
 export interface MoveBox extends BaseEntity {
   move_id: string;
   barcode: string;
+  /** "qr" | "code128" — which symbology the label renders. */
+  code_type: string;
   label: string;
   destination_room_id?: string;
   fragile: boolean;
   priority: string;
+  /** "preparing" | "packed" | "loaded" | "delivered" | "unpacked". */
+  status: string;
   notes?: string;
 }
 
@@ -338,8 +342,25 @@ export interface MoveItem extends BaseEntity {
   category?: string;
   value_estimate?: number;
   fragile: boolean;
+  /** Optional per-item barcode for high-value items tracked outside a box. */
+  barcode?: string;
+  code_type: string;
   photo_file_id?: string;
   notes?: string;
+}
+
+/** Audit log row for a barcode scan event. The server appends one
+ *  whenever a box or item is scanned in scan-mode; box status is a
+ *  roll-up of the most recent advancing action. */
+export interface MoveScanEvent extends BaseEntity {
+  move_id: string;
+  user_id: string;
+  code: string;
+  target_kind: string;
+  target_id?: string;
+  action: string;
+  note?: string;
+  scanned_at: string;
 }
 
 export interface MoveSticker extends BaseEntity {

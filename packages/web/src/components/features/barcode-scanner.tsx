@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ScanLine,
   Keyboard,
@@ -9,27 +9,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
+import { useBarcodeCamera } from "@/lib/use-barcode-camera";
 
 /**
- * Web barcode scanner using the browser-native BarcodeDetector API
- * (https://developer.mozilla.org/en-US/docs/Web/API/Barcode_Detection_API).
+ * Modal barcode scanner — the in-page lookup affordance used by the
+ * Boxes and Inventory tabs. For walking-around scanning, use the
+ * dedicated `/scan` full-screen route instead.
  *
- * Supported formats: code_128, code_39, ean_13, qr_code, upc_a, upc_e.
- * If the API is unavailable (older Safari etc.) the component falls
- * back to a manual text-entry input so the feature is still usable.
- *
- * Typed loosely because BarcodeDetector is not yet in the standard
- * TypeScript DOM lib.
+ * Camera + detection live in `useBarcodeCamera`. This component just
+ * adds modal chrome, the manual-entry fallback, and the close-on-scan
+ * vs. continuous behaviour.
  */
-type DetectorResult = { rawValue: string; format?: string };
-
-interface GlobalBarcodeDetector {
-  new (opts?: { formats?: string[] }): {
-    detect(source: CanvasImageSource): Promise<DetectorResult[]>;
-  };
-  getSupportedFormats?: () => Promise<string[]>;
-}
-
 interface BarcodeScannerProps {
   open: boolean;
   onScan: (code: string, format?: string) => void;
@@ -39,12 +29,6 @@ interface BarcodeScannerProps {
   continuous?: boolean;
 }
 
-function getDetector(): GlobalBarcodeDetector | null {
-  if (typeof window === "undefined") return null;
-  return (window as unknown as { BarcodeDetector?: GlobalBarcodeDetector })
-    .BarcodeDetector ?? null;
-}
-
 export function BarcodeScanner({
   open,
   onScan,
@@ -52,131 +36,34 @@ export function BarcodeScanner({
   title = "Scan barcode",
   continuous = false,
 }: BarcodeScannerProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const lastCodeRef = useRef<string | null>(null);
-  const lastCodeAtRef = useRef<number>(0);
-
   const [manual, setManual] = useState("");
   const [manualMode, setManualMode] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [starting, setStarting] = useState(false);
-  const [supported, setSupported] = useState<boolean | null>(null);
-  const [flash, setFlash] = useState<string | null>(null);
 
-  const stopCamera = useCallback(() => {
-    if (rafRef.current != null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-  }, []);
+  const handleScan = (code: string, format?: string) => {
+    onScan(code, format);
+    if (!continuous) onClose();
+  };
 
-  const handleDetected = useCallback(
-    (code: string, format?: string) => {
-      // Debounce: ignore the same code fired twice in quick succession.
-      const now = Date.now();
-      if (
-        lastCodeRef.current === code &&
-        now - lastCodeAtRef.current < 1500
-      ) {
-        return;
-      }
-      lastCodeRef.current = code;
-      lastCodeAtRef.current = now;
+  const cameraEnabled = open && !manualMode;
+  const { videoRef, state, error, flash, retry } = useBarcodeCamera({
+    enabled: cameraEnabled,
+    onScan: handleScan,
+  });
 
-      setFlash(code);
-      setTimeout(() => setFlash(null), 700);
-
-      onScan(code, format);
-
-      if (!continuous) {
-        stopCamera();
-      }
-    },
-    [continuous, onScan, stopCamera]
-  );
-
-  const startCamera = useCallback(async () => {
-    setError(null);
-    setStarting(true);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-
-      const Detector = getDetector();
-      if (!Detector) {
-        setSupported(false);
-        setStarting(false);
-        return;
-      }
-      setSupported(true);
-
-      const detector = new Detector({
-        formats: [
-          "code_128",
-          "code_39",
-          "ean_13",
-          "ean_8",
-          "upc_a",
-          "upc_e",
-          "qr_code",
-        ],
-      });
-
-      const loop = async () => {
-        if (!videoRef.current || !streamRef.current) return;
-        if (videoRef.current.readyState >= 2) {
-          try {
-            const results = await detector.detect(videoRef.current);
-            if (results.length > 0) {
-              handleDetected(results[0].rawValue, results[0].format);
-            }
-          } catch {
-            // transient detect errors are fine — next frame retries
-          }
-        }
-        rafRef.current = requestAnimationFrame(loop);
-      };
-      rafRef.current = requestAnimationFrame(loop);
-    } catch {
-      setError(
-        "Camera unavailable. Enter the barcode manually, or grant camera permission and retry."
-      );
-      setSupported(false);
-    } finally {
-      setStarting(false);
-    }
-  }, [handleDetected]);
-
+  // Reset manual-mode when the modal is closed so the next open starts
+  // back on the camera.
   useEffect(() => {
-    if (open && !manualMode) {
-      startCamera();
-    } else {
-      stopCamera();
+    if (!open) {
+      setManual("");
+      setManualMode(false);
     }
-    return stopCamera;
-  }, [open, manualMode, startCamera, stopCamera]);
+  }, [open]);
 
   const submitManual = (e: React.FormEvent) => {
     e.preventDefault();
     const code = manual.trim();
     if (!code) return;
-    handleDetected(code, "manual");
+    handleScan(code, "manual");
     setManual("");
   };
 
@@ -214,14 +101,14 @@ export function BarcodeScanner({
               </Button>
             </div>
           </form>
-        ) : error ? (
+        ) : state === "error" ? (
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <CameraIcon className="h-10 w-10 text-slate-300 dark:text-slate-600 mb-3" />
             <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
               {error}
             </p>
             <div className="flex gap-2">
-              <Button variant="secondary" onClick={startCamera}>
+              <Button variant="secondary" onClick={retry}>
                 <RotateCcw className="h-4 w-4" />
                 Retry
               </Button>
@@ -231,7 +118,7 @@ export function BarcodeScanner({
               </Button>
             </div>
           </div>
-        ) : supported === false ? (
+        ) : state === "unsupported" ? (
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <ScanLine className="h-10 w-10 text-slate-300 dark:text-slate-600 mb-3" />
             <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
@@ -257,7 +144,7 @@ export function BarcodeScanner({
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <div className="w-3/4 h-1/3 border-2 border-primary-400/90 rounded-xl shadow-[0_0_0_9999px_rgba(0,0,0,0.25)]" />
               </div>
-              {starting && (
+              {state === "starting" && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/40">
                   <Loader2 className="h-6 w-6 animate-spin text-white" />
                 </div>

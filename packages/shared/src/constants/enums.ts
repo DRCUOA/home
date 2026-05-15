@@ -296,6 +296,40 @@ export const MOVE_BOX_PRIORITIES = [
 ] as const;
 export type MoveBoxPriority = (typeof MOVE_BOX_PRIORITIES)[number];
 
+/** Box lifecycle, driven by scan events. Mirrors the item status
+ *  vocabulary but at the container level. `preparing` is the default
+ *  on create; later stages advance as scans land. */
+export const MOVE_BOX_STATUSES = [
+  "preparing",
+  "packed",
+  "loaded",
+  "delivered",
+  "unpacked",
+] as const;
+export type MoveBoxStatus = (typeof MOVE_BOX_STATUSES)[number];
+
+/** Barcode symbology used on printed labels. Scanner accepts both;
+ *  the renderer picks based on this. */
+export const MOVE_CODE_TYPES = ["qr", "code128"] as const;
+export type MoveCodeType = (typeof MOVE_CODE_TYPES)[number];
+
+/** Action recorded with each scan event. `lookup` is a no-op read
+ *  (e.g. scan-to-inspect); all others advance the box lifecycle. */
+export const MOVE_SCAN_ACTIONS = [
+  "pack",
+  "load",
+  "transit",
+  "arrive",
+  "unpack",
+  "lookup",
+] as const;
+export type MoveScanAction = (typeof MOVE_SCAN_ACTIONS)[number];
+
+/** Scan target kind — boxes are the primary thing scanned; high-value
+ *  items can also carry their own barcode and be scanned directly. */
+export const MOVE_SCAN_TARGET_KINDS = ["box", "item"] as const;
+export type MoveScanTargetKind = (typeof MOVE_SCAN_TARGET_KINDS)[number];
+
 export const MOVE_STICKER_KINDS = [
   // --- Openings & structural ---
   "door",

@@ -5,6 +5,10 @@ import {
   MOVE_ITEM_STATUSES,
   MOVE_ITEM_CATEGORIES,
   MOVE_BOX_PRIORITIES,
+  MOVE_BOX_STATUSES,
+  MOVE_CODE_TYPES,
+  MOVE_SCAN_ACTIONS,
+  MOVE_SCAN_TARGET_KINDS,
   MOVE_STICKER_KINDS,
   MOVE_OPENING_KINDS,
   MOVE_OPENING_SWINGS,
@@ -70,16 +74,43 @@ export type UpdateMoveRoomInput = z.infer<typeof updateMoveRoomSchema>;
 export const createMoveBoxSchema = z.object({
   move_id: z.string().uuid(),
   barcode: z.string().min(1).max(64),
+  code_type: z.enum(MOVE_CODE_TYPES).optional(),
   label: z.string().min(1).max(200),
   destination_room_id: z.string().uuid().optional(),
   fragile: z.boolean().optional(),
   priority: z.enum(MOVE_BOX_PRIORITIES).optional(),
+  status: z.enum(MOVE_BOX_STATUSES).optional(),
   notes: z.string().optional(),
 });
 export const updateMoveBoxSchema = createMoveBoxSchema.partial();
 
 export type CreateMoveBoxInput = z.infer<typeof createMoveBoxSchema>;
 export type UpdateMoveBoxInput = z.infer<typeof updateMoveBoxSchema>;
+
+/** Pre-generate N empty boxes so the user can print a stack of labels
+ *  before packing and assign label-text/destinations as they go. */
+export const bulkCreateMoveBoxesSchema = z.object({
+  move_id: z.string().uuid(),
+  count: z.number().int().min(1).max(200),
+  code_type: z.enum(MOVE_CODE_TYPES).optional(),
+  /** Prefix for auto-generated labels: e.g. "Box" → "Box 1", "Box 2".
+   *  Server appends a numeric suffix starting from the next free index
+   *  among existing boxes for the move. */
+  label_prefix: z.string().min(1).max(50).optional(),
+});
+export type BulkCreateMoveBoxesInput = z.infer<typeof bulkCreateMoveBoxesSchema>;
+
+/** Status-only PATCH used by scan-mode flows. Separate from the general
+ *  box PATCH so the client can express intent ("this is a status
+ *  transition from a scan") and the server can validate the transition. */
+export const transitionMoveBoxStatusSchema = z.object({
+  status: z.enum(MOVE_BOX_STATUSES),
+  /** Optional note attached to the resulting scan event. */
+  note: z.string().max(500).optional(),
+});
+export type TransitionMoveBoxStatusInput = z.infer<
+  typeof transitionMoveBoxStatusSchema
+>;
 
 /* ---------- Move Item ---------- */
 
@@ -94,6 +125,10 @@ export const createMoveItemSchema = z.object({
   category: z.enum(MOVE_ITEM_CATEGORIES).optional(),
   value_estimate: z.number().positive().optional(),
   fragile: z.boolean().optional(),
+  /** Optional per-item barcode for high-value items tracked outside a
+   *  box (TV, art, instrument). Nullish so PATCH can clear it. */
+  barcode: z.string().min(1).max(64).nullish(),
+  code_type: z.enum(MOVE_CODE_TYPES).optional(),
   photo_file_id: z.string().uuid().optional(),
   notes: z.string().optional(),
 });
@@ -101,6 +136,22 @@ export const updateMoveItemSchema = createMoveItemSchema.partial();
 
 export type CreateMoveItemInput = z.infer<typeof createMoveItemSchema>;
 export type UpdateMoveItemInput = z.infer<typeof updateMoveItemSchema>;
+
+/* ---------- Scan events (audit log + status driver) ---------- */
+
+/** Recorded from scan-mode UI. `target_kind` + `target_id` are
+ *  optional because an unrecognized scan still gets logged (helps
+ *  diagnose mis-labelled / mis-printed codes); when set, the server
+ *  re-verifies the target belongs to the move. */
+export const createMoveScanEventSchema = z.object({
+  move_id: z.string().uuid(),
+  code: z.string().min(1).max(256),
+  target_kind: z.enum(MOVE_SCAN_TARGET_KINDS),
+  target_id: z.string().uuid().optional(),
+  action: z.enum(MOVE_SCAN_ACTIONS),
+  note: z.string().max(500).optional(),
+});
+export type CreateMoveScanEventInput = z.infer<typeof createMoveScanEventSchema>;
 
 /* ---------- Move Sticker ---------- */
 

@@ -600,6 +600,9 @@ export const moveBoxes = pgTable(
     // Human-scannable ID that goes on the label. Unique per move, so
     // scanning a barcode anywhere in the app lets us find the right box.
     barcode: varchar("barcode", { length: 64 }).notNull(),
+    // Which symbology to render on the printed label. The scanner reads
+    // either, but the renderer needs to know which to draw.
+    code_type: varchar("code_type", { length: 10 }).default("qr").notNull(),
     label: varchar("label", { length: 200 }).notNull(),
     destination_room_id: uuid("destination_room_id").references(
       () => moveRooms.id,
@@ -607,12 +610,16 @@ export const moveBoxes = pgTable(
     ),
     fragile: boolean("fragile").default(false).notNull(),
     priority: varchar("priority", { length: 20 }).default("normal").notNull(),
+    // Lifecycle: preparing → packed → loaded → delivered → unpacked.
+    // Driven by scan events; see move_scan_events.
+    status: varchar("status", { length: 20 }).default("preparing").notNull(),
     notes: text("notes"),
     ...timestamps(),
   },
   (t) => [
     index("move_boxes_move_idx").on(t.move_id),
     index("move_boxes_barcode_idx").on(t.barcode),
+    index("move_boxes_status_idx").on(t.status),
   ]
 );
 
@@ -641,6 +648,11 @@ export const moveItems = pgTable(
     category: varchar("category", { length: 50 }),
     value_estimate: real("value_estimate"),
     fragile: boolean("fragile").default(false).notNull(),
+    // Optional per-item barcode for high-value items tracked individually
+    // outside of a box (TV, art, instrument). Most items have NULL and are
+    // tracked through their parent box's barcode.
+    barcode: varchar("barcode", { length: 64 }),
+    code_type: varchar("code_type", { length: 10 }).default("qr").notNull(),
     photo_file_id: uuid("photo_file_id").references(() => files.id, {
       onDelete: "set null",
     }),
@@ -652,6 +664,46 @@ export const moveItems = pgTable(
     index("move_items_origin_room_idx").on(t.origin_room_id),
     index("move_items_destination_room_idx").on(t.destination_room_id),
     index("move_items_box_idx").on(t.box_id),
+    index("move_items_barcode_idx").on(t.barcode),
+  ]
+);
+
+/**
+ * Audit log of barcode scan events. Each scanner action (mark packed,
+ * load on truck, mark in transit, arrival, unpack) appends one row so
+ * the user can replay where every box has been and when. The server
+ * also uses these as the source of truth for box status transitions —
+ * the status column on move_boxes is a denormalized roll-up driven by
+ * the most recent scan.
+ */
+export const moveScanEvents = pgTable(
+  "move_scan_events",
+  {
+    id: id(),
+    move_id: uuid("move_id")
+      .notNull()
+      .references(() => moves.id, { onDelete: "cascade" }),
+    user_id: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    // The exact code string read by the scanner. Resolved server-side
+    // to box vs item via target_kind / target_id.
+    code: varchar("code", { length: 256 }).notNull(),
+    // target_kind: "box" | "item"
+    target_kind: varchar("target_kind", { length: 10 }).notNull(),
+    // Nullable because an unrecognized scan still gets logged (helps
+    // diagnose mislabelled boxes); resolved target id otherwise.
+    target_id: uuid("target_id"),
+    // action: pack | load | transit | arrive | unpack | lookup
+    action: varchar("action", { length: 20 }).notNull(),
+    note: text("note"),
+    scanned_at: timestamp("scanned_at").defaultNow().notNull(),
+    ...timestamps(),
+  },
+  (t) => [
+    index("move_scan_events_move_idx").on(t.move_id),
+    index("move_scan_events_target_idx").on(t.target_id),
+    index("move_scan_events_scanned_at_idx").on(t.scanned_at),
   ]
 );
 

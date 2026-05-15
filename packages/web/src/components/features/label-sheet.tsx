@@ -4,19 +4,29 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import type { MoveBox, MoveItem, MoveRoom } from "@hcc/shared";
 import { code128Svg } from "@/lib/code128";
+import { qrSvg } from "@/lib/qrcode";
 
 /**
  * Printable label sheet for boxes. Renders a grid of labels and gives
  * the user a "Print" button that opens the browser's Print dialog.
  *
  * Each label contains: label text, destination room, priority/fragile
- * indicators, an item summary, and a Code 128 barcode (native SVG).
+ * indicators, an item summary, and a barcode — QR by default, Code 128
+ * for boxes that opted into the wide-bar format.
  *
  * Layout assumes A4 @ 8 labels per sheet (2 cols x 4 rows). Printed
  * @page margins are tight so most desktop printers will reproduce the
  * grid faithfully onto plain paper — the user can cut and tape them,
  * or print onto standard shipping-label paper.
  */
+
+/** Render the appropriate symbology for a box. QR is the default; the
+ *  scanner reads both, but renderers need to pick one. */
+function barcodeSvgFor(box: MoveBox): string {
+  return box.code_type === "code128"
+    ? code128Svg(box.barcode)
+    : qrSvg(box.barcode);
+}
 
 interface LabelSheetProps {
   open: boolean;
@@ -88,7 +98,11 @@ export function LabelSheet({
     .label ul { margin: 2mm 0; padding-left: 4mm; font-size: 9pt; color: #475569; }
     .label ul li { margin: 0; }
     .label .barcode-wrap { margin-top: 3mm; text-align: center; }
-    .label .barcode-wrap svg { width: 100%; height: 18mm; }
+    /* Code 128 (wide format) fills the row at a fixed height. */
+    .label .barcode-wrap.code128 svg { width: 100%; height: 18mm; }
+    /* QR (square format) sits in a fixed box centered in the row. */
+    .label .barcode-wrap.qr { display: flex; justify-content: center; }
+    .label .barcode-wrap.qr svg { width: 28mm; height: 28mm; }
     .label .code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 10pt; letter-spacing: 0.5pt; text-align: center; margin-top: 1mm; }
   </style>
 </head>
@@ -167,10 +181,10 @@ export function LabelSheet({
                       {contents.length > 6 && <li>…and {contents.length - 6} more</li>}
                     </ul>
                   )}
-                  <div className="barcode-wrap">
+                  <div className={`barcode-wrap ${box.code_type === "code128" ? "code128" : "qr"}`}>
                     <div
                       // eslint-disable-next-line react/no-danger
-                      dangerouslySetInnerHTML={{ __html: code128Svg(box.barcode) }}
+                      dangerouslySetInnerHTML={{ __html: barcodeSvgFor(box) }}
                     />
                     <div className="code">{box.barcode}</div>
                   </div>

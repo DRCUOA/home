@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as SellRouteImport } from './routes/sell'
 import { Route as SearchRouteImport } from './routes/search'
+import { Route as ScanRouteImport } from './routes/scan'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as MovingRouteImport } from './routes/moving'
 import { Route as MoneyRouteImport } from './routes/money'
@@ -37,6 +38,11 @@ const SellRoute = SellRouteImport.update({
 const SearchRoute = SearchRouteImport.update({
   id: '/search',
   path: '/search',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ScanRoute = ScanRouteImport.update({
+  id: '/scan',
+  path: '/scan',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RegisterRoute = RegisterRouteImport.update({
@@ -107,6 +113,7 @@ export interface FileRoutesByFullPath {
   '/money': typeof MoneyRoute
   '/moving': typeof MovingRoute
   '/register': typeof RegisterRoute
+  '/scan': typeof ScanRoute
   '/search': typeof SearchRoute
   '/sell': typeof SellRoute
   '/tasks': typeof TasksRoute
@@ -123,6 +130,7 @@ export interface FileRoutesByTo {
   '/money': typeof MoneyRoute
   '/moving': typeof MovingRoute
   '/register': typeof RegisterRoute
+  '/scan': typeof ScanRoute
   '/search': typeof SearchRoute
   '/sell': typeof SellRoute
   '/tasks': typeof TasksRoute
@@ -140,6 +148,7 @@ export interface FileRoutesById {
   '/money': typeof MoneyRoute
   '/moving': typeof MovingRoute
   '/register': typeof RegisterRoute
+  '/scan': typeof ScanRoute
   '/search': typeof SearchRoute
   '/sell': typeof SellRoute
   '/tasks': typeof TasksRoute
@@ -158,6 +167,7 @@ export interface FileRouteTypes {
     | '/money'
     | '/moving'
     | '/register'
+    | '/scan'
     | '/search'
     | '/sell'
     | '/tasks'
@@ -174,6 +184,7 @@ export interface FileRouteTypes {
     | '/money'
     | '/moving'
     | '/register'
+    | '/scan'
     | '/search'
     | '/sell'
     | '/tasks'
@@ -190,6 +201,7 @@ export interface FileRouteTypes {
     | '/money'
     | '/moving'
     | '/register'
+    | '/scan'
     | '/search'
     | '/sell'
     | '/tasks'
@@ -207,6 +219,7 @@ export interface RootRouteChildren {
   MoneyRoute: typeof MoneyRoute
   MovingRoute: typeof MovingRoute
   RegisterRoute: typeof RegisterRoute
+  ScanRoute: typeof ScanRoute
   SearchRoute: typeof SearchRoute
   SellRoute: typeof SellRoute
   TasksRoute: typeof TasksRoute
@@ -233,6 +246,13 @@ declare module '@tanstack/react-router' {
       path: '/search'
       fullPath: '/search'
       preLoaderRoute: typeof SearchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/scan': {
+      id: '/scan'
+      path: '/scan'
+      fullPath: '/scan'
+      preLoaderRoute: typeof ScanRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/register': {
@@ -327,6 +347,7 @@ const rootRouteChildren: RootRouteChildren = {
   MoneyRoute: MoneyRoute,
   MovingRoute: MovingRoute,
   RegisterRoute: RegisterRoute,
+  ScanRoute: ScanRoute,
   SearchRoute: SearchRoute,
   SellRoute: SellRoute,
   TasksRoute: TasksRoute,

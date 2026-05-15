@@ -39,7 +39,9 @@ import {
   MOVE_ITEM_CATEGORIES,
   MOVE_BOX_PRIORITIES,
   MOVE_CODE_TYPES,
+  MOVE_LABEL_TEMPLATES,
 } from "@hcc/shared";
+import type { MoveLabelTemplate } from "@hcc/shared";
 import { PageShell } from "@/components/layout/page-shell";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -2242,6 +2244,13 @@ function ScanTab({
 /*  Labels (print)                                              */
 /* =========================================================== */
 
+const LABEL_TEMPLATE_KEY = "homelhar-label-template";
+
+const LABEL_TEMPLATE_LABELS: Record<MoveLabelTemplate, string> = {
+  "a4-8up": "A4 — 8 per sheet (99×67mm, Avery L7165/J8165)",
+  lc30: "LC30 — 30 per sheet (64×25mm, compact)",
+};
+
 function LabelsTab({
   boxes,
   items,
@@ -2252,24 +2261,50 @@ function LabelsTab({
   rooms: MoveRoom[];
 }) {
   const [printOpen, setPrintOpen] = useState(false);
+  // Persist the last-used template — most users print onto the same
+  // stock every time, no point making them re-pick.
+  const [template, setTemplate] = useState<MoveLabelTemplate>(() => {
+    if (typeof window === "undefined") return "a4-8up";
+    const saved = window.localStorage.getItem(LABEL_TEMPLATE_KEY);
+    return (MOVE_LABEL_TEMPLATES as readonly string[]).includes(saved ?? "")
+      ? (saved as MoveLabelTemplate)
+      : "a4-8up";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(LABEL_TEMPLATE_KEY, template);
+    }
+  }, [template]);
+
   return (
     <div className="space-y-3">
       <Card>
-        <CardContent className="pt-4 pb-4 flex items-center gap-3">
-          <Printer className="h-8 w-8 text-primary-500" />
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Print box labels
-            </p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              {boxes.length} {boxes.length === 1 ? "box" : "boxes"} ready to print.
-              Each label includes a QR or Code 128 barcode, contents summary, and destination room.
-            </p>
+        <CardContent className="pt-4 pb-4 space-y-3">
+          <div className="flex items-center gap-3">
+            <Printer className="h-8 w-8 text-primary-500" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                Print box labels
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {boxes.length} {boxes.length === 1 ? "box" : "boxes"} ready to print.
+                Each label includes a QR (or Code 128 on A4-8up) and the destination room.
+              </p>
+            </div>
+            <Button className="min-h-11" onClick={() => setPrintOpen(true)} disabled={boxes.length === 0}>
+              <Printer className="h-4 w-4" />
+              Open
+            </Button>
           </div>
-          <Button className="min-h-11" onClick={() => setPrintOpen(true)} disabled={boxes.length === 0}>
-            <Printer className="h-4 w-4" />
-            Open
-          </Button>
+          <Select
+            label="Label sheet"
+            value={template}
+            onChange={(e) => setTemplate(e.target.value as MoveLabelTemplate)}
+            options={MOVE_LABEL_TEMPLATES.map((t) => ({
+              value: t,
+              label: LABEL_TEMPLATE_LABELS[t],
+            }))}
+          />
         </CardContent>
       </Card>
 
@@ -2279,6 +2314,7 @@ function LabelsTab({
         boxes={boxes}
         items={items}
         rooms={rooms}
+        template={template}
       />
     </div>
   );

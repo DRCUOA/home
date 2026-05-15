@@ -330,6 +330,18 @@ export type MoveScanAction = (typeof MOVE_SCAN_ACTIONS)[number];
 export const MOVE_SCAN_TARGET_KINDS = ["box", "item"] as const;
 export type MoveScanTargetKind = (typeof MOVE_SCAN_TARGET_KINDS)[number];
 
+/** Pre-cut label-sheet templates supported by the print dialog. The
+ *  values map to physical Avery / Pelltech sheets; the renderer adapts
+ *  layout (cells per page, cell size, content density) per template.
+ *
+ *  - a4-8up: large 99×67mm labels (Avery L7165 / J8165) — full content
+ *    incl. contents list. The current/default layout.
+ *  - lc30:   compact 64×25mm labels (LC30 inkjet) — QR + box name +
+ *    barcode text only; no contents list (no room).
+ */
+export const MOVE_LABEL_TEMPLATES = ["a4-8up", "lc30"] as const;
+export type MoveLabelTemplate = (typeof MOVE_LABEL_TEMPLATES)[number];
+
 export const MOVE_STICKER_KINDS = [
   // --- Openings & structural ---
   "door",

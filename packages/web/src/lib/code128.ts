@@ -62,14 +62,26 @@ function encodeB(input: string): number[] {
 /**
  * Render a Code 128B barcode for `text` as an SVG string. Output has
  * viewBox `0 0 <width> <height>` and scales to any CSS width.
+ *
+ * `preserveAspectRatio` defaults to `"xMidYMid meet"` (fit + center,
+ * leaves whitespace if the slot's aspect doesn't match). Pass `"none"`
+ * when you want the bars to stretch to fill the slot exactly — fine
+ * for 1D barcodes since scanners read bar-to-space ratios, not
+ * absolute widths.
  */
 export function code128Svg(
   text: string,
-  opts: { height?: number; barWidth?: number; quietZone?: number } = {}
+  opts: {
+    height?: number;
+    barWidth?: number;
+    quietZone?: number;
+    preserveAspectRatio?: string;
+  } = {}
 ): string {
   const barWidth = opts.barWidth ?? 2;
   const height = opts.height ?? 80;
   const quiet = opts.quietZone ?? 10;
+  const par = opts.preserveAspectRatio ?? "xMidYMid meet";
 
   const data = encodeB(text || " ");
 
@@ -107,5 +119,5 @@ export function code128Svg(
     }
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalWidth} ${height}" preserveAspectRatio="xMidYMid meet" shape-rendering="crispEdges">${rects.join("")}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalWidth} ${height}" preserveAspectRatio="${par}" shape-rendering="crispEdges">${rects.join("")}</svg>`;
 }

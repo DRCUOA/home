@@ -2288,7 +2288,7 @@ function LabelsTab({
               </p>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 {boxes.length} {boxes.length === 1 ? "box" : "boxes"} ready to print.
-                Each label includes a QR (or Code 128 on A4-8up) and the destination room.
+                A4-8up uses QR or Code 128 per box; LC30 uses Code 128 with a one-line caption.
               </p>
             </div>
             <Button className="min-h-11" onClick={() => setPrintOpen(true)} disabled={boxes.length === 0}>

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Printer, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -210,6 +210,8 @@ function barcodeSvgFor(box: MoveBox, template: MoveLabelTemplate): string {
   return qrSvg(box.barcode);
 }
 
+const MAX_COPIES = 50;
+
 interface LabelSheetProps {
   open: boolean;
   onClose: () => void;
@@ -218,6 +220,9 @@ interface LabelSheetProps {
   rooms: MoveRoom[];
   template?: MoveLabelTemplate;
   title?: string;
+  /** Initial copies-per-label value. User can still change it in the
+   *  modal. Defaults to 1. */
+  initialCopies?: number;
 }
 
 export function LabelSheet({
@@ -228,10 +233,27 @@ export function LabelSheet({
   rooms,
   template = "a4-8up",
   title = "Print labels",
+  initialCopies = 1,
 }: LabelSheetProps) {
   const printRef = useRef<HTMLDivElement>(null);
+  const [copies, setCopies] = useState(initialCopies);
+
+  // Reset copies when the modal re-opens so a previous run's value
+  // doesn't surprise the next user.
+  useEffect(() => {
+    if (open) setCopies(initialCopies);
+  }, [open, initialCopies]);
 
   const spec = TEMPLATES[template];
+
+  // Repeat each box `copies` times. Each repetition gets a unique React
+  // key but renders the same underlying label (same barcode).
+  const expanded: { box: MoveBox; copyIndex: number }[] = [];
+  for (const box of boxes) {
+    for (let i = 0; i < copies; i++) {
+      expanded.push({ box, copyIndex: i });
+    }
+  }
 
   const roomName = (id?: string) =>
     id ? rooms.find((r) => r.id === id)?.name ?? "" : "";
@@ -284,23 +306,41 @@ export function LabelSheet({
 
   if (!open) return null;
 
-  const pages = Math.ceil(boxes.length / spec.perPage);
+  const totalLabels = expanded.length;
+  const pages = Math.ceil(totalLabels / spec.perPage);
 
   return (
     <Modal open={open} onClose={onClose} title={title}>
       <div className="space-y-3">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
           <p className="text-sm text-slate-600 dark:text-slate-400">
             {boxes.length} {boxes.length === 1 ? "label" : "labels"}
+            {copies > 1 && ` × ${copies} copies = ${totalLabels}`}
             {pages > 0 && ` across ${pages} ${pages === 1 ? "page" : "pages"}`}
             {" — "}{spec.label}
           </p>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
+              Copies
+              <input
+                type="number"
+                min={1}
+                max={MAX_COPIES}
+                value={copies}
+                onChange={(e) => {
+                  const n = parseInt(e.target.value, 10);
+                  if (Number.isNaN(n)) return;
+                  setCopies(Math.max(1, Math.min(MAX_COPIES, n)));
+                }}
+                className="w-16 min-h-10 rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-sm text-slate-900 dark:text-slate-100"
+                aria-label="Copies per label"
+              />
+            </label>
             <Button variant="secondary" size="sm" className="min-h-10" onClick={onClose}>
               <X className="h-3.5 w-3.5" />
               Close
             </Button>
-            <Button size="sm" className="min-h-10" onClick={handlePrint} disabled={boxes.length === 0}>
+            <Button size="sm" className="min-h-10" onClick={handlePrint} disabled={totalLabels === 0}>
               <Printer className="h-3.5 w-3.5" />
               Print
             </Button>
@@ -314,20 +354,20 @@ export function LabelSheet({
             className="grid gap-2"
             style={{ gridTemplateColumns: `repeat(${spec.previewCols}, minmax(0, 1fr))` }}
           >
-            {boxes.map((box) => {
+            {expanded.map(({ box, copyIndex }) => {
               const contents = itemsByBox.get(box.id) ?? [];
               const dest = roomName(box.destination_room_id);
               const barcodeSvg = barcodeSvgFor(box, template);
               return (
                 <div
-                  key={box.id}
+                  key={`${box.id}-${copyIndex}`}
                   className={`${spec.previewCellClass}${box.fragile ? " fragile" : ""}`}
                 >
                   {spec.renderCell({ box, barcodeSvg, destination: dest, contents })}
                 </div>
               );
             })}
-            {boxes.length === 0 && (
+            {totalLabels === 0 && (
               <div
                 className="text-center text-sm text-slate-500 py-8"
                 style={{ gridColumn: `span ${spec.previewCols}` }}

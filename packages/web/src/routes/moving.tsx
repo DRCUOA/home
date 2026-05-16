@@ -2005,6 +2005,7 @@ function LabelsTab({
 }) {
   const qc = useQueryClient();
   const [printOpen, setPrintOpen] = useState(false);
+  const [singlePrintBoxId, setSinglePrintBoxId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmOpen, setConfirmOpen] = useState(false);
   // Persist the last-used template — most users print onto the same
@@ -2170,24 +2171,26 @@ function LabelsTab({
                   const itemCount = itemsByBox.get(box.id) ?? 0;
                   const checked = selected.has(box.id);
                   return (
-                    <label
+                    <div
                       key={box.id}
-                      className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/40"
+                      className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-900/40"
                     >
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 accent-primary-500 flex-shrink-0"
-                        checked={checked}
-                        onChange={() => toggleOne(box.id)}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
-                          {box.label}
+                      <label className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-primary-500 flex-shrink-0"
+                          checked={checked}
+                          onChange={() => toggleOne(box.id)}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
+                            {box.label}
+                          </div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">
+                            {box.barcode}
+                          </div>
                         </div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">
-                          {box.barcode}
-                        </div>
-                      </div>
+                      </label>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         {itemCount > 0 && (
                           <Badge variant="default">
@@ -2196,8 +2199,18 @@ function LabelsTab({
                         )}
                         {box.fragile && <Badge variant="primary">Fragile</Badge>}
                         <StatusBadge status={box.status} />
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="min-h-10"
+                          onClick={() => setSinglePrintBoxId(box.id)}
+                          title="Print this label (choose how many copies)"
+                          aria-label={`Print label for ${box.label}`}
+                        >
+                          <Printer className="h-3.5 w-3.5" />
+                        </Button>
                       </div>
-                    </label>
+                    </div>
                   );
                 })}
               </div>
@@ -2213,6 +2226,16 @@ function LabelsTab({
         items={items}
         rooms={rooms}
         template={template}
+      />
+
+      <LabelSheet
+        open={singlePrintBoxId !== null}
+        onClose={() => setSinglePrintBoxId(null)}
+        boxes={boxes.filter((b) => b.id === singlePrintBoxId)}
+        items={items}
+        rooms={rooms}
+        template={template}
+        title="Print single label"
       />
 
       {confirmOpen && (

@@ -14,21 +14,22 @@ interface TabsProps {
 
 export function Tabs({ tabs, active, onChange }: TabsProps) {
   return (
-    <div className="flex gap-1 overflow-x-auto border-b border-slate-200 dark:border-slate-700 px-4 -mx-4 scrollbar-hide">
+    <div className="flex gap-1 overflow-x-auto border-b border-border px-4 -mx-4 scrollbar-hide">
       {tabs.map((tab) => (
         <button
           key={tab.id}
           onClick={() => onChange(tab.id)}
           className={cn(
             "whitespace-nowrap px-3 py-2.5 text-sm font-medium border-b-2 transition-colors",
+            "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
             active === tab.id
-              ? "border-primary-600 dark:border-primary-400 text-primary-600 dark:text-primary-400"
-              : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
+              ? "border-accent text-accent-soft-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground"
           )}
         >
           {tab.label}
           {tab.count != null && (
-            <span className="ml-1.5 text-xs bg-slate-100 dark:bg-slate-800 rounded-full px-1.5 py-0.5">
+            <span className="ml-1.5 text-xs bg-muted text-muted-foreground rounded-full px-1.5 py-0.5">
               {tab.count}
             </span>
           )}

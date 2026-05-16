@@ -2,11 +2,16 @@ import { forwardRef, type ButtonHTMLAttributes } from "react";
 import { cn } from "@/lib/cn";
 
 const variants = {
-  primary: "bg-primary-600 text-white hover:bg-primary-700 active:bg-primary-800",
-  secondary: "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 active:bg-slate-300 dark:active:bg-slate-600",
-  danger: "bg-red-600 text-white hover:bg-red-700 active:bg-red-800",
-  ghost: "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 active:bg-slate-200 dark:active:bg-slate-700",
-  outline: "border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 active:bg-slate-100 dark:active:bg-slate-700",
+  primary:
+    "bg-accent text-accent-foreground hover:bg-accent-hover active:bg-accent-active",
+  secondary:
+    "bg-muted text-foreground hover:bg-muted-strong active:bg-muted-strong",
+  danger:
+    "bg-destructive text-destructive-foreground hover:bg-destructive/90 active:bg-destructive/80",
+  ghost:
+    "text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted-strong",
+  outline:
+    "border border-border-strong text-foreground-secondary bg-card hover:bg-muted active:bg-muted-strong",
 };
 
 const sizes = {
@@ -25,7 +30,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     <button
       ref={ref}
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-500 disabled:pointer-events-none disabled:opacity-50",
+        "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+        "disabled:pointer-events-none disabled:opacity-50",
         variants[variant],
         sizes[size],
         className

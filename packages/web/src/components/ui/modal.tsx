@@ -58,12 +58,12 @@ export function Modal({
       aria-modal="true"
     >
       <div
-        className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm"
+        className="fixed inset-0 bg-overlay backdrop-blur-sm"
         onClick={onClose}
       />
       <div
         className={cn(
-          "relative w-full overflow-hidden rounded-xl bg-white dark:bg-slate-900",
+          "relative w-full overflow-hidden rounded-xl border border-border bg-popover text-foreground",
           "max-h-[85vh] flex flex-col",
           sizeClass[size],
           className
@@ -71,14 +71,17 @@ export function Modal({
         style={{ boxShadow: "var(--ds-shadow-xl)" }}
       >
         {title && (
-          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3 dark:border-slate-800">
-            <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+          <div className="flex items-center justify-between border-b border-border px-5 py-3">
+            <h2 className="text-base font-semibold text-foreground">
               {title}
             </h2>
             <button
               type="button"
               onClick={onClose}
-              className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+              className={cn(
+                "rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground",
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              )}
               aria-label="Close"
             >
               <X className="h-4 w-4" />

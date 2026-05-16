@@ -38,11 +38,11 @@ export function PageShell({
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-1">
-          <h1 className="font-display text-2xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">
+          <h1 className="font-display text-2xl font-extrabold tracking-tight text-foreground">
             {title}
           </h1>
           {subtitle && (
-            <p className="text-sm text-slate-500 dark:text-slate-400">
+            <p className="text-sm text-muted-foreground">
               {subtitle}
             </p>
           )}

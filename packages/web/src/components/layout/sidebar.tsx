@@ -49,8 +49,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   return (
     <aside
       className={cn(
-        "fixed inset-y-0 left-0 z-20 flex flex-col border-r bg-white dark:bg-slate-900",
-        "border-slate-200 dark:border-slate-800",
+        "fixed inset-y-0 left-0 z-20 flex flex-col border-r bg-card border-border",
         "transition-[width] duration-200 ease-out"
       )}
       style={{
@@ -61,7 +60,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     >
       {/* Brand */}
       <div
-        className="flex items-center gap-2 px-3 border-b border-slate-200 dark:border-slate-800"
+        className="flex items-center gap-2 px-3 border-b border-border"
         style={{ height: "var(--ds-topbar-height)" }}
       >
         <Link
@@ -75,7 +74,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             className="h-8 w-8 shrink-0 object-contain"
           />
           {!collapsed && (
-            <span className="font-display text-lg font-extrabold tracking-tight text-slate-800 dark:text-slate-100 truncate">
+            <span className="font-display text-lg font-extrabold tracking-tight text-foreground truncate">
               Homelhar
             </span>
           )}
@@ -98,10 +97,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   title={collapsed ? label : undefined}
                   className={cn(
                     "flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors",
-                    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-500",
+                    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                     isActive
-                      ? "bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
-                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                      ? "bg-accent-soft text-accent-soft-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
                 >
                   <Icon
@@ -117,9 +116,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       </nav>
 
       {/* Footer: build + collapse toggle */}
-      <div className="border-t border-slate-200 dark:border-slate-800 px-2 py-2">
+      <div className="border-t border-border px-2 py-2">
         {!collapsed && (
-          <p className="px-2 pb-2 text-[10px] leading-tight text-slate-400 dark:text-slate-500">
+          <p className="px-2 pb-2 text-[10px] leading-tight text-subtle-foreground">
             {BUILD_FOOTER_TEXT} Build : {BUILD_NUMBER}
           </p>
         )}
@@ -128,8 +127,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           onClick={onToggle}
           className={cn(
             "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium",
-            "text-slate-500 hover:bg-slate-100 hover:text-slate-700",
-            "dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            "text-muted-foreground hover:bg-muted hover:text-foreground"
           )}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >

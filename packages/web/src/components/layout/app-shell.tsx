@@ -19,7 +19,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div
-      className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100"
+      className="min-h-screen bg-background text-foreground"
       style={
         {
           // Expose the live sidebar width so fixed-overlay pages (e.g. /map)

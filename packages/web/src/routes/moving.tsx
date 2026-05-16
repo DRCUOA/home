@@ -19,6 +19,11 @@ import {
   Search,
   Navigation,
   X,
+  AlertTriangle,
+  Tag,
+  ClipboardList,
+  Boxes,
+  Sparkles,
 } from "lucide-react";
 import type {
   Move,
@@ -37,11 +42,19 @@ import {
   MOVE_STATUSES,
   MOVE_ITEM_STATUSES,
   MOVE_ITEM_CATEGORIES,
+  MOVE_ITEM_DISPOSITIONS,
+  MOVE_ITEM_DISPOSITION_LABELS,
+  MOVE_ROOM_TYPES,
+  MOVE_ROOM_TYPE_LABELS,
   MOVE_BOX_PRIORITIES,
   MOVE_CODE_TYPES,
   MOVE_LABEL_TEMPLATES,
 } from "@hcc/shared";
-import type { MoveLabelTemplate } from "@hcc/shared";
+import type {
+  MoveLabelTemplate,
+  MoveItemDisposition,
+  MoveRoomType,
+} from "@hcc/shared";
 import { PageShell } from "@/components/layout/page-shell";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -71,8 +84,67 @@ import { CameraCapture } from "@/components/features/camera-capture";
 
 type ListResponse<T> = { data: T[]; total: number };
 
-type MovingTab = "overview" | "plans" | "inventory" | "boxes" | "scan" | "labels";
-const MOVING_TABS: readonly MovingTab[] = ["overview", "plans", "inventory", "boxes", "scan", "labels"];
+/** Tab ids. Order matters — drives the visual tab order.
+ *
+ *  Legacy ids kept for deep-link backwards compat:
+ *  - `inventory` → redirected to `survey` (richer Survey/Declutter UX)
+ *  - `boxes` → redirected to `pack`
+ *  - `scan` → redirected to `pack` (scan launchpad lives there now)
+ *  - `plans` → renamed to `floor-plan`
+ *
+ *  The legacy ids stay in the union so old URLs in the wild keep
+ *  resolving via the redirect below. */
+type MovingTab =
+  | "overview"
+  | "survey"
+  | "declutter"
+  | "stage"
+  | "pack"
+  | "load"
+  | "unpack"
+  | "exceptions"
+  | "labels"
+  | "floor-plan"
+  // Legacy aliases — accepted from URL search, redirected at render time.
+  | "plans"
+  | "inventory"
+  | "boxes"
+  | "scan";
+
+const MOVING_TABS: readonly MovingTab[] = [
+  "overview",
+  "survey",
+  "declutter",
+  "stage",
+  "pack",
+  "load",
+  "unpack",
+  "exceptions",
+  "labels",
+  "floor-plan",
+  "plans",
+  "inventory",
+  "boxes",
+  "scan",
+];
+
+/** Canonicalize a possibly-legacy tab id. */
+function canonicalTab(id: MovingTab | undefined): Exclude<MovingTab, "plans" | "inventory" | "boxes" | "scan"> {
+  switch (id) {
+    case "plans":
+      return "floor-plan";
+    case "inventory":
+      return "survey";
+    case "boxes":
+      return "pack";
+    case "scan":
+      return "pack";
+    case undefined:
+      return "overview";
+    default:
+      return id;
+  }
+}
 
 type MovingSearch = {
   tab?: MovingTab;
@@ -173,10 +245,12 @@ function MovingPage() {
   const updateMove = useUpdate<Move>("moves", "/moves");
   const removeMove = useRemove("moves", "/moves");
 
-  const [tab, setTab] = useState<MovingTab>(search.tab ?? "overview");
+  const [tab, setTab] = useState<Exclude<MovingTab, "plans" | "inventory" | "boxes" | "scan">>(
+    canonicalTab(search.tab)
+  );
   // Honour URL ?tab= when it changes (deep links from /scan lookup).
   useEffect(() => {
-    if (search.tab) setTab(search.tab);
+    if (search.tab) setTab(canonicalTab(search.tab));
   }, [search.tab]);
 
   /* ---------- Loading / empty states ---------- */
@@ -234,13 +308,26 @@ function MovingPage() {
     );
   }
 
+  // Workflow tab order: Overview → discovery (Survey, Declutter, Stage)
+  // → execution (Pack, Load, Unpack) → exception triage → fixed-purpose
+  // utilities (Labels, Floor Plan). Counts surface the most actionable
+  // figure for each tab so the user can see at a glance where work is
+  // piling up.
+  const unassessedCount = items.filter((i) => i.disposition === "unassessed").length;
+  const exceptionCount = items.filter(
+    (i) => i.status === "missing" || i.status === "damaged"
+  ).length;
   const tabDefs = [
     { id: "overview", label: "Overview" },
-    { id: "plans", label: "Floor plans", count: rooms.length },
-    { id: "inventory", label: "Inventory", count: items.length },
-    { id: "boxes", label: "Boxes", count: boxes.length },
-    { id: "scan", label: "Scan" },
+    { id: "survey", label: "Survey", count: unassessedCount },
+    { id: "declutter", label: "Declutter" },
+    { id: "stage", label: "Stage" },
+    { id: "pack", label: "Pack", count: boxes.length },
+    { id: "load", label: "Load" },
+    { id: "unpack", label: "Unpack" },
+    { id: "exceptions", label: "Exceptions", count: exceptionCount },
     { id: "labels", label: "Labels" },
+    { id: "floor-plan", label: "Floor Plan", count: rooms.length },
   ];
 
   return (
@@ -293,19 +380,8 @@ function MovingPage() {
                 }}
               />
             )}
-            {tab === "plans" && (
-              <PlansTab
-                move={selectedMove}
-                rooms={rooms}
-                items={items}
-                stickers={stickers}
-                onRefreshMove={() =>
-                  qc.invalidateQueries({ queryKey: ["moves"] })
-                }
-              />
-            )}
-            {tab === "inventory" && (
-              <InventoryTab
+            {tab === "survey" && (
+              <SurveyTab
                 move={selectedMove}
                 rooms={rooms}
                 boxes={boxes}
@@ -320,8 +396,14 @@ function MovingPage() {
                 }
               />
             )}
-            {tab === "boxes" && (
-              <BoxesTab
+            {tab === "declutter" && (
+              <DeclutterTab move={selectedMove} items={items} rooms={rooms} />
+            )}
+            {tab === "stage" && (
+              <StageTab move={selectedMove} rooms={rooms} items={items} boxes={boxes} />
+            )}
+            {tab === "pack" && (
+              <PackTab
                 move={selectedMove}
                 rooms={rooms}
                 boxes={boxes}
@@ -336,11 +418,28 @@ function MovingPage() {
                 }
               />
             )}
-            {tab === "scan" && (
-              <ScanTab move={selectedMove} boxes={boxes} items={items} rooms={rooms} />
+            {tab === "load" && (
+              <LoadTab move={selectedMove} boxes={boxes} items={items} rooms={rooms} />
+            )}
+            {tab === "unpack" && (
+              <UnpackTab move={selectedMove} boxes={boxes} items={items} rooms={rooms} />
+            )}
+            {tab === "exceptions" && (
+              <ExceptionsTab move={selectedMove} items={items} boxes={boxes} rooms={rooms} />
             )}
             {tab === "labels" && (
               <LabelsTab boxes={boxes} items={items} rooms={rooms} />
+            )}
+            {tab === "floor-plan" && (
+              <PlansTab
+                move={selectedMove}
+                rooms={rooms}
+                items={items}
+                stickers={stickers}
+                onRefreshMove={() =>
+                  qc.invalidateQueries({ queryKey: ["moves"] })
+                }
+              />
             )}
           </>
         )}
@@ -510,7 +609,29 @@ function OverviewTab({
   const origin = properties.find((p) => p.id === move.origin_property_id);
   const dest = properties.find((p) => p.id === move.destination_property_id);
 
-  const packed = items.filter((i) => i.status !== "unpacked").length;
+  // Per requirement 8 — workflow dashboard metrics. A "surveyed" origin
+  // room is any origin-side room with at least one item attached to it.
+  // Item disposition counts surface what's still to deal with.
+  const originRooms = rooms.filter((r) => r.side === "origin");
+  const surveyedOriginRoomIds = new Set(
+    items.filter((i) => i.origin_room_id).map((i) => i.origin_room_id as string)
+  );
+  const roomsSurveyed = originRooms.filter((r) => surveyedOriginRoomIds.has(r.id)).length;
+
+  const unassessedItems = items.filter((i) => i.disposition === "unassessed").length;
+  const sellItems = items.filter((i) => i.disposition === "sell").length;
+  const donateItems = items.filter((i) => i.disposition === "donate").length;
+  const recycleItems = items.filter((i) => i.disposition === "recycle").length;
+  const dumpItems = items.filter((i) => i.disposition === "dump").length;
+
+  const boxesPacked = boxes.filter((b) => b.status === "packed").length;
+  const boxesStaged = boxes.filter((b) => b.status === "staged").length;
+  const boxesLoaded = boxes.filter((b) => b.status === "loaded").length;
+  const boxesDelivered = boxes.filter((b) => b.status === "delivered").length;
+  const dayOneBoxes = boxes.filter((b) => b.priority === "first_night").length;
+
+  const missingItems = items.filter((i) => i.status === "missing").length;
+  const damagedItems = items.filter((i) => i.status === "damaged").length;
 
   return (
     <div className="space-y-3">
@@ -545,10 +666,53 @@ function OverviewTab({
         </CardContent>
       </Card>
 
+      {/* Survey progress */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Survey</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-3 gap-2">
+          <StatCard
+            label="Rooms surveyed"
+            value={roomsSurveyed}
+            hint={`of ${originRooms.length}`}
+          />
+          <StatCard label="Items total" value={items.length} />
+          <StatCard label="Unassessed" value={unassessedItems} />
+        </CardContent>
+      </Card>
+
+      {/* Declutter pile */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Declutter</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-4 gap-2">
+          <StatCard label="Sell" value={sellItems} />
+          <StatCard label="Donate" value={donateItems} />
+          <StatCard label="Recycle" value={recycleItems} />
+          <StatCard label="Dump" value={dumpItems} />
+        </CardContent>
+      </Card>
+
+      {/* Box lifecycle */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Boxes</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-4 gap-2">
+          <StatCard label="Packed" value={boxesPacked} />
+          <StatCard label="Staged" value={boxesStaged} />
+          <StatCard label="Loaded" value={boxesLoaded} />
+          <StatCard label="Delivered" value={boxesDelivered} />
+        </CardContent>
+      </Card>
+
+      {/* Day-one / exceptions */}
       <div className="grid grid-cols-3 gap-2">
-        <StatCard label="Rooms" value={rooms.length} />
-        <StatCard label="Items" value={items.length} hint={`${packed} packed`} />
-        <StatCard label="Boxes" value={boxes.length} />
+        <StatCard label="Day-one" value={dayOneBoxes} hint="priority boxes" />
+        <StatCard label="Missing" value={missingItems} />
+        <StatCard label="Damaged" value={damagedItems} />
       </div>
 
       <Card>
@@ -1621,7 +1785,8 @@ function ItemModal({
   const [originRoom, setOriginRoom] = useState("");
   const [destRoom, setDestRoom] = useState("");
   const [boxId, setBoxId] = useState("");
-  const [status, setStatus] = useState<string>("unpacked");
+  const [status, setStatus] = useState<string>("surveyed");
+  const [disposition, setDisposition] = useState<MoveItemDisposition>("unassessed");
   const [category, setCategory] = useState<string>("");
   const [fragile, setFragile] = useState(false);
   const [notes, setNotes] = useState("");
@@ -1635,7 +1800,8 @@ function ItemModal({
     setOriginRoom(existing?.origin_room_id ?? "");
     setDestRoom(existing?.destination_room_id ?? "");
     setBoxId(existing?.box_id ?? "");
-    setStatus(existing?.status ?? "unpacked");
+    setStatus(existing?.status ?? "surveyed");
+    setDisposition(((existing?.disposition as MoveItemDisposition) ?? "unassessed"));
     setCategory(existing?.category ?? "");
     setFragile(existing?.fragile ?? false);
     setNotes(existing?.notes ?? "");
@@ -1656,6 +1822,7 @@ function ItemModal({
             destination_room_id: destRoom || undefined,
             box_id: boxId || undefined,
             status,
+            disposition,
             category: category || undefined,
             fragile,
             notes: notes || undefined,
@@ -1703,12 +1870,23 @@ function ItemModal({
           options={boxes.map((b) => ({ value: b.id, label: `${b.label} (${b.barcode})` }))}
           placeholder="Not in a box"
         />
-        <Select
-          label="Status"
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          options={MOVE_ITEM_STATUSES.map((s) => ({ value: s, label: capitalize(s.replace(/_/g, " ")) }))}
-        />
+        <div className="grid grid-cols-2 gap-2">
+          <Select
+            label="Status"
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            options={MOVE_ITEM_STATUSES.map((s) => ({ value: s, label: capitalize(s.replace(/_/g, " ")) }))}
+          />
+          <Select
+            label="Disposition"
+            value={disposition}
+            onChange={(e) => setDisposition(e.target.value as MoveItemDisposition)}
+            options={MOVE_ITEM_DISPOSITIONS.map((d) => ({
+              value: d,
+              label: MOVE_ITEM_DISPOSITION_LABELS[d],
+            }))}
+          />
+        </div>
         <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
           <input
             type="checkbox"
@@ -2415,6 +2593,1246 @@ function LabelsTab({
         rooms={rooms}
         template={template}
       />
+    </div>
+  );
+}
+
+/* =========================================================== */
+/*  Workflow tabs (Survey, Declutter, Stage, Pack, Load,        */
+/*  Unpack, Exceptions)                                         */
+/*                                                              */
+/*  These thin wrappers sit on top of the existing items / boxes/*/
+/*  scan-events API. They reuse ItemModal / BoxModal /          */
+/*  BulkCreateBoxesModal where useful — workflow is presentation,*/
+/*  not a parallel data model.                                  */
+/* =========================================================== */
+
+/** Shared mutation helpers used by several workflow tabs. */
+function useItemMutations(moveId: string) {
+  const qc = useQueryClient();
+  return {
+    update: useMutation({
+      mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+        fetch(`/api/v1/move-items/${id}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        }).then((r) => r.json()),
+      onSuccess: () => qc.invalidateQueries({ queryKey: ["move-items", moveId] }),
+    }),
+    create: useMutation({
+      mutationFn: (data: Record<string, unknown>) => apiPost("/move-items", data),
+      onSuccess: () => qc.invalidateQueries({ queryKey: ["move-items", moveId] }),
+    }),
+    remove: useMutation({
+      mutationFn: (id: string) =>
+        fetch(`/api/v1/move-items/${id}`, { method: "DELETE", credentials: "include" })
+          .then((r) => r.json()),
+      onSuccess: () => qc.invalidateQueries({ queryKey: ["move-items", moveId] }),
+    }),
+  };
+}
+
+function useRoomMutations(moveId: string) {
+  const qc = useQueryClient();
+  return {
+    update: useMutation({
+      mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+        fetch(`/api/v1/move-rooms/${id}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        }).then((r) => r.json()),
+      onSuccess: () => qc.invalidateQueries({ queryKey: ["move-rooms", moveId] }),
+    }),
+  };
+}
+
+function useBoxStatusTransition(moveId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status, note }: { id: string; status: string; note?: string }) =>
+      fetch(`/api/v1/move-boxes/${id}/status`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, note }),
+      }).then((r) => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["move-boxes", moveId] });
+      qc.invalidateQueries({ queryKey: ["move-items", moveId] });
+      qc.invalidateQueries({ queryKey: ["move-scan-events", moveId] });
+    },
+  });
+}
+
+function useCreateTask() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) => apiPost("/tasks", data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["tasks"] }),
+  });
+}
+
+/* ---------- Survey ---------- */
+
+/** Survey tab: walk each origin-side room, list every item attached to
+ *  it (or add new ones), set disposition + destination + photo, and
+ *  spawn a follow-up task for repair/clean/sell/donate/dump dispositions
+ *  so the user has a single place to track removal work.
+ *
+ *  Subsumes the legacy Inventory tab — that tab's deep-link param
+ *  (focusItemId) is forwarded here. */
+function SurveyTab({
+  move,
+  rooms,
+  boxes,
+  items,
+  focusItemId,
+  onFocusConsumed,
+}: {
+  move: Move;
+  rooms: MoveRoom[];
+  boxes: MoveBox[];
+  items: MoveItem[];
+  focusItemId?: string;
+  onFocusConsumed?: () => void;
+}) {
+  const itemMut = useItemMutations(move.id);
+  const createTask = useCreateTask();
+
+  const originRooms = rooms.filter((r) => r.side === "origin");
+  const destRooms = rooms.filter((r) => r.side === "destination");
+  const [activeRoomId, setActiveRoomId] = useState<string>(originRooms[0]?.id ?? "");
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<MoveItem | null>(null);
+  const [quickName, setQuickName] = useState("");
+
+  useEffect(() => {
+    if (!activeRoomId && originRooms.length > 0) setActiveRoomId(originRooms[0].id);
+  }, [originRooms, activeRoomId]);
+
+  useEffect(() => {
+    if (!focusItemId) return;
+    const target = items.find((i) => i.id === focusItemId);
+    if (!target) return;
+    setEditing(target);
+    setModalOpen(true);
+    onFocusConsumed?.();
+  }, [focusItemId, items, onFocusConsumed]);
+
+  const roomItems = activeRoomId
+    ? items.filter((i) => i.origin_room_id === activeRoomId)
+    : items.filter((i) => !i.origin_room_id);
+
+  /** Disposition → follow-up task title. Only the actionable ones
+   *  spawn a task; `keep` / `stage_only` / `unassessed` don't. */
+  const taskTitleForDisposition: Partial<Record<MoveItemDisposition, string>> = {
+    sell: "Sell:",
+    donate: "Donate:",
+    recycle: "Recycle:",
+    dump: "Dump:",
+    repair_clean_first: "Repair / clean:",
+  };
+
+  const handleSetDisposition = (item: MoveItem, disposition: MoveItemDisposition) => {
+    itemMut.update.mutate({ id: item.id, data: { disposition } });
+    const title = taskTitleForDisposition[disposition];
+    if (title) {
+      createTask.mutate({
+        title: `${title} ${item.name}`,
+        project_id: move.project_id,
+        priority: "medium",
+        kind: "task",
+      });
+    }
+  };
+
+  const handleQuickAdd = (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = quickName.trim();
+    if (!name || !activeRoomId) return;
+    itemMut.create.mutate(
+      {
+        move_id: move.id,
+        name,
+        origin_room_id: activeRoomId,
+      },
+      { onSuccess: () => setQuickName("") }
+    );
+  };
+
+  return (
+    <div className="space-y-3">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <ClipboardList className="h-4 w-4" />
+            Survey
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {originRooms.length === 0 ? (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Draw rooms on the origin floor plan first (Floor Plan tab).
+            </p>
+          ) : (
+            <Select
+              label="Origin room"
+              value={activeRoomId}
+              onChange={(e) => setActiveRoomId(e.target.value)}
+              options={originRooms.map((r) => ({
+                value: r.id,
+                label: `${r.name} (${items.filter((i) => i.origin_room_id === r.id).length})`,
+              }))}
+            />
+          )}
+          <form className="flex gap-2" onSubmit={handleQuickAdd}>
+            <Input
+              label=""
+              value={quickName}
+              onChange={(e) => setQuickName(e.target.value)}
+              placeholder="Quick add: item name"
+              className="flex-1"
+            />
+            <Button type="submit" disabled={!quickName.trim() || !activeRoomId} className="min-h-11">
+              <Plus className="h-4 w-4" />
+              Add
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      {roomItems.length === 0 ? (
+        <Card>
+          <CardContent className="py-6">
+            <EmptyState
+              icon={<Package className="h-8 w-8" />}
+              title="No items in this room yet"
+              description="Use Quick add above, or open the Add item modal for full options."
+              action={
+                <Button onClick={() => { setEditing(null); setModalOpen(true); }}>
+                  <Plus className="h-4 w-4" />
+                  Add item
+                </Button>
+              }
+            />
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {roomItems.map((item) => {
+            const destRoom = rooms.find((r) => r.id === item.destination_room_id);
+            return (
+              <Card key={item.id}>
+                <CardContent className="pt-3 pb-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium truncate">
+                      {item.name}
+                      {item.quantity > 1 && <span className="text-xs text-slate-400 ml-1">×{item.quantity}</span>}
+                    </span>
+                    <StatusBadge status={item.status} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Select
+                      label=""
+                      value={item.disposition}
+                      onChange={(e) => handleSetDisposition(item, e.target.value as MoveItemDisposition)}
+                      options={MOVE_ITEM_DISPOSITIONS.map((d) => ({
+                        value: d,
+                        label: MOVE_ITEM_DISPOSITION_LABELS[d],
+                      }))}
+                    />
+                    <Select
+                      label=""
+                      value={item.destination_room_id ?? ""}
+                      onChange={(e) =>
+                        itemMut.update.mutate({
+                          id: item.id,
+                          data: { destination_room_id: e.target.value || null },
+                        })
+                      }
+                      options={destRooms.map((r) => ({ value: r.id, label: `→ ${r.name}` }))}
+                      placeholder="Destination…"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 text-xs">
+                    {destRoom && <Badge variant="primary">→ {destRoom.name}</Badge>}
+                    {item.disposition !== "unassessed" && (
+                      <Badge variant="default">
+                        {MOVE_ITEM_DISPOSITION_LABELS[item.disposition as MoveItemDisposition]}
+                      </Badge>
+                    )}
+                    {item.fragile && <Badge variant="primary">Fragile</Badge>}
+                  </div>
+                  <div className="flex gap-1.5">
+                    <Button size="sm" variant="secondary" className="min-h-10" onClick={() => { setEditing(item); setModalOpen(true); }}>
+                      <Pencil className="h-3.5 w-3.5" />
+                      Edit
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => { if (confirm(`Delete "${item.name}"?`)) itemMut.remove.mutate(item.id); }}
+                      className="p-1.5 text-slate-400 hover:text-red-500"
+                      aria-label="Delete"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      <ItemModal
+        key={editing?.id ?? "new"}
+        open={modalOpen}
+        onClose={() => { setModalOpen(false); setEditing(null); }}
+        existing={editing}
+        rooms={rooms}
+        boxes={boxes}
+        onSubmit={(payload) => {
+          if (editing) {
+            itemMut.update.mutate({ id: editing.id, data: payload }, {
+              onSuccess: () => { setModalOpen(false); setEditing(null); },
+            });
+          } else {
+            itemMut.create.mutate({ ...payload, move_id: move.id, origin_room_id: activeRoomId || undefined }, {
+              onSuccess: () => setModalOpen(false),
+            });
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+/* ---------- Declutter ---------- */
+
+/** Group items by disposition. Each group shows the items that need
+ *  action, plus a "mark removed" button that flips the item status to
+ *  `removed` (sold/donated/recycled/dumped — terminal). */
+function DeclutterTab({
+  move,
+  items,
+  rooms,
+}: {
+  move: Move;
+  items: MoveItem[];
+  rooms: MoveRoom[];
+}) {
+  const itemMut = useItemMutations(move.id);
+
+  // Groups we want to surface here. Skip `keep`/`stage_only` — they
+  // aren't decluttering actions, they're "leave it in inventory".
+  const dispositionGroups: MoveItemDisposition[] = [
+    "unassessed",
+    "sell",
+    "donate",
+    "recycle",
+    "dump",
+    "repair_clean_first",
+  ];
+
+  return (
+    <div className="space-y-3">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Tag className="h-4 w-4" />
+            Declutter
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="text-xs text-slate-500 dark:text-slate-400">
+          Items grouped by disposition. "Mark removed" sets status to
+          <code className="mx-1">removed</code> so the item drops out of
+          the active inventory rollup while staying in the audit trail.
+        </CardContent>
+      </Card>
+
+      {dispositionGroups.map((d) => {
+        const group = items.filter(
+          (i) => i.disposition === d && i.status !== "removed"
+        );
+        if (group.length === 0) return null;
+        return (
+          <Card key={d}>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-sm">
+                {MOVE_ITEM_DISPOSITION_LABELS[d]}
+              </CardTitle>
+              <Badge variant="default">{group.length}</Badge>
+            </CardHeader>
+            <CardContent className="space-y-1.5">
+              {group.map((item) => {
+                const origin = rooms.find((r) => r.id === item.origin_room_id);
+                return (
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-2 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0"
+                  >
+                    <span className="flex-1 truncate text-sm">
+                      {item.name}
+                      {origin && <span className="text-xs text-slate-400 ml-1">({origin.name})</span>}
+                    </span>
+                    {d !== "unassessed" && d !== "repair_clean_first" && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="min-h-9"
+                        onClick={() =>
+                          itemMut.update.mutate({ id: item.id, data: { status: "removed" } })
+                        }
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                        Mark removed
+                      </Button>
+                    )}
+                    {d === "repair_clean_first" && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="min-h-9"
+                        onClick={() =>
+                          itemMut.update.mutate({ id: item.id, data: { disposition: "keep", status: "ready_to_pack" } })
+                        }
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                        Done
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        );
+      })}
+
+      {items.filter((i) => i.disposition !== "unassessed" && i.status === "removed").length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm text-slate-500">Removed</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {items.filter((i) => i.status === "removed").length} item(s) marked removed and out of inventory.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Stage ---------- */
+
+/** Manage staging/holding/vehicle/storage zones. Show every room's
+ *  room_type, with quick PATCH to change. Roll up which boxes / items
+ *  currently live in each non-normal zone (by destination_room_id). */
+function StageTab({
+  move,
+  rooms,
+  items,
+  boxes,
+}: {
+  move: Move;
+  rooms: MoveRoom[];
+  items: MoveItem[];
+  boxes: MoveBox[];
+}) {
+  const roomMut = useRoomMutations(move.id);
+  const allZones = rooms.filter((r) => r.room_type && r.room_type !== "normal_room");
+  const stagedBoxes = boxes.filter((b) => b.status === "staged");
+
+  return (
+    <div className="space-y-3">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Sparkles className="h-4 w-4" />
+            Stage
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="text-xs text-slate-500 dark:text-slate-400">
+          Tag rooms as holding / staging / vehicle / storage zones so
+          you can park packed boxes there before loading. Boxes are
+          marked <code>staged</code> via the scan-mode "Stage" action
+          or the box detail screen.
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Rooms ({rooms.length})</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-1.5">
+          {rooms.length === 0 ? (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              No rooms yet. Draw some on the Floor Plan tab.
+            </p>
+          ) : (
+            rooms.map((room) => (
+              <div key={room.id} className="flex items-center gap-2 py-1">
+                <Badge variant={room.side === "origin" ? "default" : "primary"}>
+                  {room.side === "origin" ? "◀" : "▶"} {room.name}
+                </Badge>
+                <Select
+                  label=""
+                  value={(room.room_type as MoveRoomType) ?? "normal_room"}
+                  onChange={(e) =>
+                    roomMut.update.mutate({
+                      id: room.id,
+                      data: { room_type: e.target.value as MoveRoomType },
+                    })
+                  }
+                  options={MOVE_ROOM_TYPES.map((t) => ({
+                    value: t,
+                    label: MOVE_ROOM_TYPE_LABELS[t],
+                  }))}
+                  className="ml-auto"
+                />
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      {allZones.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Zones</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {allZones.map((zone) => {
+              const zoneBoxes = boxes.filter((b) => b.destination_room_id === zone.id);
+              const zoneItems = items.filter((i) => i.destination_room_id === zone.id);
+              return (
+                <div
+                  key={zone.id}
+                  className="rounded-md border border-slate-200 dark:border-slate-700 px-2 py-1.5 text-xs"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">{zone.name}</span>
+                    <Badge variant="default">
+                      {MOVE_ROOM_TYPE_LABELS[zone.room_type as MoveRoomType]}
+                    </Badge>
+                  </div>
+                  <p className="text-slate-500 dark:text-slate-400 mt-1">
+                    {zoneBoxes.length} box(es), {zoneItems.length} item(s) routed here.
+                  </p>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-sm">Boxes currently staged</CardTitle>
+          <Badge variant="default">{stagedBoxes.length}</Badge>
+        </CardHeader>
+        <CardContent>
+          {stagedBoxes.length === 0 ? (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              No staged boxes yet. From the Pack tab, mark a packed box
+              as staged once it's parked in a holding zone.
+            </p>
+          ) : (
+            <div className="space-y-1">
+              {stagedBoxes.map((b) => (
+                <div key={b.id} className="flex items-center gap-2 text-xs">
+                  <code className="font-mono bg-slate-100 dark:bg-slate-800 rounded px-1.5">{b.barcode}</code>
+                  <span className="truncate flex-1">{b.label}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/* ---------- Pack ---------- */
+
+/** Pack tab: the box-management hub. Bulk-create, edit, status
+ *  transitions (pack / stage / seal), scan-into-box, jump to label
+ *  print, launch full-screen scanner pre-loaded with `pack` action.
+ *  Replaces the old Boxes tab. */
+function PackTab({
+  move,
+  rooms,
+  boxes,
+  items,
+  focusBoxId,
+  onFocusConsumed,
+}: {
+  move: Move;
+  rooms: MoveRoom[];
+  boxes: MoveBox[];
+  items: MoveItem[];
+  focusBoxId?: string;
+  onFocusConsumed?: () => void;
+}) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const transition = useBoxStatusTransition(move.id);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<MoveBox | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scanInBoxId, setScanInBoxId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!focusBoxId) return;
+    const target = boxes.find((b) => b.id === focusBoxId);
+    if (!target) return;
+    setEditing(target);
+    setModalOpen(true);
+    onFocusConsumed?.();
+  }, [focusBoxId, boxes, onFocusConsumed]);
+
+  const createBox = useMutation({
+    mutationFn: (data: Record<string, unknown>) => apiPost("/move-boxes", data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["move-boxes", move.id] }),
+  });
+  const bulkCreate = useMutation({
+    mutationFn: (data: { count: number; code_type: string; label_prefix: string }) =>
+      apiPost(`/moves/${move.id}/boxes/bulk-create`, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["move-boxes", move.id] }),
+  });
+  const updateBox = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      fetch(`/api/v1/move-boxes/${id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }).then((r) => r.json()),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["move-boxes", move.id] }),
+  });
+  const deleteBox = useMutation({
+    mutationFn: (id: string) =>
+      fetch(`/api/v1/move-boxes/${id}`, { method: "DELETE", credentials: "include" }).then((r) => r.json()),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["move-boxes", move.id] }),
+  });
+
+  const assignItemToBox = useMutation({
+    mutationFn: ({ itemId, boxId }: { itemId: string; boxId: string }) =>
+      fetch(`/api/v1/move-items/${itemId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ box_id: boxId, status: "packed" }),
+      }).then((r) => r.json()),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["move-items", move.id] }),
+  });
+
+  const itemCountByBox = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const item of items) {
+      if (item.box_id) map.set(item.box_id, (map.get(item.box_id) ?? 0) + 1);
+    }
+    return map;
+  }, [items]);
+
+  const handleScanIntoBox = (code: string) => {
+    setScannerOpen(false);
+    if (!scanInBoxId) return;
+    const item = items.find((i) => i.barcode === code);
+    if (item) assignItemToBox.mutate({ itemId: item.id, boxId: scanInBoxId });
+  };
+
+  // Bulk-create boxes per destination room — quick shortcut for users
+  // who want one prepacked stack per room.
+  const destRooms = rooms.filter((r) => r.side === "destination");
+
+  return (
+    <div className="space-y-3">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Boxes className="h-4 w-4" />
+            Pack
+          </CardTitle>
+          <div className="flex gap-2">
+            <Button size="md" variant="secondary" className="min-h-11" onClick={() => setBulkOpen(true)}>
+              <Package className="h-4 w-4" />
+              Bulk create
+            </Button>
+            <Button size="md" className="min-h-11" onClick={() => { setEditing(null); setModalOpen(true); }}>
+              <Plus className="h-4 w-4" />
+              New box
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              className="flex-1 min-h-11"
+              onClick={() => navigate({ to: "/scan", search: { move: move.id, action: "pack" } })}
+            >
+              <ScanLine className="h-4 w-4" />
+              Scan to pack
+            </Button>
+            <Button
+              variant="secondary"
+              className="flex-1 min-h-11"
+              onClick={() => navigate({ to: "/moving", search: (prev) => ({ ...prev, tab: "labels" }), replace: false })}
+            >
+              <Printer className="h-4 w-4" />
+              Print labels
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {boxes.length === 0 ? (
+        <Card>
+          <CardContent className="py-8">
+            <EmptyState
+              icon={<Package className="h-9 w-9" />}
+              title="No boxes yet"
+              description="Bulk-create a stack of pre-labelled boxes, or add one at a time as you pack."
+              action={
+                <Button onClick={() => setBulkOpen(true)}>
+                  <Plus className="h-4 w-4" />
+                  Bulk create
+                </Button>
+              }
+            />
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {boxes.map((box) => {
+            const room = rooms.find((r) => r.id === box.destination_room_id);
+            const count = itemCountByBox.get(box.id) ?? 0;
+            return (
+              <Card key={box.id}>
+                <CardContent className="pt-3 pb-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-slate-900 dark:text-slate-100">{box.label}</span>
+                    <StatusBadge status={box.status} />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                    <code className="font-mono text-slate-500 bg-slate-100 dark:bg-slate-800 rounded px-2 py-0.5">{box.barcode}</code>
+                    {room && <Badge variant="primary">→ {room.name}</Badge>}
+                    <Badge variant="default">{count} items</Badge>
+                    {box.fragile && <Badge variant="primary">Fragile</Badge>}
+                    {box.priority && box.priority !== "normal" && (
+                      <Badge variant="default">{capitalize(box.priority.replace(/_/g, " "))}</Badge>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Button size="sm" variant="secondary" className="min-h-9" onClick={() => { setEditing(box); setModalOpen(true); }}>
+                      <Pencil className="h-3.5 w-3.5" />
+                      Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="min-h-9"
+                      onClick={() => { setScanInBoxId(box.id); setScannerOpen(true); }}
+                    >
+                      <ScanLine className="h-3.5 w-3.5" />
+                      Scan item in
+                    </Button>
+                    {box.status === "preparing" && (
+                      <Button
+                        size="sm"
+                        className="min-h-9"
+                        onClick={() => transition.mutate({ id: box.id, status: "packed" })}
+                      >
+                        Seal box
+                      </Button>
+                    )}
+                    {box.status === "packed" && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="min-h-9"
+                        onClick={() => transition.mutate({ id: box.id, status: "staged" })}
+                      >
+                        Mark staged
+                      </Button>
+                    )}
+                    <Select
+                      label=""
+                      value={box.priority}
+                      onChange={(e) => updateBox.mutate({ id: box.id, data: { priority: e.target.value } })}
+                      options={MOVE_BOX_PRIORITIES.map((p) => ({
+                        value: p,
+                        label: capitalize(p.replace(/_/g, " ")),
+                      }))}
+                      className="ml-auto min-w-32"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => { if (confirm(`Delete box "${box.label}"?`)) deleteBox.mutate(box.id); }}
+                      className="p-1.5 text-slate-400 hover:text-red-500"
+                      aria-label="Delete"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      <BoxModal
+        key={editing?.id ?? "new"}
+        open={modalOpen}
+        onClose={() => { setModalOpen(false); setEditing(null); }}
+        existing={editing}
+        rooms={rooms}
+        moveId={move.id}
+        existingBarcodes={boxes.map((b) => b.barcode)}
+        onSubmit={(payload) => {
+          if (editing) {
+            updateBox.mutate({ id: editing.id, data: payload }, {
+              onSuccess: () => { setModalOpen(false); setEditing(null); },
+            });
+          } else {
+            createBox.mutate({ ...payload, move_id: move.id }, {
+              onSuccess: () => setModalOpen(false),
+            });
+          }
+        }}
+      />
+
+      <BulkCreateBoxesModal
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        existingCount={boxes.length}
+        pending={bulkCreate.isPending}
+        onSubmit={(payload) => bulkCreate.mutate(payload, { onSuccess: () => setBulkOpen(false) })}
+      />
+
+      <BarcodeScanner
+        open={scannerOpen}
+        onClose={() => { setScannerOpen(false); setScanInBoxId(null); }}
+        onScan={handleScanIntoBox}
+        title="Scan item to add to box"
+      />
+
+      {destRooms.length > 0 && (
+        <p className="text-[10px] text-slate-400 px-1">
+          Tip: bulk-create can be filtered later by destination room
+          ({destRooms.length} room{destRooms.length === 1 ? "" : "s"} mapped).
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Load ---------- */
+
+/** Load tab: focus on boxes that should go on the truck. Shows
+ *  packed-or-staged → loaded transitions and a quick launchpad for
+ *  scan-to-load. */
+function LoadTab({
+  move,
+  boxes,
+  items,
+  rooms,
+}: {
+  move: Move;
+  boxes: MoveBox[];
+  items: MoveItem[];
+  rooms: MoveRoom[];
+}) {
+  const navigate = useNavigate();
+  const transition = useBoxStatusTransition(move.id);
+
+  const ready = boxes.filter((b) => b.status === "packed" || b.status === "staged");
+  const loaded = boxes.filter((b) => b.status === "loaded");
+  const dayOne = boxes.filter((b) => b.priority === "first_night" && b.status !== "unpacked");
+
+  return (
+    <div className="space-y-3">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Truck className="h-4 w-4" />
+            Load
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Button
+            className="w-full min-h-12"
+            onClick={() => navigate({ to: "/scan", search: { move: move.id, action: "load" } })}
+          >
+            <ScanLine className="h-4 w-4" />
+            Scan to load
+          </Button>
+          <div className="grid grid-cols-3 gap-2">
+            <StatCard label="Ready" value={ready.length} />
+            <StatCard label="Loaded" value={loaded.length} />
+            <StatCard label="Day-one" value={dayOne.length} />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-sm">Ready to load</CardTitle>
+          <Badge variant="default">{ready.length}</Badge>
+        </CardHeader>
+        <CardContent className="space-y-1.5">
+          {ready.length === 0 ? (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Nothing's queued — packed boxes show up here.
+            </p>
+          ) : (
+            ready.map((box) => {
+              const room = rooms.find((r) => r.id === box.destination_room_id);
+              return (
+                <div
+                  key={box.id}
+                  className="flex items-center gap-2 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0"
+                >
+                  <code className="text-xs font-mono bg-slate-100 dark:bg-slate-800 rounded px-1.5">{box.barcode}</code>
+                  <span className="flex-1 truncate text-sm">{box.label}</span>
+                  {room && <Badge variant="default">→ {room.name}</Badge>}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="min-h-9"
+                    onClick={() => transition.mutate({ id: box.id, status: "loaded" })}
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    Loaded
+                  </Button>
+                </div>
+              );
+            })
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/* ---------- Unpack ---------- */
+
+/** Unpack tab: post-arrival workflow. Shows delivered boxes ready to
+ *  unpack and a roll-up of installed items. */
+function UnpackTab({
+  move,
+  boxes,
+  items,
+  rooms,
+}: {
+  move: Move;
+  boxes: MoveBox[];
+  items: MoveItem[];
+  rooms: MoveRoom[];
+}) {
+  const navigate = useNavigate();
+  const transition = useBoxStatusTransition(move.id);
+  const itemMut = useItemMutations(move.id);
+
+  const delivered = boxes.filter((b) => b.status === "delivered");
+  const unpacked = boxes.filter((b) => b.status === "unpacked");
+  const itemsDelivered = items.filter((i) => i.status === "delivered");
+  const itemsUnpacked = items.filter((i) => i.status === "unpacked");
+  const itemsInstalled = items.filter((i) => i.status === "installed");
+
+  return (
+    <div className="space-y-3">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <PackageOpen className="h-4 w-4" />
+            Unpack
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Button
+            className="w-full min-h-12"
+            onClick={() => navigate({ to: "/scan", search: { move: move.id, action: "unpack" } })}
+          >
+            <ScanLine className="h-4 w-4" />
+            Scan to unpack
+          </Button>
+          <div className="grid grid-cols-3 gap-2">
+            <StatCard label="Delivered" value={delivered.length} />
+            <StatCard label="Unpacked" value={unpacked.length} />
+            <StatCard label="Installed" value={itemsInstalled.length} hint="items" />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-sm">Delivered boxes</CardTitle>
+          <Badge variant="default">{delivered.length}</Badge>
+        </CardHeader>
+        <CardContent className="space-y-1.5">
+          {delivered.length === 0 ? (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Nothing delivered yet.
+            </p>
+          ) : (
+            delivered.map((box) => {
+              const room = rooms.find((r) => r.id === box.destination_room_id);
+              return (
+                <div
+                  key={box.id}
+                  className="flex items-center gap-2 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0"
+                >
+                  <code className="text-xs font-mono bg-slate-100 dark:bg-slate-800 rounded px-1.5">{box.barcode}</code>
+                  <span className="flex-1 truncate text-sm">{box.label}</span>
+                  {room && <Badge variant="primary">→ {room.name}</Badge>}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="min-h-9"
+                    onClick={() => transition.mutate({ id: box.id, status: "unpacked" })}
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    Unpacked
+                  </Button>
+                </div>
+              );
+            })
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-sm">Items to install</CardTitle>
+          <Badge variant="default">{itemsDelivered.length + itemsUnpacked.length}</Badge>
+        </CardHeader>
+        <CardContent className="space-y-1.5">
+          {itemsDelivered.length + itemsUnpacked.length === 0 ? (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              No items pending install.
+            </p>
+          ) : (
+            [...itemsDelivered, ...itemsUnpacked].slice(0, 50).map((item) => (
+              <div
+                key={item.id}
+                className="flex items-center gap-2 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0"
+              >
+                <span className="flex-1 truncate text-sm">{item.name}</span>
+                <StatusBadge status={item.status} />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="min-h-9"
+                  onClick={() => itemMut.update.mutate({ id: item.id, data: { status: "installed" } })}
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  Installed
+                </Button>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/* ---------- Exceptions ---------- */
+
+/** Exception triage: anything that's out of the happy path.
+ *  - Packed but not loaded after the move date
+ *  - Loaded but not delivered
+ *  - Delivered but not unpacked
+ *  - Items flagged missing / damaged
+ *  - Scan-event audit for unknown / wrong-room scans
+ */
+function ExceptionsTab({
+  move,
+  items,
+  boxes,
+  rooms,
+}: {
+  move: Move;
+  items: MoveItem[];
+  boxes: MoveBox[];
+  rooms: MoveRoom[];
+}) {
+  const itemMut = useItemMutations(move.id);
+
+  // Audit log read — we only need this tab to surface unknown/duplicate
+  // scans, which are typically a small fraction of all scans.
+  const { data: logResp } = useQuery({
+    queryKey: ["move-scan-events", move.id],
+    queryFn: () =>
+      apiGet<ListResponse<MoveScanEvent>>(`/moves/${move.id}/scan-events`),
+    enabled: !!move.id,
+  });
+  const log = logResp?.data ?? [];
+
+  const packedNotLoaded = boxes.filter((b) => b.status === "packed" || b.status === "staged");
+  const loadedNotDelivered = boxes.filter((b) => b.status === "loaded");
+  const deliveredNotUnpacked = boxes.filter((b) => b.status === "delivered");
+  const missing = items.filter((i) => i.status === "missing");
+  const damaged = items.filter((i) => i.status === "damaged");
+
+  // "Unknown scan" — code that couldn't be resolved to a box / item.
+  const unknownScans = log.filter((ev) => ev.target_id == null);
+  // "Duplicate" — same code scanned with same action within 60s.
+  const duplicateScans: MoveScanEvent[] = [];
+  const recentByKey = new Map<string, number>();
+  for (const ev of log) {
+    const key = `${ev.code}|${ev.action}`;
+    const at = new Date(ev.scanned_at).getTime();
+    const prev = recentByKey.get(key);
+    if (prev && Math.abs(at - prev) < 60_000) duplicateScans.push(ev);
+    recentByKey.set(key, at);
+  }
+  // "Wrong room" — delivered scan for a box whose box.destination_room_id
+  // points at a room on the opposite side from where the user expected.
+  // Quick heuristic: deliver_to_room / arrive scan whose target box has
+  // no destination_room_id, so we couldn't have routed correctly.
+  const wrongRoom = log.filter((ev) => {
+    if (ev.target_kind !== "box") return false;
+    if (ev.action !== "deliver_to_room" && ev.action !== "arrive") return false;
+    const box = boxes.find((b) => b.id === ev.target_id);
+    return box && !box.destination_room_id;
+  });
+
+  return (
+    <div className="space-y-3">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            Exceptions
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-3 gap-2">
+          <StatCard label="Packed not loaded" value={packedNotLoaded.length} />
+          <StatCard label="Loaded not delivered" value={loadedNotDelivered.length} />
+          <StatCard label="Delivered not unpacked" value={deliveredNotUnpacked.length} />
+          <StatCard label="Missing" value={missing.length} />
+          <StatCard label="Damaged" value={damaged.length} />
+          <StatCard label="Unknown scans" value={unknownScans.length} />
+        </CardContent>
+      </Card>
+
+      {missing.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm text-red-600">Missing items</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1.5">
+            {missing.map((item) => (
+              <div key={item.id} className="flex items-center gap-2 py-1.5">
+                <span className="flex-1 truncate text-sm">{item.name}</span>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="min-h-9"
+                  onClick={() => itemMut.update.mutate({ id: item.id, data: { status: "delivered" } })}
+                >
+                  Found
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {damaged.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm text-amber-600">Damaged items</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1.5">
+            {damaged.map((item) => (
+              <div key={item.id} className="flex items-center gap-2 py-1.5">
+                <span className="flex-1 truncate text-sm">{item.name}</span>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="min-h-9"
+                  onClick={() => itemMut.update.mutate({ id: item.id, data: { status: "delivered" } })}
+                >
+                  Resolved
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {unknownScans.length > 0 && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-sm">Unknown scans</CardTitle>
+            <Badge variant="default">{unknownScans.length}</Badge>
+          </CardHeader>
+          <CardContent className="space-y-1 max-h-48 overflow-y-auto">
+            {unknownScans.slice(0, 50).map((ev) => (
+              <div key={ev.id} className="flex items-center gap-2 text-xs py-1">
+                <Badge variant="default">{capitalize(ev.action)}</Badge>
+                <code className="font-mono">{ev.code}</code>
+                <span className="ml-auto text-slate-400">
+                  {new Date(ev.scanned_at).toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {duplicateScans.length > 0 && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-sm">Duplicate scans</CardTitle>
+            <Badge variant="default">{duplicateScans.length}</Badge>
+          </CardHeader>
+          <CardContent className="space-y-1 max-h-48 overflow-y-auto">
+            {duplicateScans.slice(0, 50).map((ev) => (
+              <div key={ev.id} className="flex items-center gap-2 text-xs py-1">
+                <Badge variant="default">{capitalize(ev.action)}</Badge>
+                <code className="font-mono">{ev.code}</code>
+                <span className="ml-auto text-slate-400">
+                  {new Date(ev.scanned_at).toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {wrongRoom.length > 0 && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-sm">Wrong-room scans</CardTitle>
+            <Badge variant="default">{wrongRoom.length}</Badge>
+          </CardHeader>
+          <CardContent className="space-y-1 max-h-48 overflow-y-auto">
+            {wrongRoom.slice(0, 50).map((ev) => {
+              const box = boxes.find((b) => b.id === ev.target_id);
+              return (
+                <div key={ev.id} className="flex items-center gap-2 text-xs py-1">
+                  <Badge variant="default">{capitalize(ev.action)}</Badge>
+                  <span className="truncate">{box?.label ?? `Box ${ev.code}`}</span>
+                  <span className="ml-auto text-slate-400">no destination room</span>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

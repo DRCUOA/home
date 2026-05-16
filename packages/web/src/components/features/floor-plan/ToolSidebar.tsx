@@ -78,6 +78,18 @@ const STICKER_CATEGORIES: { id: string; label: string; kinds: MoveStickerKind[] 
     kinds: ["bbq", "pool", "hot_tub", "trampoline", "shed", "firepit", "car"],
   },
   {
+    // Stairs included here so it's reachable without advanced mode (the
+    // "structural" group above is hidden behind advanced).
+    id: "outdoor_structures",
+    label: "Outdoor structures",
+    kinds: ["stairs", "outdoor_deck", "fence", "outdoor_gate"],
+  },
+  {
+    id: "connectors",
+    label: "Connectors & nooks",
+    kinds: ["hallway", "nook", "alcove", "foyer", "landing", "vestibule"],
+  },
+  {
     id: "utility",
     label: "HVAC & Utilities",
     kinds: ["radiator", "water_heater", "ceiling_fan", "air_conditioner"],

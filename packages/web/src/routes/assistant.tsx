@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Loader2,
@@ -25,14 +25,28 @@ import {
   Download,
   Files,
   FileText,
+  ListChecks,
+  ListPlus,
+  CalendarPlus,
 } from "lucide-react";
-import type { AgentRun, Project, Property, AssistantTool, ContextMessage } from "@hcc/shared";
+import type {
+  AgentRun,
+  Project,
+  Property,
+  AssistantTool,
+  ContextMessage,
+  ProposedAction,
+  TaskKind,
+  TaskPriority,
+} from "@hcc/shared";
 import {
   AGENT_WORKFLOW_TYPES,
   OPENAI_MODELS,
   OPENAI_MODEL_LABELS,
   ASSISTANT_TOOLS,
   ASSISTANT_TOOL_LABELS,
+  TASK_KINDS,
+  TASK_PRIORITIES,
 } from "@hcc/shared";
 import { PageShell } from "@/components/layout/page-shell";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -74,6 +88,23 @@ const WORKFLOW_LABELS: Record<string, string> = {
   project_state_summary: "Project state summary",
   semantic_search: "Semantic search",
   qa: "Q&A",
+  propose_actions: "Propose actions",
+};
+
+const PROPOSE_ACTIONS_SLASH = "/propose-actions";
+const TRACKING_MODE_STORAGE_KEY = "assistant.trackingMode";
+const APPROVED_PROPOSALS_STORAGE_KEY = "assistant.approvedProposals";
+
+const PRIORITY_LABELS: Record<TaskPriority, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  urgent: "Urgent",
+};
+
+const KIND_LABELS: Record<TaskKind, string> = {
+  task: "Task",
+  event: "Event",
 };
 
 const workflowOptions = AGENT_WORKFLOW_TYPES.map((t) => ({
@@ -130,11 +161,64 @@ function AssistantPage() {
   const clearRunSelection = () => setSelectedRunIds(new Set());
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [actionFeedback, setActionFeedback] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [actionFeedback, setActionFeedback] = useState<{
+    message: string;
+    type: "success" | "error";
+    href?: string;
+    hrefLabel?: string;
+  } | null>(null);
 
-  const showFeedback = (message: string, type: "success" | "error" = "success") => {
-    setActionFeedback({ message, type });
-    setTimeout(() => setActionFeedback(null), 3000);
+  const [trackingMode, setTrackingMode] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(TRACKING_MODE_STORAGE_KEY) === "1";
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(TRACKING_MODE_STORAGE_KEY, trackingMode ? "1" : "0");
+  }, [trackingMode]);
+
+  const [approvedRunIds, setApprovedRunIds] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const raw = window.localStorage.getItem(APPROVED_PROPOSALS_STORAGE_KEY);
+      const arr = raw ? (JSON.parse(raw) as string[]) : [];
+      return new Set(arr);
+    } catch {
+      return new Set();
+    }
+  });
+
+  const markRunApproved = (runId: string) => {
+    setApprovedRunIds((prev) => {
+      const next = new Set(prev);
+      next.add(runId);
+      if (typeof window !== "undefined") {
+        try {
+          window.localStorage.setItem(
+            APPROVED_PROPOSALS_STORAGE_KEY,
+            JSON.stringify([...next])
+          );
+        } catch {
+          // ignore quota errors
+        }
+      }
+      return next;
+    });
+  };
+
+  const showFeedback = (
+    message: string,
+    type: "success" | "error" = "success",
+    opts?: { href?: string; hrefLabel?: string; durationMs?: number }
+  ) => {
+    setActionFeedback({
+      message,
+      type,
+      href: opts?.href,
+      hrefLabel: opts?.hrefLabel,
+    });
+    setTimeout(() => setActionFeedback(null), opts?.durationMs ?? 3000);
   };
 
   const handleEdit = (runId: string) => {
@@ -191,6 +275,48 @@ function AssistantPage() {
     },
     onError: () => {
       showFeedback("Failed to save to Library", "error");
+    },
+  });
+
+  const approveActionsMutation = useMutation({
+    mutationFn: async (params: {
+      runId: string;
+      projectId: string;
+      actions: Array<{
+        title: string;
+        description?: string;
+        kind: TaskKind;
+        priority: TaskPriority;
+        due_date?: string | null;
+      }>;
+    }) => {
+      const results = await Promise.all(
+        params.actions.map((a) =>
+          apiPost<{ data: any }>("/tasks", {
+            title: a.title,
+            description: a.description || undefined,
+            kind: a.kind,
+            priority: a.priority,
+            status: "todo",
+            project_id: params.projectId,
+            due_date: a.due_date || undefined,
+          })
+        )
+      );
+      return { runId: params.runId, count: results.length };
+    },
+    onSuccess: ({ runId, count }) => {
+      markRunApproved(runId);
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["calendar"] });
+      showFeedback(
+        `Added ${count} ${count === 1 ? "action" : "actions"} to tracking`,
+        "success",
+        { href: "/calendar", hrefLabel: "View calendar", durationMs: 5000 }
+      );
+    },
+    onError: () => {
+      showFeedback("Failed to add actions to tracking", "error");
     },
   });
 
@@ -336,15 +462,28 @@ function AssistantPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() && !attachedImage) return;
+
+    const raw = inputText.trim();
+    const slashMatch = raw.match(/^\/propose-actions\b\s*(.*)$/is);
+    const slashTriggered = slashMatch !== null;
+    const cleanedInput = slashTriggered ? (slashMatch![1]?.trim() ?? "") : raw;
+
+    const useProposeActions = slashTriggered || trackingMode;
+    const effectiveWorkflow = useProposeActions ? "propose_actions" : workflowType;
+    const finalInput =
+      cleanedInput || (attachedImage ? "Analyse this image" : "");
+
+    if (!finalInput) return;
+
     submitRun.mutate({
-      workflow_type: workflowType,
-      input: inputText.trim() || (attachedImage ? "Analyse this image" : ""),
+      workflow_type: effectiveWorkflow,
+      input: finalInput,
       model: selectedModel,
       tools: enabledTools,
       context_messages: buildContextMessages(),
       project_id: scopeProjectId || undefined,
       property_id: scopePropertyId || undefined,
-      imageFile: attachedImage,
+      imageFile: useProposeActions ? null : attachedImage,
     });
   };
 
@@ -398,6 +537,16 @@ function AssistantPage() {
                     onSaveSelected={() => handleSaveSelected(run.id)}
                     isSavingAll={saveMutation.isPending && saveMutation.variables === run.id}
                     isSavingSelected={saveSelectedMutation.isPending}
+                    projects={projects}
+                    isApproved={approvedRunIds.has(run.id)}
+                    onApproveActions={(projectId, actions) =>
+                      approveActionsMutation.mutate({ runId: run.id, projectId, actions })
+                    }
+                    isApproving={
+                      approveActionsMutation.isPending &&
+                      approveActionsMutation.variables?.runId === run.id
+                    }
+                    onDismissActions={() => markRunApproved(run.id)}
                   />
                 );
               });
@@ -453,6 +602,20 @@ function AssistantPage() {
             )}
 
             <div className="h-4 w-px bg-slate-200 dark:bg-slate-700 mx-0.5" />
+
+            <button
+              type="button"
+              onClick={() => setTrackingMode((v) => !v)}
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                trackingMode
+                  ? "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 ring-1 ring-amber-300 dark:ring-amber-700"
+                  : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-300"
+              }`}
+              title="When on, the assistant proposes tasks/events for your approval and lets you add them to tracking. You can also type /propose-actions to use it just once."
+            >
+              <ListChecks className="h-3.5 w-3.5" />
+              Add Actions to Tracking
+            </button>
 
             {ASSISTANT_TOOLS.map((tool) => {
               const ToolIcon = TOOL_ICONS[tool] ?? Globe;
@@ -539,13 +702,21 @@ function AssistantPage() {
 
       {actionFeedback && (
         <div
-          className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-50 rounded-lg px-4 py-2.5 text-sm font-medium shadow-lg transition-all ${
+          className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-50 inline-flex items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium shadow-lg transition-all ${
             actionFeedback.type === "success"
               ? "bg-emerald-600 text-white"
               : "bg-red-600 text-white"
           }`}
         >
-          {actionFeedback.message}
+          <span>{actionFeedback.message}</span>
+          {actionFeedback.href && (
+            <Link
+              to={actionFeedback.href}
+              className="underline underline-offset-2 hover:no-underline text-white/95"
+            >
+              {actionFeedback.hrefLabel ?? "View"}
+            </Link>
+          )}
         </div>
       )}
 
@@ -660,6 +831,11 @@ function RunMessage({
   onSaveSelected,
   isSavingAll,
   isSavingSelected,
+  projects,
+  isApproved,
+  onApproveActions,
+  isApproving,
+  onDismissActions,
 }: {
   run: AgentRun;
   isSelected: boolean;
@@ -671,6 +847,20 @@ function RunMessage({
   onSaveSelected: () => void;
   isSavingAll: boolean;
   isSavingSelected: boolean;
+  projects: Project[];
+  isApproved: boolean;
+  onApproveActions: (
+    projectId: string,
+    actions: Array<{
+      title: string;
+      description?: string;
+      kind: TaskKind;
+      priority: TaskPriority;
+      due_date?: string | null;
+    }>
+  ) => void;
+  isApproving: boolean;
+  onDismissActions: () => void;
 }) {
   const cfg = STATUS_CONFIG[run.status] ?? STATUS_CONFIG.pending;
   const StatusIcon = cfg.icon;
@@ -760,6 +950,20 @@ function RunMessage({
             <p className="text-slate-400 dark:text-slate-500 italic">No output yet.</p>
           )}
 
+          {isCompleted &&
+            run.workflow_type === "propose_actions" &&
+            run.output_summary && (
+              <ProposedActionsCard
+                rawOutput={run.output_summary}
+                projects={projects}
+                defaultProjectId={run.project_id ?? ""}
+                isApproved={isApproved}
+                isApproving={isApproving}
+                onApprove={onApproveActions}
+                onDismiss={onDismissActions}
+              />
+            )}
+
           <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">
             {formatDate(run.completed_at ?? run.created_at)}
           </p>
@@ -775,6 +979,261 @@ function RunMessage({
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+type EditableAction = ProposedAction & { selected: boolean };
+
+function ProposedActionsCard({
+  rawOutput,
+  projects,
+  defaultProjectId,
+  isApproved,
+  isApproving,
+  onApprove,
+  onDismiss,
+}: {
+  rawOutput: string;
+  projects: Project[];
+  defaultProjectId: string;
+  isApproved: boolean;
+  isApproving: boolean;
+  onApprove: (
+    projectId: string,
+    actions: Array<{
+      title: string;
+      description?: string;
+      kind: TaskKind;
+      priority: TaskPriority;
+      due_date?: string | null;
+    }>
+  ) => void;
+  onDismiss: () => void;
+}) {
+  const initialActions = useMemo<EditableAction[]>(() => {
+    try {
+      const parsed = JSON.parse(rawOutput);
+      const list: any[] = Array.isArray(parsed?.proposed_actions)
+        ? parsed.proposed_actions
+        : [];
+      return list
+        .map((a) => ({
+          title: typeof a?.title === "string" ? a.title : "",
+          description: typeof a?.description === "string" ? a.description : "",
+          kind: (TASK_KINDS.includes(a?.kind) ? a.kind : "task") as TaskKind,
+          priority: (TASK_PRIORITIES.includes(a?.priority)
+            ? a.priority
+            : "medium") as TaskPriority,
+          suggested_date:
+            typeof a?.suggested_date === "string" &&
+            /^\d{4}-\d{2}-\d{2}$/.test(a.suggested_date)
+              ? a.suggested_date
+              : null,
+          selected: true,
+        }))
+        .filter((a) => a.title.trim().length > 0);
+    } catch {
+      return [];
+    }
+  }, [rawOutput]);
+
+  const [actions, setActions] = useState<EditableAction[]>(initialActions);
+  const [projectId, setProjectId] = useState<string>(defaultProjectId);
+
+  useEffect(() => {
+    setActions(initialActions);
+  }, [initialActions]);
+
+  useEffect(() => {
+    setProjectId(defaultProjectId);
+  }, [defaultProjectId]);
+
+  if (actions.length === 0) return null;
+
+  const selectedCount = actions.filter((a) => a.selected).length;
+  const requiresProject = projects.length > 0 && projectId === "";
+  const canApprove = selectedCount > 0 && !requiresProject && !isApproved;
+
+  const updateAction = (idx: number, patch: Partial<EditableAction>) => {
+    setActions((prev) => prev.map((a, i) => (i === idx ? { ...a, ...patch } : a)));
+  };
+
+  const handleApprove = () => {
+    const selected = actions
+      .filter((a) => a.selected && a.title.trim().length > 0)
+      .map((a) => ({
+        title: a.title.trim(),
+        description: a.description?.trim() || undefined,
+        kind: a.kind,
+        priority: a.priority,
+        due_date: a.suggested_date,
+      }));
+    if (selected.length === 0) return;
+    onApprove(projectId, selected);
+  };
+
+  if (isApproved) {
+    return (
+      <div className="mt-3 rounded-xl border border-emerald-200 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 px-3 py-2.5 text-sm text-emerald-900 dark:text-emerald-200 flex items-center gap-2">
+        <CheckCircle2 className="h-4 w-4 shrink-0" />
+        <span>Added to your tracking.</span>
+        <Link
+          to="/calendar"
+          className="ml-auto underline underline-offset-2 hover:no-underline text-emerald-800 dark:text-emerald-100 text-xs"
+        >
+          View calendar
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-xl border border-amber-200 dark:border-amber-700 bg-amber-50/60 dark:bg-amber-900/20 p-3 space-y-3">
+      <div className="flex items-start gap-2">
+        <ListPlus className="h-4 w-4 text-amber-700 dark:text-amber-300 mt-0.5 shrink-0" />
+        <div className="flex-1">
+          <p className="text-xs font-semibold text-amber-800 dark:text-amber-200">
+            Proposed actions — review before adding to tracking
+          </p>
+          <p className="text-[11px] text-amber-700/80 dark:text-amber-300/80">
+            Tick the ones you want, tweak titles or dates, then approve.
+          </p>
+        </div>
+      </div>
+
+      {projects.length > 0 ? (
+        <div>
+          <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+            Add to project <span className="text-red-600">*</span>
+          </label>
+          <select
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+            className={`w-full rounded-md border px-2 py-1.5 text-xs bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 ${
+              requiresProject
+                ? "border-red-400 dark:border-red-600"
+                : "border-slate-200 dark:border-slate-700"
+            }`}
+          >
+            <option value="">— Select a project —</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <p className="text-[11px] text-amber-700 dark:text-amber-300">
+          You need at least one project before actions can be added.
+        </p>
+      )}
+
+      <ul className="space-y-2">
+        {actions.map((a, idx) => (
+          <li
+            key={idx}
+            className={`rounded-lg border bg-white dark:bg-slate-900 p-2 ${
+              a.selected
+                ? "border-slate-200 dark:border-slate-700"
+                : "border-dashed border-slate-200 dark:border-slate-800 opacity-60"
+            }`}
+          >
+            <div className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                checked={a.selected}
+                onChange={(e) => updateAction(idx, { selected: e.target.checked })}
+                className="mt-1.5 h-4 w-4 shrink-0 accent-amber-600"
+              />
+              <div className="flex-1 space-y-1.5">
+                <input
+                  type="text"
+                  value={a.title}
+                  onChange={(e) => updateAction(idx, { title: e.target.value })}
+                  className="w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-sm font-medium text-slate-900 dark:text-slate-100"
+                  placeholder="Action title"
+                />
+                {a.description && (
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                    {a.description}
+                  </p>
+                )}
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                  <label className="inline-flex items-center gap-1 text-slate-500 dark:text-slate-400">
+                    <CalendarPlus className="h-3 w-3" />
+                    <input
+                      type="date"
+                      value={a.suggested_date ?? ""}
+                      onChange={(e) =>
+                        updateAction(idx, {
+                          suggested_date: e.target.value || null,
+                        })
+                      }
+                      className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-1.5 py-0.5 text-[11px] text-slate-700 dark:text-slate-200"
+                    />
+                  </label>
+                  <select
+                    value={a.kind}
+                    onChange={(e) =>
+                      updateAction(idx, { kind: e.target.value as TaskKind })
+                    }
+                    className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-1.5 py-0.5 text-[11px] text-slate-700 dark:text-slate-200"
+                  >
+                    {TASK_KINDS.map((k) => (
+                      <option key={k} value={k}>
+                        {KIND_LABELS[k]}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={a.priority}
+                    onChange={(e) =>
+                      updateAction(idx, {
+                        priority: e.target.value as TaskPriority,
+                      })
+                    }
+                    className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-1.5 py-0.5 text-[11px] text-slate-700 dark:text-slate-200"
+                  >
+                    {TASK_PRIORITIES.map((p) => (
+                      <option key={p} value={p}>
+                        {PRIORITY_LABELS[p]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <button
+          type="button"
+          onClick={onDismiss}
+          disabled={isApproving}
+          className="rounded-md px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50"
+        >
+          Discard
+        </button>
+        <button
+          type="button"
+          onClick={handleApprove}
+          disabled={!canApprove || isApproving}
+          className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 hover:bg-amber-700 disabled:bg-amber-600/60 disabled:cursor-not-allowed text-white px-3 py-1.5 text-xs font-semibold"
+        >
+          {isApproving ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <CalendarPlus className="h-3.5 w-3.5" />
+          )}
+          {isApproving
+            ? "Adding…"
+            : `Approve & add ${selectedCount} to tracking`}
+        </button>
       </div>
     </div>
   );

@@ -2,6 +2,18 @@
 
 This is an internal catch-up changelog. Entries are inferred and grouped for practicality, not exact historical sequencing.
 
+## Build 0.14.0
+
+- Collapsed the visible moving workflow into five tabs — Dashboard, Survey, Move, Problems, Tools — and moved context sensitivity into code via a central workflow engine ([packages/web/src/lib/move-workflow.ts](packages/web/src/lib/move-workflow.ts)). The data model from 0.13.0 (disposition, lifecycle, room_type, scan events, cascading) is unchanged.
+- Added a universal Scan button to the Moving page header. Every scan now resolves the code, asks the workflow engine for the recommended next action, and offers it as a big primary button in a generic [ScanActionSheet](packages/web/src/components/features/scan-action-sheet.tsx). Secondary actions are tucked behind a "More actions" expander.
+- Unknown scans offer "Add as new box", "Add as new item", or "Ignore" — with the scanned barcode pre-filled into the new-record modal.
+- Survey is now quick-add first: pick a room, type names, press Enter. Disposition is a chip row on each card; the destination room only appears when needed.
+- Move is a single operational hub that adapts to the current move phase (Packing → Loading → Delivering → Unpacking). Per-box "Act" button drives the workflow-engine recommended action without making the user pick a scan mode.
+- Problems hides itself when there's nothing to triage and surfaces missing / damaged / unknown / duplicate / no-destination cases when there is.
+- Tools houses Floor plan, Rooms & zones (room_type editor), Print labels, and Bulk create — out of the way of daily workflow.
+- Legacy deep links (`?tab=inventory|boxes|scan|plans|stage|pack|load|unpack|exceptions|labels|floor-plan|declutter|overview`) all still resolve via `canonicalTab()` so old URLs keep working.
+- `/scan` full-screen route, label rendering, floor-plan rendering, and scan-event audit behaviour all unchanged.
+
 ## Build 0.13.0
 
 - Added a workflow layer to the existing moving subsystem for a real sell/buy home move: item dispositions (keep / sell / donate / recycle / dump / stage_only / repair_clean_first), expanded item status vocabulary (surveyed → packed → staged → loaded → delivered → unpacked → installed, plus removed / missing / damaged), and room types (normal_room / holding_zone / staging_area / vehicle_zone / storage_zone).

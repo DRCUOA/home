@@ -20,10 +20,7 @@ import {
   Navigation,
   X,
   AlertTriangle,
-  Tag,
   ClipboardList,
-  Boxes,
-  Sparkles,
 } from "lucide-react";
 import type {
   Move,
@@ -33,7 +30,6 @@ import type {
   MoveScanEvent,
   MoveSticker,
   MoveStickerKind,
-  MoveScanAction,
   Project,
   Property,
   FileRecord,
@@ -81,22 +77,38 @@ import { FloorPlanEditor } from "@/components/features/floor-plan-editor";
 import { BarcodeScanner } from "@/components/features/barcode-scanner";
 import { LabelSheet } from "@/components/features/label-sheet";
 import { CameraCapture } from "@/components/features/camera-capture";
+import { ScanActionSheet } from "@/components/features/scan-action-sheet";
+import {
+  getMovePhase,
+  getNextActionPrompts,
+  PHASE_LABELS,
+  type ResolvedTarget,
+  type WorkflowContext,
+  type WorkflowPhase,
+} from "@/lib/move-workflow";
+import { useWorkflowDispatch } from "@/hooks/use-workflow-dispatch";
 
 type ListResponse<T> = { data: T[]; total: number };
 
 /** Tab ids. Order matters — drives the visual tab order.
  *
- *  Legacy ids kept for deep-link backwards compat:
- *  - `inventory` → redirected to `survey` (richer Survey/Declutter UX)
- *  - `boxes` → redirected to `pack`
- *  - `scan` → redirected to `pack` (scan launchpad lives there now)
- *  - `plans` → renamed to `floor-plan`
+ *  Five-tab workflow:
+ *  - Dashboard: progress + next-action prompts
+ *  - Survey: room-by-room item capture with disposition chips
+ *  - Move: unified pack/stage/load/unpack operational view
+ *  - Problems: triage panel (only shown when not empty)
+ *  - Tools: floor plan, labels, room/zone setup, bulk box, settings
  *
- *  The legacy ids stay in the union so old URLs in the wild keep
- *  resolving via the redirect below. */
-type MovingTab =
-  | "overview"
+ *  Legacy ids accepted from URL search and redirected via
+ *  `canonicalTab()` so older deep links keep working. */
+export type MovingTab =
+  | "dashboard"
   | "survey"
+  | "move"
+  | "problems"
+  | "tools"
+  // Legacy aliases — accepted from URL search, redirected at render time.
+  | "overview"
   | "declutter"
   | "stage"
   | "pack"
@@ -105,15 +117,18 @@ type MovingTab =
   | "exceptions"
   | "labels"
   | "floor-plan"
-  // Legacy aliases — accepted from URL search, redirected at render time.
   | "plans"
   | "inventory"
   | "boxes"
   | "scan";
 
 const MOVING_TABS: readonly MovingTab[] = [
-  "overview",
+  "dashboard",
   "survey",
+  "move",
+  "problems",
+  "tools",
+  "overview",
   "declutter",
   "stage",
   "pack",
@@ -128,21 +143,38 @@ const MOVING_TABS: readonly MovingTab[] = [
   "scan",
 ];
 
+export type CanonicalTab = "dashboard" | "survey" | "move" | "problems" | "tools";
+
 /** Canonicalize a possibly-legacy tab id. */
-function canonicalTab(id: MovingTab | undefined): Exclude<MovingTab, "plans" | "inventory" | "boxes" | "scan"> {
+function canonicalTab(id: MovingTab | undefined): CanonicalTab {
   switch (id) {
-    case "plans":
-      return "floor-plan";
+    case "dashboard":
+    case "survey":
+    case "move":
+    case "problems":
+    case "tools":
+      return id;
+    case "overview":
+      return "dashboard";
+    case "declutter":
     case "inventory":
       return "survey";
+    case "stage":
+    case "pack":
+    case "load":
+    case "unpack":
     case "boxes":
-      return "pack";
     case "scan":
-      return "pack";
+      return "move";
+    case "exceptions":
+      return "problems";
+    case "labels":
+    case "floor-plan":
+    case "plans":
+      return "tools";
     case undefined:
-      return "overview";
     default:
-      return id;
+      return "dashboard";
   }
 }
 
@@ -245,13 +277,27 @@ function MovingPage() {
   const updateMove = useUpdate<Move>("moves", "/moves");
   const removeMove = useRemove("moves", "/moves");
 
-  const [tab, setTab] = useState<Exclude<MovingTab, "plans" | "inventory" | "boxes" | "scan">>(
-    canonicalTab(search.tab)
-  );
+  const [tab, setTab] = useState<CanonicalTab>(canonicalTab(search.tab));
   // Honour URL ?tab= when it changes (deep links from /scan lookup).
   useEffect(() => {
     if (search.tab) setTab(canonicalTab(search.tab));
   }, [search.tab]);
+
+  // Universal scan state — opens the camera scanner, resolves the code,
+  // then routes the resolved target through the generic ScanActionSheet.
+  const [universalScannerOpen, setUniversalScannerOpen] = useState(false);
+  const [scanTarget, setScanTarget] = useState<ResolvedTarget | null>(null);
+
+  // Shared cross-tab modal state (item/box edit, view-contents, "add
+  // new" prefill from an unknown scan). Lifted here so any tab — or
+  // the universal Scan action sheet — can open them.
+  const [itemEdit, setItemEdit] = useState<MoveItem | null>(null);
+  const [itemEditOpen, setItemEditOpen] = useState(false);
+  const [itemPrefillBarcode, setItemPrefillBarcode] = useState<string | null>(null);
+  const [boxEdit, setBoxEdit] = useState<MoveBox | null>(null);
+  const [boxEditOpen, setBoxEditOpen] = useState(false);
+  const [boxPrefillBarcode, setBoxPrefillBarcode] = useState<string | null>(null);
+  const [viewBoxContents, setViewBoxContents] = useState<MoveBox | null>(null);
 
   /* ---------- Loading / empty states ---------- */
   if (projectsQuery.isLoading || movesQuery.isLoading) {
@@ -308,32 +354,110 @@ function MovingPage() {
     );
   }
 
-  // Workflow tab order: Overview → discovery (Survey, Declutter, Stage)
-  // → execution (Pack, Load, Unpack) → exception triage → fixed-purpose
-  // utilities (Labels, Floor Plan). Counts surface the most actionable
-  // figure for each tab so the user can see at a glance where work is
-  // piling up.
-  const unassessedCount = items.filter((i) => i.disposition === "unassessed").length;
-  const exceptionCount = items.filter(
+  // Workflow phase + context: derived once and shared with the workflow
+  // engine + Dashboard + universal-scan flow. Phase is the dominant
+  // bucket of outstanding work — it drives the dashboard "Current
+  // focus" card and breaks ties when an action could mean multiple
+  // things (e.g. on a packed box during the load phase, prefer Load
+  // over Move-to-staging).
+  const phase: WorkflowPhase = getMovePhase(boxes, items);
+  const workflowContext: WorkflowContext = {
+    move: selectedMove ?? ({} as Move),
+    rooms,
+    items,
+    boxes,
+    phase,
+  };
+
+  // Only show Problems when there's actually something to triage — the
+  // tab quietly disappears when the move is healthy.
+  const problemCount = items.filter(
     (i) => i.status === "missing" || i.status === "damaged"
   ).length;
+
   const tabDefs = [
-    { id: "overview", label: "Overview" },
-    { id: "survey", label: "Survey", count: unassessedCount },
-    { id: "declutter", label: "Declutter" },
-    { id: "stage", label: "Stage" },
-    { id: "pack", label: "Pack", count: boxes.length },
-    { id: "load", label: "Load" },
-    { id: "unpack", label: "Unpack" },
-    { id: "exceptions", label: "Exceptions", count: exceptionCount },
-    { id: "labels", label: "Labels" },
-    { id: "floor-plan", label: "Floor Plan", count: rooms.length },
+    { id: "dashboard", label: "Dashboard" },
+    { id: "survey", label: "Survey" },
+    { id: "move", label: "Move" },
+    ...(problemCount > 0
+      ? [{ id: "problems", label: "Problems", count: problemCount }]
+      : []),
+    { id: "tools", label: "Tools" },
   ];
+
+  // Workflow dispatch — bound to the selected move + project. Wired
+  // to the modal-state setters so action handlers can route UI intents
+  // (edit, view contents) without each tab knowing about modals.
+  const dispatchProjectId = selectedMove?.project_id ?? "";
+  const workflowDispatch = useWorkflowDispatch(
+    selectedMoveId ?? "",
+    dispatchProjectId,
+    {
+      onOpenItemModal: (item) => {
+        setItemEdit(item);
+        setItemPrefillBarcode(null);
+        setItemEditOpen(true);
+      },
+      onOpenBoxModal: (box) => {
+        setBoxEdit(box);
+        setBoxPrefillBarcode(null);
+        setBoxEditOpen(true);
+      },
+      onViewBoxContents: (box) => setViewBoxContents(box),
+      onViewItemBox: (item) => {
+        const box = boxes.find((b) => b.id === item.box_id);
+        if (box) setViewBoxContents(box);
+      },
+      onChooseDisposition: (item) => {
+        // Open the item edit modal pre-populated; disposition is one
+        // of the inline fields. Cheaper than a dedicated picker.
+        setItemEdit(item);
+        setItemEditOpen(true);
+      },
+      onChooseDestinationRoom: (item) => {
+        setItemEdit(item);
+        setItemEditOpen(true);
+      },
+      onChooseBox: (item) => {
+        setItemEdit(item);
+        setItemEditOpen(true);
+      },
+      onChooseBoxDestinationRoom: (box) => {
+        setBoxEdit(box);
+        setBoxEditOpen(true);
+      },
+      onAddNewBox: (code) => {
+        setBoxEdit(null);
+        setBoxPrefillBarcode(code);
+        setBoxEditOpen(true);
+      },
+      onAddNewItem: (code) => {
+        setItemEdit(null);
+        setItemPrefillBarcode(code);
+        setItemEditOpen(true);
+      },
+      onPrintLabel: () => {
+        setTab("tools");
+      },
+      onViewScanHistory: () => {
+        setTab("problems");
+      },
+    }
+  );
+
+  // Resolve a scanned code to a known box / item, or "unknown".
+  const resolveScannedCode = (code: string): ResolvedTarget => {
+    const box = boxes.find((b) => b.barcode === code);
+    if (box) return { kind: "box", record: box };
+    const item = items.find((i) => i.barcode === code);
+    if (item) return { kind: "item", record: item };
+    return { kind: "unknown", code };
+  };
 
   return (
     <PageShell title="Moving">
       <div className="space-y-4 pb-4">
-        {/* Move switcher + quick actions */}
+        {/* Move switcher + universal Scan */}
         <div className="flex gap-2 items-center">
           <Select
             label=""
@@ -344,6 +468,17 @@ function MovingPage() {
               label: moveLabel(m, projects, properties),
             }))}
           />
+          <Button
+            size="md"
+            variant="primary"
+            className="min-h-11"
+            onClick={() => setUniversalScannerOpen(true)}
+            disabled={!selectedMoveId}
+            title="Scan a box or item"
+          >
+            <ScanLine className="h-4 w-4" />
+            Scan
+          </Button>
           <CreateMoveButton
             projects={projects}
             properties={properties}
@@ -356,18 +491,20 @@ function MovingPage() {
           />
         </div>
 
-        <Tabs tabs={tabDefs} active={tab} onChange={(t) => setTab(t as any)} />
+        <Tabs tabs={tabDefs} active={tab} onChange={(t) => setTab(t as CanonicalTab)} />
 
         {selectedMove && (
           <>
-            {tab === "overview" && (
-              <OverviewTab
+            {tab === "dashboard" && (
+              <DashboardTab
                 move={selectedMove}
                 projects={projects}
                 properties={properties}
                 rooms={rooms}
                 items={items}
                 boxes={boxes}
+                phase={phase}
+                onJumpTab={setTab}
                 onUpdate={(data) =>
                   updateMove.mutate({ id: selectedMove.id, data })
                 }
@@ -384,7 +521,6 @@ function MovingPage() {
               <SurveyTab
                 move={selectedMove}
                 rooms={rooms}
-                boxes={boxes}
                 items={items}
                 focusItemId={search.focusItemId}
                 onFocusConsumed={() =>
@@ -394,20 +530,19 @@ function MovingPage() {
                     replace: true,
                   })
                 }
+                onOpenItemEdit={(item) => {
+                  setItemEdit(item);
+                  setItemEditOpen(true);
+                }}
               />
             )}
-            {tab === "declutter" && (
-              <DeclutterTab move={selectedMove} items={items} rooms={rooms} />
-            )}
-            {tab === "stage" && (
-              <StageTab move={selectedMove} rooms={rooms} items={items} boxes={boxes} />
-            )}
-            {tab === "pack" && (
-              <PackTab
+            {tab === "move" && (
+              <MoveTab
                 move={selectedMove}
                 rooms={rooms}
-                boxes={boxes}
                 items={items}
+                boxes={boxes}
+                phase={phase}
                 focusBoxId={search.focusBoxId}
                 onFocusConsumed={() =>
                   navigate({
@@ -416,25 +551,43 @@ function MovingPage() {
                     replace: true,
                   })
                 }
+                onScanResolve={(code) => {
+                  const target = resolveScannedCode(code);
+                  setScanTarget(target);
+                }}
+                onOpenBoxEdit={(box) => {
+                  setBoxEdit(box);
+                  setBoxEditOpen(true);
+                }}
+                onCreateBox={() => {
+                  setBoxEdit(null);
+                  setBoxPrefillBarcode(null);
+                  setBoxEditOpen(true);
+                }}
               />
             )}
-            {tab === "load" && (
-              <LoadTab move={selectedMove} boxes={boxes} items={items} rooms={rooms} />
-            )}
-            {tab === "unpack" && (
-              <UnpackTab move={selectedMove} boxes={boxes} items={items} rooms={rooms} />
-            )}
-            {tab === "exceptions" && (
-              <ExceptionsTab move={selectedMove} items={items} boxes={boxes} rooms={rooms} />
-            )}
-            {tab === "labels" && (
-              <LabelsTab boxes={boxes} items={items} rooms={rooms} />
-            )}
-            {tab === "floor-plan" && (
-              <PlansTab
+            {tab === "problems" && (
+              <ProblemsTab
                 move={selectedMove}
                 rooms={rooms}
                 items={items}
+                boxes={boxes}
+                onOpenItemEdit={(item) => {
+                  setItemEdit(item);
+                  setItemEditOpen(true);
+                }}
+                onOpenBoxEdit={(box) => {
+                  setBoxEdit(box);
+                  setBoxEditOpen(true);
+                }}
+              />
+            )}
+            {tab === "tools" && (
+              <ToolsTab
+                move={selectedMove}
+                rooms={rooms}
+                items={items}
+                boxes={boxes}
                 stickers={stickers}
                 onRefreshMove={() =>
                   qc.invalidateQueries({ queryKey: ["moves"] })
@@ -442,6 +595,134 @@ function MovingPage() {
               />
             )}
           </>
+        )}
+
+        {/* Universal scan: opens the camera, resolves the scanned code,
+            then renders the generic ScanActionSheet with the workflow-
+            engine-derived primary + secondary actions. */}
+        <BarcodeScanner
+          open={universalScannerOpen}
+          onClose={() => setUniversalScannerOpen(false)}
+          onScan={(code) => {
+            setUniversalScannerOpen(false);
+            const target = resolveScannedCode(code);
+            setScanTarget(target);
+          }}
+          title="Scan a box or item"
+        />
+        <ScanActionSheet
+          open={scanTarget !== null}
+          target={scanTarget}
+          context={workflowContext}
+          onDispatch={async (action, target) => {
+            await workflowDispatch.dispatch(action, target);
+          }}
+          onClose={() => setScanTarget(null)}
+        />
+
+        {/* Shared edit modals — lifted to MovingPage so any tab + the
+            universal scan flow can open them. */}
+        {selectedMove && (
+          <ItemModal
+            key={itemEdit?.id ?? `new-${itemPrefillBarcode ?? ""}`}
+            open={itemEditOpen}
+            onClose={() => {
+              setItemEditOpen(false);
+              setItemEdit(null);
+              setItemPrefillBarcode(null);
+            }}
+            existing={
+              itemEdit ??
+              (itemPrefillBarcode
+                ? ({ barcode: itemPrefillBarcode } as MoveItem)
+                : null)
+            }
+            rooms={rooms}
+            boxes={boxes}
+            onSubmit={(payload) => {
+              if (itemEdit) {
+                fetch(`/api/v1/move-items/${itemEdit.id}`, {
+                  method: "PATCH",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(payload),
+                }).then(() => {
+                  qc.invalidateQueries({ queryKey: ["move-items", selectedMove.id] });
+                  setItemEditOpen(false);
+                  setItemEdit(null);
+                });
+              } else {
+                apiPost("/move-items", {
+                  ...payload,
+                  move_id: selectedMove.id,
+                }).then(() => {
+                  qc.invalidateQueries({ queryKey: ["move-items", selectedMove.id] });
+                  setItemEditOpen(false);
+                  setItemPrefillBarcode(null);
+                });
+              }
+            }}
+          />
+        )}
+
+        {selectedMove && (
+          <BoxModal
+            key={boxEdit?.id ?? `new-${boxPrefillBarcode ?? ""}`}
+            open={boxEditOpen}
+            onClose={() => {
+              setBoxEditOpen(false);
+              setBoxEdit(null);
+              setBoxPrefillBarcode(null);
+            }}
+            existing={
+              boxEdit ??
+              (boxPrefillBarcode
+                ? ({ barcode: boxPrefillBarcode } as MoveBox)
+                : null)
+            }
+            rooms={rooms}
+            moveId={selectedMove.id}
+            existingBarcodes={boxes.map((b) => b.barcode)}
+            onSubmit={(payload) => {
+              if (boxEdit) {
+                fetch(`/api/v1/move-boxes/${boxEdit.id}`, {
+                  method: "PATCH",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(payload),
+                }).then(() => {
+                  qc.invalidateQueries({ queryKey: ["move-boxes", selectedMove.id] });
+                  setBoxEditOpen(false);
+                  setBoxEdit(null);
+                });
+              } else {
+                apiPost("/move-boxes", {
+                  ...payload,
+                  move_id: selectedMove.id,
+                }).then(() => {
+                  qc.invalidateQueries({ queryKey: ["move-boxes", selectedMove.id] });
+                  setBoxEditOpen(false);
+                  setBoxPrefillBarcode(null);
+                });
+              }
+            }}
+          />
+        )}
+
+        {/* View-contents drawer — opened from the workflow engine via
+            View contents / View box actions. Read-only quick view; the
+            user can deep-edit by tapping the box. */}
+        {viewBoxContents && (
+          <ViewBoxContentsModal
+            box={viewBoxContents}
+            items={items.filter((i) => i.box_id === viewBoxContents.id)}
+            onClose={() => setViewBoxContents(null)}
+            onEditBox={() => {
+              setBoxEdit(viewBoxContents);
+              setViewBoxContents(null);
+              setBoxEditOpen(true);
+            }}
+          />
         )}
       </div>
     </PageShell>
@@ -582,175 +863,6 @@ function CreateMoveModal({
   );
 }
 
-/* =========================================================== */
-/*  Overview                                                    */
-/* =========================================================== */
-
-function OverviewTab({
-  move,
-  projects,
-  properties,
-  rooms,
-  items,
-  boxes,
-  onUpdate,
-  onDelete,
-}: {
-  move: Move;
-  projects: Project[];
-  properties: Property[];
-  rooms: MoveRoom[];
-  items: MoveItem[];
-  boxes: MoveBox[];
-  onUpdate: (data: Record<string, unknown>) => void;
-  onDelete: () => void;
-}) {
-  const project = projects.find((p) => p.id === move.project_id);
-  const origin = properties.find((p) => p.id === move.origin_property_id);
-  const dest = properties.find((p) => p.id === move.destination_property_id);
-
-  // Per requirement 8 — workflow dashboard metrics. A "surveyed" origin
-  // room is any origin-side room with at least one item attached to it.
-  // Item disposition counts surface what's still to deal with.
-  const originRooms = rooms.filter((r) => r.side === "origin");
-  const surveyedOriginRoomIds = new Set(
-    items.filter((i) => i.origin_room_id).map((i) => i.origin_room_id as string)
-  );
-  const roomsSurveyed = originRooms.filter((r) => surveyedOriginRoomIds.has(r.id)).length;
-
-  const unassessedItems = items.filter((i) => i.disposition === "unassessed").length;
-  const sellItems = items.filter((i) => i.disposition === "sell").length;
-  const donateItems = items.filter((i) => i.disposition === "donate").length;
-  const recycleItems = items.filter((i) => i.disposition === "recycle").length;
-  const dumpItems = items.filter((i) => i.disposition === "dump").length;
-
-  const boxesPacked = boxes.filter((b) => b.status === "packed").length;
-  const boxesStaged = boxes.filter((b) => b.status === "staged").length;
-  const boxesLoaded = boxes.filter((b) => b.status === "loaded").length;
-  const boxesDelivered = boxes.filter((b) => b.status === "delivered").length;
-  const dayOneBoxes = boxes.filter((b) => b.priority === "first_night").length;
-
-  const missingItems = items.filter((i) => i.status === "missing").length;
-  const damagedItems = items.filter((i) => i.status === "damaged").length;
-
-  return (
-    <div className="space-y-3">
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base">Move details</CardTitle>
-          <StatusBadge status={move.status} />
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <Row label="Project">{project?.name ?? "—"}</Row>
-          <Row label="From">
-            {origin ? (
-              <span className="flex items-center gap-1 min-w-0">
-                <Home className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                <span className="truncate">{origin.address}</span>
-              </span>
-            ) : (
-              "—"
-            )}
-          </Row>
-          <Row label="To">
-            {dest ? (
-              <span className="flex items-center gap-1 min-w-0">
-                <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                <span className="truncate">{dest.address}</span>
-              </span>
-            ) : (
-              "—"
-            )}
-          </Row>
-          <Row label="Move date">{move.move_date || "Not set"}</Row>
-        </CardContent>
-      </Card>
-
-      {/* Survey progress */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Survey</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-3 gap-2">
-          <StatCard
-            label="Rooms surveyed"
-            value={roomsSurveyed}
-            hint={`of ${originRooms.length}`}
-          />
-          <StatCard label="Items total" value={items.length} />
-          <StatCard label="Unassessed" value={unassessedItems} />
-        </CardContent>
-      </Card>
-
-      {/* Declutter pile */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Declutter</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-4 gap-2">
-          <StatCard label="Sell" value={sellItems} />
-          <StatCard label="Donate" value={donateItems} />
-          <StatCard label="Recycle" value={recycleItems} />
-          <StatCard label="Dump" value={dumpItems} />
-        </CardContent>
-      </Card>
-
-      {/* Box lifecycle */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Boxes</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-4 gap-2">
-          <StatCard label="Packed" value={boxesPacked} />
-          <StatCard label="Staged" value={boxesStaged} />
-          <StatCard label="Loaded" value={boxesLoaded} />
-          <StatCard label="Delivered" value={boxesDelivered} />
-        </CardContent>
-      </Card>
-
-      {/* Day-one / exceptions */}
-      <div className="grid grid-cols-3 gap-2">
-        <StatCard label="Day-one" value={dayOneBoxes} hint="priority boxes" />
-        <StatCard label="Missing" value={missingItems} />
-        <StatCard label="Damaged" value={damagedItems} />
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Status</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Select
-            label="Move status"
-            value={move.status}
-            onChange={(e) => onUpdate({ status: e.target.value })}
-            options={MOVE_STATUSES.map((s) => ({
-              value: s,
-              label: capitalize(s.replace(/_/g, " ")),
-            }))}
-          />
-          <Input
-            type="date"
-            label="Move date"
-            value={move.move_date ?? ""}
-            onChange={(e) => onUpdate({ move_date: e.target.value })}
-          />
-          <Textarea
-            label="Notes"
-            value={move.notes ?? ""}
-            onChange={(e) => onUpdate({ notes: e.target.value })}
-            rows={3}
-          />
-        </CardContent>
-      </Card>
-
-      <Button variant="danger" className="w-full min-h-12" onClick={onDelete}>
-        <Trash2 className="h-4 w-4" />
-        Delete move
-      </Button>
-    </div>
-  );
-}
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -1520,251 +1632,6 @@ function UploadFloorPlanModal({
   );
 }
 
-/* =========================================================== */
-/*  Inventory                                                   */
-/* =========================================================== */
-
-function InventoryTab({
-  move,
-  rooms,
-  boxes,
-  items,
-  focusItemId,
-  onFocusConsumed,
-}: {
-  move: Move;
-  rooms: MoveRoom[];
-  boxes: MoveBox[];
-  items: MoveItem[];
-  /** Deep-link target: open the ItemModal for this id on mount. */
-  focusItemId?: string;
-  /** Called once the deep-link target has been opened, so the parent
-   *  can drop the search param from the URL. */
-  onFocusConsumed?: () => void;
-}) {
-  const qc = useQueryClient();
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<MoveItem | null>(null);
-  const [filterRoom, setFilterRoom] = useState("");
-  const [filterStatus, setFilterStatus] = useState("");
-  const [filterBoxId, setFilterBoxId] = useState<string | null>(null);
-  const [scannerOpen, setScannerOpen] = useState(false);
-  const [scanMessage, setScanMessage] = useState<string | null>(null);
-
-  // Deep-link: if /moving?focusItemId= matches an item once data loads,
-  // open its modal exactly once. Re-entries with the same id (e.g. user
-  // closes + reopens the tab) won't re-fire because the parent clears
-  // the search param via onFocusConsumed.
-  useEffect(() => {
-    if (!focusItemId) return;
-    const target = items.find((i) => i.id === focusItemId);
-    if (!target) return;
-    setEditing(target);
-    setModalOpen(true);
-    onFocusConsumed?.();
-  }, [focusItemId, items, onFocusConsumed]);
-
-  const createItem = useMutation({
-    mutationFn: (data: Record<string, unknown>) => apiPost("/move-items", data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["move-items", move.id] }),
-  });
-  const updateItem = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
-      fetch(`/api/v1/move-items/${id}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      }).then((r) => r.json()),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["move-items", move.id] }),
-  });
-  const deleteItem = useMutation({
-    mutationFn: (id: string) =>
-      fetch(`/api/v1/move-items/${id}`, { method: "DELETE", credentials: "include" }).then((r) => r.json()),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["move-items", move.id] }),
-  });
-
-  const filtered = useMemo(() => {
-    let list = [...items];
-    if (filterRoom) {
-      list = list.filter(
-        (i) => i.origin_room_id === filterRoom || i.destination_room_id === filterRoom
-      );
-    }
-    if (filterStatus) list = list.filter((i) => i.status === filterStatus);
-    if (filterBoxId) list = list.filter((i) => i.box_id === filterBoxId);
-    return list;
-  }, [items, filterRoom, filterStatus, filterBoxId]);
-
-  // Scan lookup: items first (per-item barcodes are rare but specific),
-  // then boxes (filter inventory to the box's contents — the natural
-  // "what's in this box?" gesture). Unknown codes get a flash message.
-  const handleScan = (code: string) => {
-    setScannerOpen(false);
-    const item = items.find((i) => i.barcode === code);
-    if (item) {
-      setScanMessage(`✓ ${item.name}`);
-      setEditing(item);
-      setTimeout(() => setModalOpen(true), 50);
-      return;
-    }
-    const box = boxes.find((b) => b.barcode === code);
-    if (box) {
-      const n = items.filter((i) => i.box_id === box.id).length;
-      setFilterBoxId(box.id);
-      setScanMessage(`Box ${box.label} → showing ${n} item${n === 1 ? "" : "s"}`);
-      return;
-    }
-    setScanMessage(`No item or box matches "${code}".`);
-  };
-
-  const filterBox = filterBoxId ? boxes.find((b) => b.id === filterBoxId) : null;
-
-  return (
-    <div className="space-y-3">
-      <div className="flex justify-between items-center gap-2">
-        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Inventory</h2>
-        <div className="flex gap-2">
-          <Button size="md" variant="secondary" className="min-h-11" onClick={() => setScannerOpen(true)}>
-            <ScanLine className="h-4 w-4" />
-            Scan
-          </Button>
-          <Button size="md" className="min-h-11" onClick={() => { setEditing(null); setModalOpen(true); }}>
-            <Plus className="h-4 w-4" />
-            Add item
-          </Button>
-        </div>
-      </div>
-
-      {scanMessage && (
-        <div className="flex items-center justify-between gap-2 text-xs px-3 py-2 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-          <span className="truncate">{scanMessage}</span>
-          {(filterBox || scanMessage) && (
-            <button
-              type="button"
-              onClick={() => { setFilterBoxId(null); setScanMessage(null); }}
-              className="text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 shrink-0"
-              aria-label="Clear"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 gap-2">
-        <Select
-          label="Room"
-          value={filterRoom}
-          onChange={(e) => setFilterRoom(e.target.value)}
-          options={rooms.map((r) => ({ value: r.id, label: `${r.side === "origin" ? "◀" : "▶"} ${r.name}` }))}
-          placeholder="All rooms"
-        />
-        <Select
-          label="Status"
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-          options={MOVE_ITEM_STATUSES.map((s) => ({
-            value: s,
-            label: capitalize(s.replace(/_/g, " ")),
-          }))}
-          placeholder="All statuses"
-        />
-      </div>
-
-      {filtered.length === 0 ? (
-        <Card>
-          <CardContent className="py-8">
-            <EmptyState
-              icon={<Package className="h-9 w-9" />}
-              title="No items yet"
-              description="Add items from rooms, then drag them across floor plans to assign destinations."
-            />
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-2">
-          {filtered.map((item) => (
-            <Card key={item.id}>
-              <CardContent className="pt-3 pb-3 space-y-1">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Package className="h-4 w-4 text-slate-400 shrink-0" />
-                    <span className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
-                      {item.name}
-                      {item.quantity > 1 && <span className="text-xs text-slate-400 ml-1">×{item.quantity}</span>}
-                    </span>
-                  </div>
-                  <StatusBadge status={item.status} />
-                </div>
-                <div className="flex flex-wrap gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                  {item.origin_room_id && (
-                    <Badge variant="default">
-                      From: {rooms.find((r) => r.id === item.origin_room_id)?.name ?? "?"}
-                    </Badge>
-                  )}
-                  {item.destination_room_id && (
-                    <Badge variant="primary">
-                      To: {rooms.find((r) => r.id === item.destination_room_id)?.name ?? "?"}
-                    </Badge>
-                  )}
-                  {item.box_id && (
-                    <Badge variant="default">
-                      Box: {boxes.find((b) => b.id === item.box_id)?.label ?? "?"}
-                    </Badge>
-                  )}
-                  {item.fragile && <Badge variant="primary">Fragile</Badge>}
-                </div>
-                <div className="flex gap-1.5 pt-1">
-                  <Button size="sm" variant="secondary" className="min-h-10" onClick={() => { setEditing(item); setModalOpen(true); }}>
-                    <Pencil className="h-3.5 w-3.5" />
-                    Edit
-                  </Button>
-                  <button
-                    type="button"
-                    onClick={() => { if (confirm(`Delete "${item.name}"?`)) deleteItem.mutate(item.id); }}
-                    className="p-1.5 text-slate-400 hover:text-red-500"
-                    aria-label="Delete"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      <ItemModal
-        key={editing?.id ?? "new"}
-        open={modalOpen}
-        onClose={() => { setModalOpen(false); setEditing(null); }}
-        existing={editing}
-        rooms={rooms}
-        boxes={boxes}
-        onSubmit={(payload) => {
-          if (editing) {
-            updateItem.mutate({ id: editing.id, data: payload }, {
-              onSuccess: () => { setModalOpen(false); setEditing(null); },
-            });
-          } else {
-            createItem.mutate({ ...payload, move_id: move.id }, {
-              onSuccess: () => setModalOpen(false),
-            });
-          }
-        }}
-      />
-
-      <BarcodeScanner
-        open={scannerOpen}
-        onClose={() => setScannerOpen(false)}
-        onScan={handleScan}
-        title="Scan item or box"
-      />
-    </div>
-  );
-}
-
 function ItemModal({
   open,
   onClose,
@@ -1927,225 +1794,6 @@ function ItemModal({
     </Modal>
   );
 }
-
-/* =========================================================== */
-/*  Boxes                                                       */
-/* =========================================================== */
-
-function BoxesTab({
-  move,
-  rooms,
-  boxes,
-  items,
-  focusBoxId,
-  onFocusConsumed,
-}: {
-  move: Move;
-  rooms: MoveRoom[];
-  boxes: MoveBox[];
-  items: MoveItem[];
-  /** Deep-link target: open the BoxModal for this id on mount. */
-  focusBoxId?: string;
-  /** Called once the deep-link target has been opened, so the parent
-   *  can drop the search param from the URL. */
-  onFocusConsumed?: () => void;
-}) {
-  const qc = useQueryClient();
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<MoveBox | null>(null);
-  const [scannerOpen, setScannerOpen] = useState(false);
-  const [scanMessage, setScanMessage] = useState<string | null>(null);
-  const [bulkOpen, setBulkOpen] = useState(false);
-
-  // Deep-link: if /moving?focusBoxId= matches a box once data loads,
-  // open its modal exactly once. See InventoryTab for the same pattern.
-  useEffect(() => {
-    if (!focusBoxId) return;
-    const target = boxes.find((b) => b.id === focusBoxId);
-    if (!target) return;
-    setEditing(target);
-    setModalOpen(true);
-    onFocusConsumed?.();
-  }, [focusBoxId, boxes, onFocusConsumed]);
-
-  const createBox = useMutation({
-    mutationFn: (data: Record<string, unknown>) => apiPost("/move-boxes", data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["move-boxes", move.id] }),
-  });
-  const bulkCreateBoxes = useMutation({
-    mutationFn: (data: { count: number; code_type: string; label_prefix: string }) =>
-      apiPost(`/moves/${move.id}/boxes/bulk-create`, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["move-boxes", move.id] }),
-  });
-  const updateBox = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
-      fetch(`/api/v1/move-boxes/${id}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      }).then((r) => r.json()),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["move-boxes", move.id] }),
-  });
-  const deleteBox = useMutation({
-    mutationFn: (id: string) =>
-      fetch(`/api/v1/move-boxes/${id}`, { method: "DELETE", credentials: "include" }).then((r) => r.json()),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["move-boxes", move.id] }),
-  });
-
-  const itemCountByBox = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const item of items) {
-      if (item.box_id) map.set(item.box_id, (map.get(item.box_id) ?? 0) + 1);
-    }
-    return map;
-  }, [items]);
-
-  const handleScan = (code: string) => {
-    const box = boxes.find((b) => b.barcode === code);
-    if (box) {
-      setScanMessage(`✓ ${box.label} (${box.barcode})`);
-      setEditing(box);
-      setScannerOpen(false);
-      setTimeout(() => setModalOpen(true), 50);
-    } else {
-      setScanMessage(`No box matches "${code}". You can create one now.`);
-      setScannerOpen(false);
-      setTimeout(() => {
-        setEditing(null);
-        setModalOpen(true);
-      }, 50);
-    }
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="flex justify-between items-center gap-2">
-        <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Boxes</h2>
-        <div className="flex gap-2">
-          <Button size="md" variant="secondary" className="min-h-11" onClick={() => setScannerOpen(true)}>
-            <ScanLine className="h-4 w-4" />
-            Scan
-          </Button>
-          <Button size="md" variant="secondary" className="min-h-11" onClick={() => setBulkOpen(true)}>
-            <Package className="h-4 w-4" />
-            Bulk create
-          </Button>
-          <Button size="md" className="min-h-11" onClick={() => { setEditing(null); setModalOpen(true); }}>
-            <Plus className="h-4 w-4" />
-            New box
-          </Button>
-        </div>
-      </div>
-
-      {scanMessage && (
-        <p className="text-xs text-slate-500 dark:text-slate-400">{scanMessage}</p>
-      )}
-
-      {boxes.length === 0 ? (
-        <Card>
-          <CardContent className="py-8">
-            <EmptyState
-              icon={<Package className="h-9 w-9" />}
-              title="No boxes yet"
-              description="Create boxes as you pack. Each box gets a barcode for fast scanning later, and a printable label."
-              action={
-                <Button onClick={() => { setEditing(null); setModalOpen(true); }}>
-                  <Plus className="h-4 w-4" />
-                  New box
-                </Button>
-              }
-            />
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-2">
-          {boxes.map((box) => {
-            const room = rooms.find((r) => r.id === box.destination_room_id);
-            const count = itemCountByBox.get(box.id) ?? 0;
-            return (
-              <Card key={box.id}>
-                <CardContent className="pt-3 pb-3 space-y-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">
-                      {box.label}
-                    </span>
-                    <code className="text-xs font-mono text-slate-500 bg-slate-100 dark:bg-slate-800 rounded px-2 py-0.5">
-                      {box.barcode}
-                    </code>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5 text-xs">
-                    {room && <Badge variant="primary">→ {room.name}</Badge>}
-                    <Badge variant="default">{count} items</Badge>
-                    {box.fragile && <Badge variant="primary">Fragile</Badge>}
-                    {box.priority && box.priority !== "normal" && (
-                      <Badge variant="default">{capitalize(box.priority.replace(/_/g, " "))}</Badge>
-                    )}
-                  </div>
-                  <div className="flex gap-1.5 pt-1">
-                    <Button size="sm" variant="secondary" className="min-h-10" onClick={() => { setEditing(box); setModalOpen(true); }}>
-                      <Pencil className="h-3.5 w-3.5" />
-                      Edit
-                    </Button>
-                    <button
-                      type="button"
-                      onClick={() => { if (confirm(`Delete box "${box.label}"? Items in it stay, just unassigned.`)) deleteBox.mutate(box.id); }}
-                      className="p-1.5 text-slate-400 hover:text-red-500"
-                      aria-label="Delete"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      <BoxModal
-        key={editing?.id ?? "new"}
-        open={modalOpen}
-        onClose={() => { setModalOpen(false); setEditing(null); }}
-        existing={editing}
-        rooms={rooms}
-        moveId={move.id}
-        existingBarcodes={boxes.map((b) => b.barcode)}
-        onSubmit={(payload) => {
-          if (editing) {
-            updateBox.mutate({ id: editing.id, data: payload }, {
-              onSuccess: () => { setModalOpen(false); setEditing(null); },
-            });
-          } else {
-            createBox.mutate({ ...payload, move_id: move.id }, {
-              onSuccess: () => setModalOpen(false),
-            });
-          }
-        }}
-      />
-
-      <BarcodeScanner
-        open={scannerOpen}
-        onClose={() => setScannerOpen(false)}
-        onScan={handleScan}
-        title="Scan box barcode"
-      />
-
-      <BulkCreateBoxesModal
-        open={bulkOpen}
-        onClose={() => setBulkOpen(false)}
-        existingCount={boxes.length}
-        pending={bulkCreateBoxes.isPending}
-        onSubmit={(payload) =>
-          bulkCreateBoxes.mutate(payload, {
-            onSuccess: () => setBulkOpen(false),
-          })
-        }
-      />
-    </div>
-  );
-}
-
 function BulkCreateBoxesModal({
   open,
   onClose,
@@ -2343,181 +1991,6 @@ function BoxModal({
 }
 
 /* =========================================================== */
-/*  Scan mode                                                   */
-/* =========================================================== */
-
-const SCAN_ACTIONS: { id: MoveScanAction; label: string; icon: typeof Package }[] = [
-  { id: "pack", label: "Pack", icon: Package },
-  { id: "load", label: "Load on truck", icon: Truck },
-  { id: "transit", label: "In transit", icon: Navigation },
-  { id: "arrive", label: "Arrived", icon: MapPin },
-  { id: "unpack", label: "Unpack", icon: PackageOpen },
-  { id: "lookup", label: "Look up", icon: Search },
-];
-
-/**
- * "Scan" tab on /moving — a launch-pad rather than the scan UI itself.
- * The actual scanning happens at /scan, a full-screen route designed
- * for phone-in-hand walking around the house. This tab lets the user:
- *   - pre-select an action so it's primed when scanning starts
- *   - see at-a-glance status counts for every box
- *   - review the persisted scan log
- */
-function ScanTab({
-  move,
-  boxes,
-  items,
-  rooms,
-}: {
-  move: Move;
-  boxes: MoveBox[];
-  items: MoveItem[];
-  rooms: MoveRoom[];
-}) {
-  const navigate = useNavigate();
-  const [action, setAction] = useState<MoveScanAction>("pack");
-
-  const { data: logResp } = useQuery({
-    queryKey: ["move-scan-events", move.id],
-    queryFn: () =>
-      apiGet<ListResponse<MoveScanEvent>>(`/moves/${move.id}/scan-events`),
-    enabled: !!move.id,
-  });
-  const log = logResp?.data ?? [];
-
-  const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = {
-      preparing: 0,
-      packed: 0,
-      loaded: 0,
-      delivered: 0,
-      unpacked: 0,
-    };
-    for (const b of boxes) counts[b.status] = (counts[b.status] ?? 0) + 1;
-    return counts;
-  }, [boxes]);
-
-  const roomById = (id?: string) => (id ? rooms.find((r) => r.id === id) : null);
-
-  return (
-    <div className="space-y-3">
-      <Card>
-        <CardContent className="pt-4 pb-4 space-y-3">
-          <div>
-            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Scan mode
-            </p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Pick an action, then open the full-screen scanner. Every
-              scan is logged and advances the box's lifecycle.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {SCAN_ACTIONS.map((a) => {
-              const Icon = a.icon;
-              const active = a.id === action;
-              return (
-                <button
-                  key={a.id}
-                  type="button"
-                  onClick={() => setAction(a.id)}
-                  className={
-                    "flex flex-col items-center justify-center rounded-lg border-2 py-3 px-2 text-xs font-medium transition-colors min-h-16 " +
-                    (active
-                      ? "border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-200"
-                      : "border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-300")
-                  }
-                  aria-pressed={active}
-                >
-                  <Icon className="h-5 w-5 mb-1" />
-                  {a.label}
-                </button>
-              );
-            })}
-          </div>
-          <Button
-            size="lg"
-            className="w-full min-h-14"
-            onClick={() =>
-              navigate({
-                to: "/scan",
-                search: { move: move.id, action },
-              })
-            }
-          >
-            <ScanLine className="h-5 w-5" />
-            Open full-screen scanner
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* Status roll-up — quick at-a-glance of where every box is */}
-      <Card>
-        <CardContent className="pt-3 pb-3">
-          <p className="text-xs uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 mb-2">
-            Box lifecycle
-          </p>
-          <div className="grid grid-cols-5 gap-2 text-center">
-            {(["preparing", "packed", "loaded", "delivered", "unpacked"] as const).map((s) => (
-              <div key={s} className="rounded-md bg-slate-50 dark:bg-slate-800/50 py-2">
-                <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                  {statusCounts[s] ?? 0}
-                </div>
-                <div className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  {capitalize(s)}
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Persisted scan log — recent first */}
-      <Card>
-        <CardContent className="pt-3 pb-3 space-y-2">
-          <div className="flex items-baseline justify-between">
-            <p className="text-xs uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
-              Scan log
-            </p>
-            <span className="text-[10px] text-slate-400">{log.length} total</span>
-          </div>
-          {log.length === 0 ? (
-            <p className="text-xs text-slate-500 dark:text-slate-400 py-2">
-              No scans yet. Open the scanner above to start.
-            </p>
-          ) : (
-            <div className="space-y-1 max-h-64 overflow-y-auto">
-              {[...log].reverse().slice(0, 50).map((ev) => {
-                const box = ev.target_kind === "box" && ev.target_id
-                  ? boxes.find((b) => b.id === ev.target_id)
-                  : null;
-                const item = ev.target_kind === "item" && ev.target_id
-                  ? items.find((i) => i.id === ev.target_id)
-                  : null;
-                const targetLabel = box?.label ?? item?.name ?? `Unknown (${ev.code})`;
-                const room = box ? roomById(box.destination_room_id) : null;
-                return (
-                  <div key={ev.id} className="flex items-center gap-2 text-xs py-1 border-b border-slate-100 dark:border-slate-800 last:border-b-0">
-                    <Badge variant="default">{capitalize(ev.action)}</Badge>
-                    <span className="flex-1 truncate">
-                      {targetLabel}
-                      {room && <span className="text-slate-400"> → {room.name}</span>}
-                    </span>
-                    <span className="text-[10px] text-slate-400 whitespace-nowrap">
-                      {new Date(ev.scanned_at).toLocaleTimeString()}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-/* =========================================================== */
 /*  Labels (print)                                              */
 /* =========================================================== */
 
@@ -2676,38 +2149,294 @@ function useCreateTask() {
   });
 }
 
-/* ---------- Survey ---------- */
+/* =========================================================== */
+/*  Dashboard                                                   */
+/* =========================================================== */
 
-/** Survey tab: walk each origin-side room, list every item attached to
- *  it (or add new ones), set disposition + destination + photo, and
- *  spawn a follow-up task for repair/clean/sell/donate/dump dispositions
- *  so the user has a single place to track removal work.
- *
- *  Subsumes the legacy Inventory tab — that tab's deep-link param
- *  (focusItemId) is forwarded here. */
+/** Dashboard is the home tab. It shows what the user has done so far
+ *  (progress cards), what the app thinks they should do next
+ *  (next-action prompts), and a compact "current focus" hint derived
+ *  from the inferred move phase. The detailed counts are kept here
+ *  because users still want a quick at-a-glance read of state — but
+ *  every counter is paired with a prompt so the user can click in. */
+function DashboardTab({
+  move,
+  projects,
+  properties,
+  rooms,
+  items,
+  boxes,
+  phase,
+  onJumpTab,
+  onUpdate,
+  onDelete,
+}: {
+  move: Move;
+  projects: Project[];
+  properties: Property[];
+  rooms: MoveRoom[];
+  items: MoveItem[];
+  boxes: MoveBox[];
+  phase: WorkflowPhase;
+  onJumpTab: (tab: CanonicalTab) => void;
+  onUpdate: (data: Record<string, unknown>) => void;
+  onDelete: () => void;
+}) {
+  const project = projects.find((p) => p.id === move.project_id);
+  const origin = properties.find((p) => p.id === move.origin_property_id);
+  const dest = properties.find((p) => p.id === move.destination_property_id);
+
+  const prompts = useMemo(
+    () =>
+      getNextActionPrompts({
+        move,
+        rooms,
+        items,
+        boxes,
+        phase,
+      }),
+    [move, rooms, items, boxes, phase]
+  );
+
+  // Progress percentages — gentle, not exact. Helpful for the
+  // sense-of-progress bars in each card; the numbers under them are
+  // the real source of truth.
+  const itemsActive = items.filter((i) => i.status !== "removed");
+  const itemsAssessed = itemsActive.filter((i) => i.disposition !== "unassessed");
+  const surveyProgress =
+    itemsActive.length === 0 ? 0 : itemsAssessed.length / itemsActive.length;
+
+  const boxesActive = boxes.length;
+  const boxesPacked = boxes.filter(
+    (b) => b.status !== "preparing"
+  ).length;
+  const packProgress = boxesActive === 0 ? 0 : boxesPacked / boxesActive;
+
+  const boxesDelivered = boxes.filter(
+    (b) => b.status === "delivered" || b.status === "unpacked"
+  ).length;
+  const moveDayProgress = boxesActive === 0 ? 0 : boxesDelivered / boxesActive;
+
+  const dayOneBoxes = boxes.filter((b) => b.priority === "first_night");
+  const dayOnePacked = dayOneBoxes.filter((b) => b.status !== "preparing").length;
+
+  const removalCount = itemsActive.filter(
+    (i) =>
+      i.disposition === "sell" ||
+      i.disposition === "donate" ||
+      i.disposition === "recycle" ||
+      i.disposition === "dump"
+  ).length;
+  const removedCount = items.filter((i) => i.status === "removed").length;
+
+  return (
+    <div className="space-y-3">
+      {/* Move identity */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-base">Move details</CardTitle>
+          <StatusBadge status={move.status} />
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <Row label="Project">{project?.name ?? "—"}</Row>
+          <Row label="From">
+            {origin ? (
+              <span className="flex items-center gap-1 min-w-0">
+                <Home className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                <span className="truncate">{origin.address}</span>
+              </span>
+            ) : (
+              "—"
+            )}
+          </Row>
+          <Row label="To">
+            {dest ? (
+              <span className="flex items-center gap-1 min-w-0">
+                <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                <span className="truncate">{dest.address}</span>
+              </span>
+            ) : (
+              "—"
+            )}
+          </Row>
+          <Row label="Move date">{move.move_date || "Not set"}</Row>
+          <Row label="Current focus">{PHASE_LABELS[phase]}</Row>
+        </CardContent>
+      </Card>
+
+      {/* Next actions — the heart of the dashboard. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Next useful actions</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-1.5">
+          {prompts.length === 0 ? (
+            <p className="text-xs text-slate-500 dark:text-slate-400 py-2">
+              You're all caught up. Nothing's waiting on you.
+            </p>
+          ) : (
+            prompts.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => p.tab && onJumpTab(p.tab)}
+                className="w-full flex items-center justify-between gap-2 text-left py-2 px-3 rounded-md bg-slate-50 dark:bg-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800 text-sm"
+              >
+                <span className="truncate">{p.label}</span>
+                <ChevronRight />
+              </button>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Progress cards — quick visual read on each phase. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Progress</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2.5">
+          <ProgressRow
+            label="Survey"
+            fraction={surveyProgress}
+            caption={`${itemsAssessed.length} / ${itemsActive.length} items decided`}
+          />
+          <ProgressRow
+            label="Packing"
+            fraction={packProgress}
+            caption={`${boxesPacked} / ${boxesActive || 0} boxes packed`}
+          />
+          <ProgressRow
+            label="Move day"
+            fraction={moveDayProgress}
+            caption={`${boxesDelivered} / ${boxesActive || 0} boxes delivered`}
+          />
+          {dayOneBoxes.length > 0 && (
+            <ProgressRow
+              label="Day-one"
+              fraction={dayOnePacked / dayOneBoxes.length}
+              caption={`${dayOnePacked} / ${dayOneBoxes.length} essentials ready`}
+            />
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Bottom stat strip — concise, no nesting. */}
+      <div className="grid grid-cols-3 gap-2">
+        <StatCard label="Rooms" value={rooms.length} />
+        <StatCard
+          label="Removed"
+          value={removedCount}
+          hint={removalCount > 0 ? `${removalCount} pending` : undefined}
+        />
+        <StatCard label="Boxes" value={boxesActive} />
+      </div>
+
+      {/* Settings tucked at the bottom — admin, not daily use. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Move settings</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Select
+            label="Status"
+            value={move.status}
+            onChange={(e) => onUpdate({ status: e.target.value })}
+            options={MOVE_STATUSES.map((s) => ({
+              value: s,
+              label: capitalize(s.replace(/_/g, " ")),
+            }))}
+          />
+          <Input
+            type="date"
+            label="Move date"
+            value={move.move_date ?? ""}
+            onChange={(e) => onUpdate({ move_date: e.target.value })}
+          />
+          <Textarea
+            label="Notes"
+            value={move.notes ?? ""}
+            onChange={(e) => onUpdate({ notes: e.target.value })}
+            rows={2}
+          />
+          <Button variant="danger" className="w-full min-h-11" onClick={onDelete}>
+            <Trash2 className="h-4 w-4" />
+            Delete move
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ChevronRight() {
+  return (
+    <svg
+      className="h-3.5 w-3.5 text-slate-400 shrink-0"
+      viewBox="0 0 20 20"
+      fill="currentColor"
+    >
+      <path d="M7.05 4.05a1 1 0 011.414 0l5.243 5.243a1 1 0 010 1.414L8.464 15.95a1 1 0 11-1.414-1.414L11.379 10 7.05 5.464a1 1 0 010-1.414z" />
+    </svg>
+  );
+}
+
+function ProgressRow({
+  label,
+  fraction,
+  caption,
+}: {
+  label: string;
+  fraction: number;
+  caption: string;
+}) {
+  const clamped = Math.max(0, Math.min(1, fraction));
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-medium text-slate-700 dark:text-slate-300">{label}</span>
+        <span className="text-slate-500 dark:text-slate-400">{caption}</span>
+      </div>
+      <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+        <div
+          className="h-full bg-primary-500 transition-all"
+          style={{ width: `${(clamped * 100).toFixed(0)}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================== */
+/*  Survey (simplified)                                         */
+/* =========================================================== */
+
+/** Quick-add first. The user picks a room, types item names, presses
+ *  Enter. Disposition is set with chips on each item; destination
+ *  room appears as a small select that only matters when disposition
+ *  is `keep` / `stage_only`. Anything more detailed (photo, fragile,
+ *  per-item barcode, status overrides) lives behind the edit pencil
+ *  → ItemModal. */
 function SurveyTab({
   move,
   rooms,
-  boxes,
   items,
   focusItemId,
   onFocusConsumed,
+  onOpenItemEdit,
 }: {
   move: Move;
   rooms: MoveRoom[];
-  boxes: MoveBox[];
   items: MoveItem[];
   focusItemId?: string;
   onFocusConsumed?: () => void;
+  onOpenItemEdit: (item: MoveItem) => void;
 }) {
   const itemMut = useItemMutations(move.id);
   const createTask = useCreateTask();
-
   const originRooms = rooms.filter((r) => r.side === "origin");
   const destRooms = rooms.filter((r) => r.side === "destination");
   const [activeRoomId, setActiveRoomId] = useState<string>(originRooms[0]?.id ?? "");
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<MoveItem | null>(null);
   const [quickName, setQuickName] = useState("");
 
   useEffect(() => {
@@ -2718,36 +2447,48 @@ function SurveyTab({
     if (!focusItemId) return;
     const target = items.find((i) => i.id === focusItemId);
     if (!target) return;
-    setEditing(target);
-    setModalOpen(true);
+    onOpenItemEdit(target);
     onFocusConsumed?.();
-  }, [focusItemId, items, onFocusConsumed]);
+  }, [focusItemId, items, onFocusConsumed, onOpenItemEdit]);
 
-  const roomItems = activeRoomId
-    ? items.filter((i) => i.origin_room_id === activeRoomId)
-    : items.filter((i) => !i.origin_room_id);
+  // Disposition chips. Tapping one writes the disposition (and any
+  // linked task) without opening a modal. `keep`/`stage_only` keep
+  // the item in flow; the others auto-spawn a follow-up task and
+  // the item drops out of the active inventory rollup once the user
+  // marks it removed in Problems.
+  const dispositionChips: { id: MoveItemDisposition; label: string; taskTitle?: string }[] = [
+    { id: "keep", label: "Keep" },
+    { id: "sell", label: "Sell", taskTitle: "Sell" },
+    { id: "donate", label: "Donate", taskTitle: "Donate" },
+    { id: "recycle", label: "Recycle", taskTitle: "Recycle" },
+    { id: "dump", label: "Dump", taskTitle: "Dump" },
+    { id: "stage_only", label: "Stage" },
+    { id: "repair_clean_first", label: "Repair", taskTitle: "Repair / clean" },
+  ];
 
-  /** Disposition → follow-up task title. Only the actionable ones
-   *  spawn a task; `keep` / `stage_only` / `unassessed` don't. */
-  const taskTitleForDisposition: Partial<Record<MoveItemDisposition, string>> = {
-    sell: "Sell:",
-    donate: "Donate:",
-    recycle: "Recycle:",
-    dump: "Dump:",
-    repair_clean_first: "Repair / clean:",
-  };
-
-  const handleSetDisposition = (item: MoveItem, disposition: MoveItemDisposition) => {
-    itemMut.update.mutate({ id: item.id, data: { disposition } });
-    const title = taskTitleForDisposition[disposition];
-    if (title) {
+  const setDisposition = (item: MoveItem, chip: typeof dispositionChips[number]) => {
+    // Only flip status when the user marks Keep — `surveyed` →
+    // `ready_to_pack`. Other dispositions don't drive lifecycle.
+    const patch: Record<string, unknown> = { disposition: chip.id };
+    if (chip.id === "keep" && item.status === "surveyed") {
+      patch.status = "ready_to_pack";
+    }
+    itemMut.update.mutate({ id: item.id, data: patch });
+    if (chip.taskTitle) {
       createTask.mutate({
-        title: `${title} ${item.name}`,
+        title: `${chip.taskTitle}: ${item.name}`,
         project_id: move.project_id,
         priority: "medium",
         kind: "task",
       });
     }
+  };
+
+  const setDestination = (item: MoveItem, roomId: string) => {
+    itemMut.update.mutate({
+      id: item.id,
+      data: { destination_room_id: roomId || null },
+    });
   };
 
   const handleQuickAdd = (e: React.FormEvent) => {
@@ -2764,6 +2505,10 @@ function SurveyTab({
     );
   };
 
+  const roomItems = activeRoomId
+    ? items.filter((i) => i.origin_room_id === activeRoomId && i.status !== "removed")
+    : items.filter((i) => !i.origin_room_id && i.status !== "removed");
+
   return (
     <div className="space-y-3">
       <Card>
@@ -2776,16 +2521,16 @@ function SurveyTab({
         <CardContent className="space-y-3">
           {originRooms.length === 0 ? (
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Draw rooms on the origin floor plan first (Floor Plan tab).
+              Set up rooms first in Tools → Floor plan.
             </p>
           ) : (
             <Select
-              label="Origin room"
+              label="Room"
               value={activeRoomId}
               onChange={(e) => setActiveRoomId(e.target.value)}
               options={originRooms.map((r) => ({
                 value: r.id,
-                label: `${r.name} (${items.filter((i) => i.origin_room_id === r.id).length})`,
+                label: `${r.name} (${items.filter((i) => i.origin_room_id === r.id && i.status !== "removed").length})`,
               }))}
             />
           )}
@@ -2794,7 +2539,7 @@ function SurveyTab({
               label=""
               value={quickName}
               onChange={(e) => setQuickName(e.target.value)}
-              placeholder="Quick add: item name"
+              placeholder="Add item — press Enter"
               className="flex-1"
             />
             <Button type="submit" disabled={!quickName.trim() || !activeRoomId} className="min-h-11">
@@ -2810,429 +2555,139 @@ function SurveyTab({
           <CardContent className="py-6">
             <EmptyState
               icon={<Package className="h-8 w-8" />}
-              title="No items in this room yet"
-              description="Use Quick add above, or open the Add item modal for full options."
-              action={
-                <Button onClick={() => { setEditing(null); setModalOpen(true); }}>
-                  <Plus className="h-4 w-4" />
-                  Add item
-                </Button>
-              }
+              title="Nothing here yet"
+              description="Type an item name above and press Enter. Decide what to do with each one after."
             />
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           {roomItems.map((item) => {
+            const needsDestination =
+              (item.disposition === "keep" || item.disposition === "stage_only") &&
+              !item.destination_room_id;
             const destRoom = rooms.find((r) => r.id === item.destination_room_id);
             return (
               <Card key={item.id}>
-                <CardContent className="pt-3 pb-3 space-y-2">
+                <CardContent className="pt-2.5 pb-2.5 space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium truncate">
+                    <span className="text-sm font-medium truncate flex-1">
                       {item.name}
-                      {item.quantity > 1 && <span className="text-xs text-slate-400 ml-1">×{item.quantity}</span>}
+                      {item.quantity > 1 && (
+                        <span className="text-xs text-slate-400 ml-1">×{item.quantity}</span>
+                      )}
                     </span>
-                    <StatusBadge status={item.status} />
+                    <button
+                      type="button"
+                      onClick={() => onOpenItemEdit(item)}
+                      className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                      aria-label="Edit details"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Select
-                      label=""
-                      value={item.disposition}
-                      onChange={(e) => handleSetDisposition(item, e.target.value as MoveItemDisposition)}
-                      options={MOVE_ITEM_DISPOSITIONS.map((d) => ({
-                        value: d,
-                        label: MOVE_ITEM_DISPOSITION_LABELS[d],
-                      }))}
-                    />
+                  <div className="flex flex-wrap gap-1">
+                    {dispositionChips.map((chip) => {
+                      const active = item.disposition === chip.id;
+                      return (
+                        <button
+                          key={chip.id}
+                          type="button"
+                          onClick={() => setDisposition(item, chip)}
+                          className={
+                            "px-2 py-1 rounded-md text-xs font-medium transition-colors " +
+                            (active
+                              ? "bg-primary-600 text-white"
+                              : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700")
+                          }
+                        >
+                          {chip.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {needsDestination && destRooms.length > 0 && (
                     <Select
                       label=""
                       value={item.destination_room_id ?? ""}
-                      onChange={(e) =>
-                        itemMut.update.mutate({
-                          id: item.id,
-                          data: { destination_room_id: e.target.value || null },
-                        })
-                      }
+                      onChange={(e) => setDestination(item, e.target.value)}
                       options={destRooms.map((r) => ({ value: r.id, label: `→ ${r.name}` }))}
-                      placeholder="Destination…"
+                      placeholder="Where will it go?"
                     />
-                  </div>
-                  <div className="flex flex-wrap gap-1.5 text-xs">
-                    {destRoom && <Badge variant="primary">→ {destRoom.name}</Badge>}
-                    {item.disposition !== "unassessed" && (
-                      <Badge variant="default">
-                        {MOVE_ITEM_DISPOSITION_LABELS[item.disposition as MoveItemDisposition]}
-                      </Badge>
-                    )}
-                    {item.fragile && <Badge variant="primary">Fragile</Badge>}
-                  </div>
-                  <div className="flex gap-1.5">
-                    <Button size="sm" variant="secondary" className="min-h-10" onClick={() => { setEditing(item); setModalOpen(true); }}>
-                      <Pencil className="h-3.5 w-3.5" />
-                      Edit
-                    </Button>
-                    <button
-                      type="button"
-                      onClick={() => { if (confirm(`Delete "${item.name}"?`)) itemMut.remove.mutate(item.id); }}
-                      className="p-1.5 text-slate-400 hover:text-red-500"
-                      aria-label="Delete"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
+                  )}
+                  {destRoom && !needsDestination && (
+                    <p className="text-[10px] text-slate-400">→ {destRoom.name}</p>
+                  )}
                 </CardContent>
               </Card>
             );
           })}
         </div>
       )}
-
-      <ItemModal
-        key={editing?.id ?? "new"}
-        open={modalOpen}
-        onClose={() => { setModalOpen(false); setEditing(null); }}
-        existing={editing}
-        rooms={rooms}
-        boxes={boxes}
-        onSubmit={(payload) => {
-          if (editing) {
-            itemMut.update.mutate({ id: editing.id, data: payload }, {
-              onSuccess: () => { setModalOpen(false); setEditing(null); },
-            });
-          } else {
-            itemMut.create.mutate({ ...payload, move_id: move.id, origin_room_id: activeRoomId || undefined }, {
-              onSuccess: () => setModalOpen(false),
-            });
-          }
-        }}
-      />
     </div>
   );
 }
 
-/* ---------- Declutter ---------- */
+/* =========================================================== */
+/*  Move                                                        */
+/* =========================================================== */
 
-/** Group items by disposition. Each group shows the items that need
- *  action, plus a "mark removed" button that flips the item status to
- *  `removed` (sold/donated/recycled/dumped — terminal). */
-function DeclutterTab({
-  move,
-  items,
-  rooms,
-}: {
-  move: Move;
-  items: MoveItem[];
-  rooms: MoveRoom[];
-}) {
-  const itemMut = useItemMutations(move.id);
-
-  // Groups we want to surface here. Skip `keep`/`stage_only` — they
-  // aren't decluttering actions, they're "leave it in inventory".
-  const dispositionGroups: MoveItemDisposition[] = [
-    "unassessed",
-    "sell",
-    "donate",
-    "recycle",
-    "dump",
-    "repair_clean_first",
-  ];
-
-  return (
-    <div className="space-y-3">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Tag className="h-4 w-4" />
-            Declutter
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="text-xs text-slate-500 dark:text-slate-400">
-          Items grouped by disposition. "Mark removed" sets status to
-          <code className="mx-1">removed</code> so the item drops out of
-          the active inventory rollup while staying in the audit trail.
-        </CardContent>
-      </Card>
-
-      {dispositionGroups.map((d) => {
-        const group = items.filter(
-          (i) => i.disposition === d && i.status !== "removed"
-        );
-        if (group.length === 0) return null;
-        return (
-          <Card key={d}>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-sm">
-                {MOVE_ITEM_DISPOSITION_LABELS[d]}
-              </CardTitle>
-              <Badge variant="default">{group.length}</Badge>
-            </CardHeader>
-            <CardContent className="space-y-1.5">
-              {group.map((item) => {
-                const origin = rooms.find((r) => r.id === item.origin_room_id);
-                return (
-                  <div
-                    key={item.id}
-                    className="flex items-center gap-2 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0"
-                  >
-                    <span className="flex-1 truncate text-sm">
-                      {item.name}
-                      {origin && <span className="text-xs text-slate-400 ml-1">({origin.name})</span>}
-                    </span>
-                    {d !== "unassessed" && d !== "repair_clean_first" && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="min-h-9"
-                        onClick={() =>
-                          itemMut.update.mutate({ id: item.id, data: { status: "removed" } })
-                        }
-                      >
-                        <Check className="h-3.5 w-3.5" />
-                        Mark removed
-                      </Button>
-                    )}
-                    {d === "repair_clean_first" && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="min-h-9"
-                        onClick={() =>
-                          itemMut.update.mutate({ id: item.id, data: { disposition: "keep", status: "ready_to_pack" } })
-                        }
-                      >
-                        <Check className="h-3.5 w-3.5" />
-                        Done
-                      </Button>
-                    )}
-                  </div>
-                );
-              })}
-            </CardContent>
-          </Card>
-        );
-      })}
-
-      {items.filter((i) => i.disposition !== "unassessed" && i.status === "removed").length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm text-slate-500">Removed</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              {items.filter((i) => i.status === "removed").length} item(s) marked removed and out of inventory.
-            </p>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
-}
-
-/* ---------- Stage ---------- */
-
-/** Manage staging/holding/vehicle/storage zones. Show every room's
- *  room_type, with quick PATCH to change. Roll up which boxes / items
- *  currently live in each non-normal zone (by destination_room_id). */
-function StageTab({
+/** Move is the operational hub: pack, stage, load, deliver, unpack
+ *  all happen here. The "Current focus" card shows what the app
+ *  thinks comes next (driven by phase). Boxes are grouped into Active
+ *  and Done, not by individual lifecycle bucket — the per-box
+ *  recommended action button covers the lifecycle without surfacing
+ *  it as nav. */
+function MoveTab({
   move,
   rooms,
   items,
   boxes,
-}: {
-  move: Move;
-  rooms: MoveRoom[];
-  items: MoveItem[];
-  boxes: MoveBox[];
-}) {
-  const roomMut = useRoomMutations(move.id);
-  const allZones = rooms.filter((r) => r.room_type && r.room_type !== "normal_room");
-  const stagedBoxes = boxes.filter((b) => b.status === "staged");
-
-  return (
-    <div className="space-y-3">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Sparkles className="h-4 w-4" />
-            Stage
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="text-xs text-slate-500 dark:text-slate-400">
-          Tag rooms as holding / staging / vehicle / storage zones so
-          you can park packed boxes there before loading. Boxes are
-          marked <code>staged</code> via the scan-mode "Stage" action
-          or the box detail screen.
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">Rooms ({rooms.length})</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-1.5">
-          {rooms.length === 0 ? (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              No rooms yet. Draw some on the Floor Plan tab.
-            </p>
-          ) : (
-            rooms.map((room) => (
-              <div key={room.id} className="flex items-center gap-2 py-1">
-                <Badge variant={room.side === "origin" ? "default" : "primary"}>
-                  {room.side === "origin" ? "◀" : "▶"} {room.name}
-                </Badge>
-                <Select
-                  label=""
-                  value={(room.room_type as MoveRoomType) ?? "normal_room"}
-                  onChange={(e) =>
-                    roomMut.update.mutate({
-                      id: room.id,
-                      data: { room_type: e.target.value as MoveRoomType },
-                    })
-                  }
-                  options={MOVE_ROOM_TYPES.map((t) => ({
-                    value: t,
-                    label: MOVE_ROOM_TYPE_LABELS[t],
-                  }))}
-                  className="ml-auto"
-                />
-              </div>
-            ))
-          )}
-        </CardContent>
-      </Card>
-
-      {allZones.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Zones</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {allZones.map((zone) => {
-              const zoneBoxes = boxes.filter((b) => b.destination_room_id === zone.id);
-              const zoneItems = items.filter((i) => i.destination_room_id === zone.id);
-              return (
-                <div
-                  key={zone.id}
-                  className="rounded-md border border-slate-200 dark:border-slate-700 px-2 py-1.5 text-xs"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium">{zone.name}</span>
-                    <Badge variant="default">
-                      {MOVE_ROOM_TYPE_LABELS[zone.room_type as MoveRoomType]}
-                    </Badge>
-                  </div>
-                  <p className="text-slate-500 dark:text-slate-400 mt-1">
-                    {zoneBoxes.length} box(es), {zoneItems.length} item(s) routed here.
-                  </p>
-                </div>
-              );
-            })}
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-sm">Boxes currently staged</CardTitle>
-          <Badge variant="default">{stagedBoxes.length}</Badge>
-        </CardHeader>
-        <CardContent>
-          {stagedBoxes.length === 0 ? (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              No staged boxes yet. From the Pack tab, mark a packed box
-              as staged once it's parked in a holding zone.
-            </p>
-          ) : (
-            <div className="space-y-1">
-              {stagedBoxes.map((b) => (
-                <div key={b.id} className="flex items-center gap-2 text-xs">
-                  <code className="font-mono bg-slate-100 dark:bg-slate-800 rounded px-1.5">{b.barcode}</code>
-                  <span className="truncate flex-1">{b.label}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-/* ---------- Pack ---------- */
-
-/** Pack tab: the box-management hub. Bulk-create, edit, status
- *  transitions (pack / stage / seal), scan-into-box, jump to label
- *  print, launch full-screen scanner pre-loaded with `pack` action.
- *  Replaces the old Boxes tab. */
-function PackTab({
-  move,
-  rooms,
-  boxes,
-  items,
+  phase,
   focusBoxId,
   onFocusConsumed,
+  onScanResolve,
+  onOpenBoxEdit,
+  onCreateBox,
 }: {
   move: Move;
   rooms: MoveRoom[];
-  boxes: MoveBox[];
   items: MoveItem[];
+  boxes: MoveBox[];
+  phase: WorkflowPhase;
   focusBoxId?: string;
   onFocusConsumed?: () => void;
+  onScanResolve: (code: string) => void;
+  onOpenBoxEdit: (box: MoveBox) => void;
+  onCreateBox: () => void;
 }) {
-  const qc = useQueryClient();
   const navigate = useNavigate();
-  const transition = useBoxStatusTransition(move.id);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<MoveBox | null>(null);
-  const [bulkOpen, setBulkOpen] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
-  const [scanInBoxId, setScanInBoxId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!focusBoxId) return;
     const target = boxes.find((b) => b.id === focusBoxId);
     if (!target) return;
-    setEditing(target);
-    setModalOpen(true);
+    onOpenBoxEdit(target);
     onFocusConsumed?.();
-  }, [focusBoxId, boxes, onFocusConsumed]);
+  }, [focusBoxId, boxes, onFocusConsumed, onOpenBoxEdit]);
 
-  const createBox = useMutation({
-    mutationFn: (data: Record<string, unknown>) => apiPost("/move-boxes", data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["move-boxes", move.id] }),
-  });
-  const bulkCreate = useMutation({
-    mutationFn: (data: { count: number; code_type: string; label_prefix: string }) =>
-      apiPost(`/moves/${move.id}/boxes/bulk-create`, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["move-boxes", move.id] }),
-  });
-  const updateBox = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
-      fetch(`/api/v1/move-boxes/${id}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      }).then((r) => r.json()),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["move-boxes", move.id] }),
-  });
-  const deleteBox = useMutation({
-    mutationFn: (id: string) =>
-      fetch(`/api/v1/move-boxes/${id}`, { method: "DELETE", credentials: "include" }).then((r) => r.json()),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["move-boxes", move.id] }),
-  });
-
-  const assignItemToBox = useMutation({
-    mutationFn: ({ itemId, boxId }: { itemId: string; boxId: string }) =>
-      fetch(`/api/v1/move-items/${itemId}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ box_id: boxId, status: "packed" }),
-      }).then((r) => r.json()),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["move-items", move.id] }),
-  });
+  // Group boxes by "active" (still doing something) vs "done"
+  // (terminal: unpacked). Inside Active, we order by status so the
+  // user sees what to pick up next.
+  const statusOrder: Record<string, number> = {
+    preparing: 0,
+    packed: 1,
+    staged: 2,
+    loaded: 3,
+    delivered: 4,
+    unpacked: 5,
+  };
+  const activeBoxes = boxes
+    .filter((b) => b.status !== "unpacked")
+    .slice()
+    .sort((a, b) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9));
+  const doneBoxes = boxes.filter((b) => b.status === "unpacked");
 
   const itemCountByBox = useMemo(() => {
     const map = new Map<string, number>();
@@ -3242,222 +2697,15 @@ function PackTab({
     return map;
   }, [items]);
 
-  const handleScanIntoBox = (code: string) => {
-    setScannerOpen(false);
-    if (!scanInBoxId) return;
-    const item = items.find((i) => i.barcode === code);
-    if (item) assignItemToBox.mutate({ itemId: item.id, boxId: scanInBoxId });
+  // Build the workflow context once for the per-box action buttons
+  // below — keeps the recommended-action logic centralised.
+  const ctx: WorkflowContext = {
+    move,
+    rooms,
+    items,
+    boxes,
+    phase,
   };
-
-  // Bulk-create boxes per destination room — quick shortcut for users
-  // who want one prepacked stack per room.
-  const destRooms = rooms.filter((r) => r.side === "destination");
-
-  return (
-    <div className="space-y-3">
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Boxes className="h-4 w-4" />
-            Pack
-          </CardTitle>
-          <div className="flex gap-2">
-            <Button size="md" variant="secondary" className="min-h-11" onClick={() => setBulkOpen(true)}>
-              <Package className="h-4 w-4" />
-              Bulk create
-            </Button>
-            <Button size="md" className="min-h-11" onClick={() => { setEditing(null); setModalOpen(true); }}>
-              <Plus className="h-4 w-4" />
-              New box
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <div className="flex gap-2">
-            <Button
-              variant="secondary"
-              className="flex-1 min-h-11"
-              onClick={() => navigate({ to: "/scan", search: { move: move.id, action: "pack" } })}
-            >
-              <ScanLine className="h-4 w-4" />
-              Scan to pack
-            </Button>
-            <Button
-              variant="secondary"
-              className="flex-1 min-h-11"
-              onClick={() => navigate({ to: "/moving", search: (prev) => ({ ...prev, tab: "labels" }), replace: false })}
-            >
-              <Printer className="h-4 w-4" />
-              Print labels
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {boxes.length === 0 ? (
-        <Card>
-          <CardContent className="py-8">
-            <EmptyState
-              icon={<Package className="h-9 w-9" />}
-              title="No boxes yet"
-              description="Bulk-create a stack of pre-labelled boxes, or add one at a time as you pack."
-              action={
-                <Button onClick={() => setBulkOpen(true)}>
-                  <Plus className="h-4 w-4" />
-                  Bulk create
-                </Button>
-              }
-            />
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-2">
-          {boxes.map((box) => {
-            const room = rooms.find((r) => r.id === box.destination_room_id);
-            const count = itemCountByBox.get(box.id) ?? 0;
-            return (
-              <Card key={box.id}>
-                <CardContent className="pt-3 pb-3 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">{box.label}</span>
-                    <StatusBadge status={box.status} />
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                    <code className="font-mono text-slate-500 bg-slate-100 dark:bg-slate-800 rounded px-2 py-0.5">{box.barcode}</code>
-                    {room && <Badge variant="primary">→ {room.name}</Badge>}
-                    <Badge variant="default">{count} items</Badge>
-                    {box.fragile && <Badge variant="primary">Fragile</Badge>}
-                    {box.priority && box.priority !== "normal" && (
-                      <Badge variant="default">{capitalize(box.priority.replace(/_/g, " "))}</Badge>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    <Button size="sm" variant="secondary" className="min-h-9" onClick={() => { setEditing(box); setModalOpen(true); }}>
-                      <Pencil className="h-3.5 w-3.5" />
-                      Edit
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="min-h-9"
-                      onClick={() => { setScanInBoxId(box.id); setScannerOpen(true); }}
-                    >
-                      <ScanLine className="h-3.5 w-3.5" />
-                      Scan item in
-                    </Button>
-                    {box.status === "preparing" && (
-                      <Button
-                        size="sm"
-                        className="min-h-9"
-                        onClick={() => transition.mutate({ id: box.id, status: "packed" })}
-                      >
-                        Seal box
-                      </Button>
-                    )}
-                    {box.status === "packed" && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="min-h-9"
-                        onClick={() => transition.mutate({ id: box.id, status: "staged" })}
-                      >
-                        Mark staged
-                      </Button>
-                    )}
-                    <Select
-                      label=""
-                      value={box.priority}
-                      onChange={(e) => updateBox.mutate({ id: box.id, data: { priority: e.target.value } })}
-                      options={MOVE_BOX_PRIORITIES.map((p) => ({
-                        value: p,
-                        label: capitalize(p.replace(/_/g, " ")),
-                      }))}
-                      className="ml-auto min-w-32"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => { if (confirm(`Delete box "${box.label}"?`)) deleteBox.mutate(box.id); }}
-                      className="p-1.5 text-slate-400 hover:text-red-500"
-                      aria-label="Delete"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      <BoxModal
-        key={editing?.id ?? "new"}
-        open={modalOpen}
-        onClose={() => { setModalOpen(false); setEditing(null); }}
-        existing={editing}
-        rooms={rooms}
-        moveId={move.id}
-        existingBarcodes={boxes.map((b) => b.barcode)}
-        onSubmit={(payload) => {
-          if (editing) {
-            updateBox.mutate({ id: editing.id, data: payload }, {
-              onSuccess: () => { setModalOpen(false); setEditing(null); },
-            });
-          } else {
-            createBox.mutate({ ...payload, move_id: move.id }, {
-              onSuccess: () => setModalOpen(false),
-            });
-          }
-        }}
-      />
-
-      <BulkCreateBoxesModal
-        open={bulkOpen}
-        onClose={() => setBulkOpen(false)}
-        existingCount={boxes.length}
-        pending={bulkCreate.isPending}
-        onSubmit={(payload) => bulkCreate.mutate(payload, { onSuccess: () => setBulkOpen(false) })}
-      />
-
-      <BarcodeScanner
-        open={scannerOpen}
-        onClose={() => { setScannerOpen(false); setScanInBoxId(null); }}
-        onScan={handleScanIntoBox}
-        title="Scan item to add to box"
-      />
-
-      {destRooms.length > 0 && (
-        <p className="text-[10px] text-slate-400 px-1">
-          Tip: bulk-create can be filtered later by destination room
-          ({destRooms.length} room{destRooms.length === 1 ? "" : "s"} mapped).
-        </p>
-      )}
-    </div>
-  );
-}
-
-/* ---------- Load ---------- */
-
-/** Load tab: focus on boxes that should go on the truck. Shows
- *  packed-or-staged → loaded transitions and a quick launchpad for
- *  scan-to-load. */
-function LoadTab({
-  move,
-  boxes,
-  items,
-  rooms,
-}: {
-  move: Move;
-  boxes: MoveBox[];
-  items: MoveItem[];
-  rooms: MoveRoom[];
-}) {
-  const navigate = useNavigate();
-  const transition = useBoxStatusTransition(move.id);
-
-  const ready = boxes.filter((b) => b.status === "packed" || b.status === "staged");
-  const loaded = boxes.filter((b) => b.status === "loaded");
-  const dayOne = boxes.filter((b) => b.priority === "first_night" && b.status !== "unpacked");
 
   return (
     <div className="space-y-3">
@@ -3465,212 +2713,198 @@ function LoadTab({
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Truck className="h-4 w-4" />
-            Load
+            Move
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2">
+        <CardContent className="space-y-3">
+          <div className="rounded-md bg-primary-50 dark:bg-primary-900/20 px-3 py-2 text-sm">
+            <p className="text-xs text-primary-700 dark:text-primary-300 font-medium uppercase tracking-wide">
+              Current focus
+            </p>
+            <p className="text-primary-900 dark:text-primary-100">{PHASE_LABELS[phase]}</p>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              className="flex-1 min-h-12"
+              onClick={() => setScannerOpen(true)}
+            >
+              <ScanLine className="h-4 w-4" />
+              Scan
+            </Button>
+            <Button
+              variant="secondary"
+              className="flex-1 min-h-12"
+              onClick={onCreateBox}
+            >
+              <Plus className="h-4 w-4" />
+              New box
+            </Button>
+          </div>
           <Button
-            className="w-full min-h-12"
-            onClick={() => navigate({ to: "/scan", search: { move: move.id, action: "load" } })}
+            variant="secondary"
+            className="w-full min-h-11"
+            onClick={() =>
+              navigate({ to: "/scan", search: { move: move.id } })
+            }
           >
             <ScanLine className="h-4 w-4" />
-            Scan to load
+            Walk-around scanner
           </Button>
-          <div className="grid grid-cols-3 gap-2">
-            <StatCard label="Ready" value={ready.length} />
-            <StatCard label="Loaded" value={loaded.length} />
-            <StatCard label="Day-one" value={dayOne.length} />
-          </div>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-sm">Ready to load</CardTitle>
-          <Badge variant="default">{ready.length}</Badge>
-        </CardHeader>
-        <CardContent className="space-y-1.5">
-          {ready.length === 0 ? (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Nothing's queued — packed boxes show up here.
-            </p>
-          ) : (
-            ready.map((box) => {
-              const room = rooms.find((r) => r.id === box.destination_room_id);
-              return (
-                <div
-                  key={box.id}
-                  className="flex items-center gap-2 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0"
-                >
-                  <code className="text-xs font-mono bg-slate-100 dark:bg-slate-800 rounded px-1.5">{box.barcode}</code>
-                  <span className="flex-1 truncate text-sm">{box.label}</span>
-                  {room && <Badge variant="default">→ {room.name}</Badge>}
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="min-h-9"
-                    onClick={() => transition.mutate({ id: box.id, status: "loaded" })}
-                  >
-                    <Check className="h-3.5 w-3.5" />
-                    Loaded
-                  </Button>
-                </div>
-              );
-            })
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-/* ---------- Unpack ---------- */
-
-/** Unpack tab: post-arrival workflow. Shows delivered boxes ready to
- *  unpack and a roll-up of installed items. */
-function UnpackTab({
-  move,
-  boxes,
-  items,
-  rooms,
-}: {
-  move: Move;
-  boxes: MoveBox[];
-  items: MoveItem[];
-  rooms: MoveRoom[];
-}) {
-  const navigate = useNavigate();
-  const transition = useBoxStatusTransition(move.id);
-  const itemMut = useItemMutations(move.id);
-
-  const delivered = boxes.filter((b) => b.status === "delivered");
-  const unpacked = boxes.filter((b) => b.status === "unpacked");
-  const itemsDelivered = items.filter((i) => i.status === "delivered");
-  const itemsUnpacked = items.filter((i) => i.status === "unpacked");
-  const itemsInstalled = items.filter((i) => i.status === "installed");
-
-  return (
-    <div className="space-y-3">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <PackageOpen className="h-4 w-4" />
-            Unpack
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <Button
-            className="w-full min-h-12"
-            onClick={() => navigate({ to: "/scan", search: { move: move.id, action: "unpack" } })}
-          >
-            <ScanLine className="h-4 w-4" />
-            Scan to unpack
-          </Button>
-          <div className="grid grid-cols-3 gap-2">
-            <StatCard label="Delivered" value={delivered.length} />
-            <StatCard label="Unpacked" value={unpacked.length} />
-            <StatCard label="Installed" value={itemsInstalled.length} hint="items" />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-sm">Delivered boxes</CardTitle>
-          <Badge variant="default">{delivered.length}</Badge>
-        </CardHeader>
-        <CardContent className="space-y-1.5">
-          {delivered.length === 0 ? (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Nothing delivered yet.
-            </p>
-          ) : (
-            delivered.map((box) => {
-              const room = rooms.find((r) => r.id === box.destination_room_id);
-              return (
-                <div
-                  key={box.id}
-                  className="flex items-center gap-2 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0"
-                >
-                  <code className="text-xs font-mono bg-slate-100 dark:bg-slate-800 rounded px-1.5">{box.barcode}</code>
-                  <span className="flex-1 truncate text-sm">{box.label}</span>
-                  {room && <Badge variant="primary">→ {room.name}</Badge>}
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="min-h-9"
-                    onClick={() => transition.mutate({ id: box.id, status: "unpacked" })}
-                  >
-                    <Check className="h-3.5 w-3.5" />
-                    Unpacked
-                  </Button>
-                </div>
-              );
-            })
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-sm">Items to install</CardTitle>
-          <Badge variant="default">{itemsDelivered.length + itemsUnpacked.length}</Badge>
-        </CardHeader>
-        <CardContent className="space-y-1.5">
-          {itemsDelivered.length + itemsUnpacked.length === 0 ? (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              No items pending install.
-            </p>
-          ) : (
-            [...itemsDelivered, ...itemsUnpacked].slice(0, 50).map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center gap-2 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0"
-              >
-                <span className="flex-1 truncate text-sm">{item.name}</span>
-                <StatusBadge status={item.status} />
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="min-h-9"
-                  onClick={() => itemMut.update.mutate({ id: item.id, data: { status: "installed" } })}
-                >
-                  <Check className="h-3.5 w-3.5" />
-                  Installed
+      {activeBoxes.length === 0 && doneBoxes.length === 0 ? (
+        <Card>
+          <CardContent className="py-6">
+            <EmptyState
+              icon={<Package className="h-8 w-8" />}
+              title="No boxes yet"
+              description="Create your first box, or use Tools → Bulk create to print a stack of labels."
+              action={
+                <Button onClick={onCreateBox}>
+                  <Plus className="h-4 w-4" />
+                  New box
                 </Button>
-              </div>
-            ))
+              }
+            />
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          {activeBoxes.length > 0 && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="text-sm">Active</CardTitle>
+                <Badge variant="default">{activeBoxes.length}</Badge>
+              </CardHeader>
+              <CardContent className="space-y-1.5">
+                {activeBoxes.map((box) => (
+                  <BoxRow
+                    key={box.id}
+                    box={box}
+                    rooms={rooms}
+                    itemCount={itemCountByBox.get(box.id) ?? 0}
+                    ctx={ctx}
+                    onScan={() => onScanResolve(box.barcode)}
+                    onEdit={() => onOpenBoxEdit(box)}
+                  />
+                ))}
+              </CardContent>
+            </Card>
           )}
-        </CardContent>
-      </Card>
+
+          {doneBoxes.length > 0 && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="text-sm text-slate-500">Done</CardTitle>
+                <Badge variant="default">{doneBoxes.length}</Badge>
+              </CardHeader>
+              <CardContent className="space-y-1">
+                {doneBoxes.slice(0, 30).map((box) => {
+                  const room = rooms.find((r) => r.id === box.destination_room_id);
+                  return (
+                    <div
+                      key={box.id}
+                      className="flex items-center gap-2 text-xs py-1 border-b border-slate-100 dark:border-slate-800 last:border-b-0"
+                    >
+                      <code className="font-mono bg-slate-100 dark:bg-slate-800 rounded px-1.5">{box.barcode}</code>
+                      <span className="flex-1 truncate">{box.label}</span>
+                      {room && <span className="text-slate-400">→ {room.name}</span>}
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+
+      <BarcodeScanner
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={(code) => {
+          setScannerOpen(false);
+          onScanResolve(code);
+        }}
+        title="Scan a box or item"
+      />
     </div>
   );
 }
 
-/* ---------- Exceptions ---------- */
+/** A single box row in the Move tab. Shows the box + a recommended-
+ *  action button driven by the workflow engine. Falls back to "Edit"
+ *  if the engine has nothing to recommend. */
+function BoxRow({
+  box,
+  rooms,
+  itemCount,
+  ctx,
+  onScan,
+  onEdit,
+}: {
+  box: MoveBox;
+  rooms: MoveRoom[];
+  itemCount: number;
+  ctx: WorkflowContext;
+  onScan: () => void;
+  onEdit: () => void;
+}) {
+  const room = rooms.find((r) => r.id === box.destination_room_id);
+  return (
+    <div className="flex items-center gap-2 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0">
+      <code className="text-xs font-mono bg-slate-100 dark:bg-slate-800 rounded px-1.5">
+        {box.barcode}
+      </code>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">{box.label}</p>
+        <div className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400">
+          <StatusBadge status={box.status} />
+          <span>{itemCount} items</span>
+          {room && <span>→ {room.name}</span>}
+          {box.priority === "first_night" && (
+            <Badge variant="primary">Day-one</Badge>
+          )}
+        </div>
+      </div>
+      <Button size="sm" variant="secondary" className="min-h-9" onClick={onScan}>
+        Act
+      </Button>
+      <button
+        type="button"
+        onClick={onEdit}
+        className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+        aria-label="Edit"
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
 
-/** Exception triage: anything that's out of the happy path.
- *  - Packed but not loaded after the move date
- *  - Loaded but not delivered
- *  - Delivered but not unpacked
- *  - Items flagged missing / damaged
- *  - Scan-event audit for unknown / wrong-room scans
- */
-function ExceptionsTab({
+/* =========================================================== */
+/*  Problems                                                    */
+/* =========================================================== */
+
+/** Triage panel. Only items / scan-events that need attention.
+ *  The tab itself only appears when there's something here (the
+ *  parent gates the tabDef). */
+function ProblemsTab({
   move,
+  rooms,
   items,
   boxes,
-  rooms,
+  onOpenItemEdit,
+  onOpenBoxEdit,
 }: {
   move: Move;
+  rooms: MoveRoom[];
   items: MoveItem[];
   boxes: MoveBox[];
-  rooms: MoveRoom[];
+  onOpenItemEdit: (item: MoveItem) => void;
+  onOpenBoxEdit: (box: MoveBox) => void;
 }) {
   const itemMut = useItemMutations(move.id);
-
-  // Audit log read — we only need this tab to surface unknown/duplicate
-  // scans, which are typically a small fraction of all scans.
   const { data: logResp } = useQuery({
     queryKey: ["move-scan-events", move.id],
     queryFn: () =>
@@ -3679,34 +2913,48 @@ function ExceptionsTab({
   });
   const log = logResp?.data ?? [];
 
-  const packedNotLoaded = boxes.filter((b) => b.status === "packed" || b.status === "staged");
-  const loadedNotDelivered = boxes.filter((b) => b.status === "loaded");
-  const deliveredNotUnpacked = boxes.filter((b) => b.status === "delivered");
   const missing = items.filter((i) => i.status === "missing");
   const damaged = items.filter((i) => i.status === "damaged");
+  const stuckPacked = boxes.filter(
+    (b) => b.status === "packed" || b.status === "staged"
+  );
+  const stuckLoaded = boxes.filter((b) => b.status === "loaded");
+  const stuckDelivered = boxes.filter((b) => b.status === "delivered");
+  const noDestination = boxes.filter(
+    (b) => (b.status === "loaded" || b.status === "delivered") && !b.destination_room_id
+  );
 
-  // "Unknown scan" — code that couldn't be resolved to a box / item.
   const unknownScans = log.filter((ev) => ev.target_id == null);
-  // "Duplicate" — same code scanned with same action within 60s.
   const duplicateScans: MoveScanEvent[] = [];
-  const recentByKey = new Map<string, number>();
+  const seen = new Map<string, number>();
   for (const ev of log) {
     const key = `${ev.code}|${ev.action}`;
     const at = new Date(ev.scanned_at).getTime();
-    const prev = recentByKey.get(key);
+    const prev = seen.get(key);
     if (prev && Math.abs(at - prev) < 60_000) duplicateScans.push(ev);
-    recentByKey.set(key, at);
+    seen.set(key, at);
   }
-  // "Wrong room" — delivered scan for a box whose box.destination_room_id
-  // points at a room on the opposite side from where the user expected.
-  // Quick heuristic: deliver_to_room / arrive scan whose target box has
-  // no destination_room_id, so we couldn't have routed correctly.
-  const wrongRoom = log.filter((ev) => {
-    if (ev.target_kind !== "box") return false;
-    if (ev.action !== "deliver_to_room" && ev.action !== "arrive") return false;
-    const box = boxes.find((b) => b.id === ev.target_id);
-    return box && !box.destination_room_id;
-  });
+
+  const totalProblems =
+    missing.length +
+    damaged.length +
+    unknownScans.length +
+    duplicateScans.length +
+    noDestination.length;
+
+  if (totalProblems === 0 && stuckPacked.length === 0 && stuckLoaded.length === 0 && stuckDelivered.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-8">
+          <EmptyState
+            icon={<Check className="h-9 w-9 text-emerald-500" />}
+            title="No problems found"
+            description="Everything's where it should be."
+          />
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-3">
@@ -3714,125 +2962,340 @@ function ExceptionsTab({
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-amber-500" />
-            Exceptions
+            Problems
           </CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-3 gap-2">
-          <StatCard label="Packed not loaded" value={packedNotLoaded.length} />
-          <StatCard label="Loaded not delivered" value={loadedNotDelivered.length} />
-          <StatCard label="Delivered not unpacked" value={deliveredNotUnpacked.length} />
-          <StatCard label="Missing" value={missing.length} />
-          <StatCard label="Damaged" value={damaged.length} />
-          <StatCard label="Unknown scans" value={unknownScans.length} />
+        <CardContent className="text-xs text-slate-500 dark:text-slate-400">
+          Quiet when there's nothing to fix. Tap a row to act.
         </CardContent>
       </Card>
 
       {missing.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm text-red-600">Missing items</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-1.5">
-            {missing.map((item) => (
-              <div key={item.id} className="flex items-center gap-2 py-1.5">
-                <span className="flex-1 truncate text-sm">{item.name}</span>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="min-h-9"
-                  onClick={() => itemMut.update.mutate({ id: item.id, data: { status: "delivered" } })}
-                >
-                  Found
-                </Button>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+        <ProblemGroup
+          title="Missing items"
+          tone="danger"
+          rows={missing.map((item) => ({
+            key: item.id,
+            label: item.name,
+            actionLabel: "Mark found",
+            onAction: () =>
+              itemMut.update.mutate({ id: item.id, data: { status: "delivered" } }),
+            onClickRow: () => onOpenItemEdit(item),
+          }))}
+        />
       )}
 
       {damaged.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm text-amber-600">Damaged items</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-1.5">
-            {damaged.map((item) => (
-              <div key={item.id} className="flex items-center gap-2 py-1.5">
-                <span className="flex-1 truncate text-sm">{item.name}</span>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="min-h-9"
-                  onClick={() => itemMut.update.mutate({ id: item.id, data: { status: "delivered" } })}
-                >
-                  Resolved
-                </Button>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+        <ProblemGroup
+          title="Damaged items"
+          tone="warning"
+          rows={damaged.map((item) => ({
+            key: item.id,
+            label: item.name,
+            actionLabel: "Resolve",
+            onAction: () =>
+              itemMut.update.mutate({ id: item.id, data: { status: "delivered" } }),
+            onClickRow: () => onOpenItemEdit(item),
+          }))}
+        />
+      )}
+
+      {noDestination.length > 0 && (
+        <ProblemGroup
+          title="No destination room"
+          tone="warning"
+          rows={noDestination.map((box) => ({
+            key: box.id,
+            label: box.label,
+            actionLabel: "Set room",
+            onAction: () => onOpenBoxEdit(box),
+            onClickRow: () => onOpenBoxEdit(box),
+          }))}
+        />
       )}
 
       {unknownScans.length > 0 && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-sm">Unknown scans</CardTitle>
-            <Badge variant="default">{unknownScans.length}</Badge>
-          </CardHeader>
-          <CardContent className="space-y-1 max-h-48 overflow-y-auto">
-            {unknownScans.slice(0, 50).map((ev) => (
-              <div key={ev.id} className="flex items-center gap-2 text-xs py-1">
-                <Badge variant="default">{capitalize(ev.action)}</Badge>
-                <code className="font-mono">{ev.code}</code>
-                <span className="ml-auto text-slate-400">
-                  {new Date(ev.scanned_at).toLocaleString()}
-                </span>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+        <ProblemGroup
+          title="Unknown scans"
+          tone="default"
+          rows={unknownScans.slice(0, 20).map((ev) => ({
+            key: ev.id,
+            label: `${capitalize(ev.action)} · ${ev.code}`,
+          }))}
+        />
       )}
 
       {duplicateScans.length > 0 && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-sm">Duplicate scans</CardTitle>
-            <Badge variant="default">{duplicateScans.length}</Badge>
-          </CardHeader>
-          <CardContent className="space-y-1 max-h-48 overflow-y-auto">
-            {duplicateScans.slice(0, 50).map((ev) => (
-              <div key={ev.id} className="flex items-center gap-2 text-xs py-1">
-                <Badge variant="default">{capitalize(ev.action)}</Badge>
-                <code className="font-mono">{ev.code}</code>
-                <span className="ml-auto text-slate-400">
-                  {new Date(ev.scanned_at).toLocaleString()}
-                </span>
-              </div>
+        <ProblemGroup
+          title="Duplicate scans"
+          tone="default"
+          rows={duplicateScans.slice(0, 20).map((ev) => ({
+            key: ev.id,
+            label: `${capitalize(ev.action)} · ${ev.code}`,
+          }))}
+        />
+      )}
+    </div>
+  );
+}
+
+interface ProblemRow {
+  key: string;
+  label: string;
+  actionLabel?: string;
+  onAction?: () => void;
+  onClickRow?: () => void;
+}
+
+function ProblemGroup({
+  title,
+  rows,
+  tone,
+}: {
+  title: string;
+  rows: ProblemRow[];
+  tone: "danger" | "warning" | "default";
+}) {
+  const titleColor =
+    tone === "danger" ? "text-red-600 dark:text-red-400" :
+    tone === "warning" ? "text-amber-600 dark:text-amber-400" :
+    "text-slate-700 dark:text-slate-300";
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className={`text-sm ${titleColor}`}>{title}</CardTitle>
+        <Badge variant="default">{rows.length}</Badge>
+      </CardHeader>
+      <CardContent className="space-y-1">
+        {rows.map((row) => (
+          <div
+            key={row.key}
+            className="flex items-center gap-2 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0"
+          >
+            <button
+              type="button"
+              onClick={row.onClickRow}
+              className="flex-1 text-left text-sm truncate hover:text-slate-900 dark:hover:text-slate-100"
+              disabled={!row.onClickRow}
+            >
+              {row.label}
+            </button>
+            {row.actionLabel && row.onAction && (
+              <Button size="sm" variant="secondary" className="min-h-9" onClick={row.onAction}>
+                {row.actionLabel}
+              </Button>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+/* =========================================================== */
+/*  Tools                                                       */
+/* =========================================================== */
+
+/** Setup and admin. Floor plan, room/zone types, labels, bulk box
+ *  creation — anything the user doesn't touch during day-to-day
+ *  workflow. Sub-sections live behind expanders so the page itself
+ *  stays tidy on first open. */
+function ToolsTab({
+  move,
+  rooms,
+  items,
+  boxes,
+  stickers,
+  onRefreshMove,
+}: {
+  move: Move;
+  rooms: MoveRoom[];
+  items: MoveItem[];
+  boxes: MoveBox[];
+  stickers: MoveSticker[];
+  onRefreshMove: () => void;
+}) {
+  const qc = useQueryClient();
+  const roomMut = useRoomMutations(move.id);
+  const [section, setSection] = useState<"floor-plan" | "rooms" | "labels" | "bulk">("rooms");
+
+  const bulkCreate = useMutation({
+    mutationFn: (data: { count: number; code_type: string; label_prefix: string }) =>
+      apiPost(`/moves/${move.id}/boxes/bulk-create`, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["move-boxes", move.id] }),
+  });
+  const [bulkOpen, setBulkOpen] = useState(false);
+
+  return (
+    <div className="space-y-3">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Tools</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-1.5">
+            {[
+              { id: "rooms" as const, label: "Rooms & zones" },
+              { id: "floor-plan" as const, label: "Floor plan" },
+              { id: "labels" as const, label: "Print labels" },
+              { id: "bulk" as const, label: "Bulk create" },
+            ].map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setSection(s.id)}
+                className={
+                  "px-3 py-1.5 rounded-md text-sm font-medium transition-colors " +
+                  (section === s.id
+                    ? "bg-primary-600 text-white"
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700")
+                }
+              >
+                {s.label}
+              </button>
             ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {section === "rooms" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Rooms & zones</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1.5">
+            {rooms.length === 0 ? (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                No rooms yet. Draw some on the Floor plan tab below.
+              </p>
+            ) : (
+              rooms.map((room) => (
+                <div key={room.id} className="flex items-center gap-2 py-1">
+                  <Badge variant={room.side === "origin" ? "default" : "primary"}>
+                    {room.side === "origin" ? "◀" : "▶"} {room.name}
+                  </Badge>
+                  <Select
+                    label=""
+                    value={(room.room_type as MoveRoomType) ?? "normal_room"}
+                    onChange={(e) =>
+                      roomMut.update.mutate({
+                        id: room.id,
+                        data: { room_type: e.target.value as MoveRoomType },
+                      })
+                    }
+                    options={MOVE_ROOM_TYPES.map((t) => ({
+                      value: t,
+                      label: MOVE_ROOM_TYPE_LABELS[t],
+                    }))}
+                    className="ml-auto"
+                  />
+                </div>
+              ))
+            )}
           </CardContent>
         </Card>
       )}
 
-      {wrongRoom.length > 0 && (
+      {section === "floor-plan" && (
+        <PlansTab
+          move={move}
+          rooms={rooms}
+          items={items}
+          stickers={stickers}
+          onRefreshMove={onRefreshMove}
+        />
+      )}
+
+      {section === "labels" && (
+        <LabelsTab boxes={boxes} items={items} rooms={rooms} />
+      )}
+
+      {section === "bulk" && (
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-sm">Wrong-room scans</CardTitle>
-            <Badge variant="default">{wrongRoom.length}</Badge>
+          <CardHeader>
+            <CardTitle className="text-sm">Bulk create boxes</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-1 max-h-48 overflow-y-auto">
-            {wrongRoom.slice(0, 50).map((ev) => {
-              const box = boxes.find((b) => b.id === ev.target_id);
-              return (
-                <div key={ev.id} className="flex items-center gap-2 text-xs py-1">
-                  <Badge variant="default">{capitalize(ev.action)}</Badge>
-                  <span className="truncate">{box?.label ?? `Box ${ev.code}`}</span>
-                  <span className="ml-auto text-slate-400">no destination room</span>
-                </div>
-              );
-            })}
+          <CardContent className="space-y-2 text-xs text-slate-500 dark:text-slate-400">
+            <p>
+              Pre-generate a stack of pre-labelled boxes with auto barcodes.
+              Print them via "Print labels" and stick them on cardboard before
+              packing.
+            </p>
+            <Button onClick={() => setBulkOpen(true)} className="min-h-11">
+              <Package className="h-4 w-4" />
+              Open bulk-create
+            </Button>
           </CardContent>
         </Card>
       )}
+
+      <BulkCreateBoxesModal
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+        existingCount={boxes.length}
+        pending={bulkCreate.isPending}
+        onSubmit={(payload) =>
+          bulkCreate.mutate(payload, { onSuccess: () => setBulkOpen(false) })
+        }
+      />
     </div>
+  );
+}
+
+/* =========================================================== */
+/*  View-box-contents modal                                     */
+/* =========================================================== */
+
+/** Read-only quick view of a box's contents, opened from the workflow
+ *  engine's "View contents" / "View box" actions. */
+function ViewBoxContentsModal({
+  box,
+  items,
+  onClose,
+  onEditBox,
+}: {
+  box: MoveBox;
+  items: MoveItem[];
+  onClose: () => void;
+  onEditBox: () => void;
+}) {
+  return (
+    <Modal open onClose={onClose} title={`${box.label} (${box.barcode})`}>
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 text-xs">
+          <StatusBadge status={box.status} />
+          {box.fragile && <Badge variant="primary">Fragile</Badge>}
+          {box.priority && box.priority !== "normal" && (
+            <Badge variant="default">{capitalize(box.priority.replace(/_/g, " "))}</Badge>
+          )}
+        </div>
+        {items.length === 0 ? (
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            This box is empty.
+          </p>
+        ) : (
+          <div className="space-y-1 max-h-64 overflow-y-auto">
+            {items.map((item) => (
+              <div
+                key={item.id}
+                className="flex items-center gap-2 text-sm py-1 border-b border-slate-100 dark:border-slate-800 last:border-b-0"
+              >
+                <span className="flex-1 truncate">{item.name}</span>
+                <StatusBadge status={item.status} />
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-2 pt-1">
+          <Button variant="secondary" className="flex-1 min-h-11" onClick={onClose}>
+            Close
+          </Button>
+          <Button className="flex-1 min-h-11" onClick={onEditBox}>
+            <Pencil className="h-4 w-4" />
+            Edit box
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }

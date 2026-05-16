@@ -18,6 +18,7 @@
     "@fastify/cookie": "^11.0",
     "@fastify/cors": "^10.0",
     "@fastify/multipart": "^9.0",
+    "@fastify/static": "^8.0",
     "@hcc/shared": "workspace:*",
     "@langchain/core": "^1.1.36",
     "@langchain/langgraph": "^1.2.6",

@@ -3,6 +3,10 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
 import multipart from "@fastify/multipart";
+import fastifyStatic from "@fastify/static";
+import path from "path";
+import { fileURLToPath } from "url";
+import { existsSync } from "fs";
 
 import authRoutes from "./routes/auth.js";
 import projectRoutes from "./routes/projects.js";
@@ -37,6 +41,8 @@ await app.register(cors, {
 await app.register(cookie);
 await app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024 } });
 
+app.get("/healthz", async () => ({ status: "ok" }));
+
 await app.register(authRoutes);
 await app.register(projectRoutes);
 await app.register(propertyRoutes);
@@ -60,6 +66,29 @@ await app.register(billingRoutes);
 await app.register(mapRoutes);
 await app.register(movingRoutes);
 await app.register(calendarRoutes);
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const webDistDir =
+  process.env.WEB_DIST_DIR || path.resolve(__dirname, "../../web/dist");
+
+if (existsSync(webDistDir)) {
+  await app.register(fastifyStatic, {
+    root: webDistDir,
+    prefix: "/",
+    wildcard: false,
+  });
+
+  app.setNotFoundHandler((req, reply) => {
+    if (req.method !== "GET" || req.url.startsWith("/api/")) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    return reply.type("text/html").sendFile("index.html");
+  });
+} else {
+  app.log.warn(
+    `Web dist not found at ${webDistDir} — API will run without serving the SPA.`,
+  );
+}
 
 app.setErrorHandler((error: any, _req, reply) => {
   if (error.validation) {

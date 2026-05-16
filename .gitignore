@@ -14,3 +14,8 @@ uploads/
 
 #history
 .history/
+
+# Claude Code worktree scratch — checkouts live under .claude/worktrees/
+# but are independent git working trees, so git on the parent repo would
+# otherwise try to commit them as submodule gitlinks on main.
+.claude/

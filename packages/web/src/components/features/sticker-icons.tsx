@@ -747,6 +747,130 @@ export function FirepitGlyph({ stroke = defaultStroke, strokeWidth = 3 }: GlyphP
   );
 }
 
+export function OutdoorDeckGlyph({ stroke = defaultStroke, strokeWidth = 3 }: GlyphProps) {
+  return (
+    <g fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeLinejoin="round">
+      {/* deck outline */}
+      <rect x="5" y="5" width="90" height="90" rx="2" />
+      {/* decking planks */}
+      {[20, 35, 50, 65, 80].map((y) => (
+        <line key={y} x1="5" y1={y} x2="95" y2={y} />
+      ))}
+    </g>
+  );
+}
+
+export function FenceGlyph({ stroke = defaultStroke, strokeWidth = 3 }: GlyphProps) {
+  return (
+    <g fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeLinejoin="round" strokeLinecap="round">
+      {/* horizontal rails */}
+      <line x1="5" y1="38" x2="95" y2="38" />
+      <line x1="5" y1="68" x2="95" y2="68" />
+      {/* pickets with pointed tops */}
+      {[12, 32, 52, 72, 92].map((x) => (
+        <path key={x} d={`M${x - 6} 28 L${x} 18 L${x + 6} 28 L${x + 6} 88 L${x - 6} 88 Z`} />
+      ))}
+    </g>
+  );
+}
+
+export function OutdoorGateGlyph({ stroke = defaultStroke, strokeWidth = 3 }: GlyphProps) {
+  return (
+    <g fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeLinejoin="round" strokeLinecap="round">
+      {/* fence posts either side */}
+      <line x1="8" y1="20" x2="8" y2="90" />
+      <line x1="92" y1="20" x2="92" y2="90" />
+      {/* gate panel — slightly ajar */}
+      <rect x="18" y="35" width="60" height="50" />
+      {/* X-brace */}
+      <line x1="18" y1="35" x2="78" y2="85" />
+      <line x1="78" y1="35" x2="18" y2="85" />
+      {/* swing arc to suggest it opens */}
+      <path d="M78 35 A 60 60 0 0 1 92 80" strokeDasharray="3 3" />
+    </g>
+  );
+}
+
+/* ---------- Connectors & nooks ---------- */
+
+export function HallwayGlyph({ stroke = defaultStroke, strokeWidth = 3 }: GlyphProps) {
+  // Long corridor outline + dashed centre line + flow arrow.
+  return (
+    <g fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="5" y="35" width="90" height="30" />
+      <line x1="10" y1="50" x2="90" y2="50" strokeDasharray="4 4" />
+      <path d="M75 42 L88 50 L75 58" />
+    </g>
+  );
+}
+
+export function NookGlyph({ stroke = defaultStroke, strokeWidth = 3 }: GlyphProps) {
+  // Small curved recess against a wall — wall along the top, alcove curving down.
+  return (
+    <g fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <line x1="5" y1="25" x2="30" y2="25" />
+      <line x1="70" y1="25" x2="95" y2="25" />
+      <path d="M30 25 Q50 90 70 25" />
+    </g>
+  );
+}
+
+export function AlcoveGlyph({ stroke = defaultStroke, strokeWidth = 3 }: GlyphProps) {
+  // Rectangular wall recess — wider than a nook, squared off.
+  return (
+    <g fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeLinejoin="round">
+      <line x1="5" y1="25" x2="22" y2="25" />
+      <line x1="78" y1="25" x2="95" y2="25" />
+      <path d="M22 25 L22 80 L78 80 L78 25" />
+    </g>
+  );
+}
+
+export function FoyerGlyph({ stroke = defaultStroke, strokeWidth = 3 }: GlyphProps) {
+  // Entry room: outline + door swing at bottom + footprint dots.
+  return (
+    <g fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="10" y="10" width="80" height="80" />
+      {/* door at bottom-left, swinging inward */}
+      <path d="M30 90 L30 70" />
+      <path d="M30 70 A 20 20 0 0 1 50 90" />
+      {/* welcome footprint dots */}
+      <circle cx="65" cy="45" r="3" fill={stroke} />
+      <circle cx="72" cy="55" r="3" fill={stroke} />
+    </g>
+  );
+}
+
+export function LandingGlyph({ stroke = defaultStroke, strokeWidth = 3 }: GlyphProps) {
+  // Square landing platform + stair treads peeling off one edge.
+  return (
+    <g fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeLinejoin="round">
+      <rect x="20" y="20" width="60" height="60" />
+      {/* treads off the right side */}
+      <line x1="80" y1="35" x2="95" y2="35" />
+      <line x1="80" y1="50" x2="95" y2="50" />
+      <line x1="80" y1="65" x2="95" y2="65" />
+      {/* corner marker */}
+      <circle cx="50" cy="50" r="3" fill={stroke} />
+    </g>
+  );
+}
+
+export function VestibuleGlyph({ stroke = defaultStroke, strokeWidth = 3 }: GlyphProps) {
+  // Small entry chamber sandwiched between two doors (outer + inner).
+  return (
+    <g fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="20" y="20" width="60" height="60" />
+      {/* outer door (left wall) */}
+      <path d="M20 35 L20 65" />
+      <path d="M20 35 A 30 30 0 0 1 50 65" />
+      {/* inner door (right wall) */}
+      <path d="M80 35 L80 65" />
+      <path d="M80 35 A 30 30 0 0 0 50 65" />
+    </g>
+  );
+}
+
 export function CarGlyph({ stroke = defaultStroke, strokeWidth = 3 }: GlyphProps) {
   return (
     <g fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeLinejoin="round">
@@ -965,6 +1089,25 @@ export function StickerGlyph({
       return <FirepitGlyph {...props} />;
     case "car":
       return <CarGlyph {...props} />;
+    case "outdoor_deck":
+      return <OutdoorDeckGlyph {...props} />;
+    case "fence":
+      return <FenceGlyph {...props} />;
+    case "outdoor_gate":
+      return <OutdoorGateGlyph {...props} />;
+    // Connectors & nooks
+    case "hallway":
+      return <HallwayGlyph {...props} />;
+    case "nook":
+      return <NookGlyph {...props} />;
+    case "alcove":
+      return <AlcoveGlyph {...props} />;
+    case "foyer":
+      return <FoyerGlyph {...props} />;
+    case "landing":
+      return <LandingGlyph {...props} />;
+    case "vestibule":
+      return <VestibuleGlyph {...props} />;
     // HVAC & utilities
     case "radiator":
       return <RadiatorGlyph {...props} />;
@@ -1043,6 +1186,16 @@ export const STICKER_DEFAULT_SIZES: Record<MoveStickerKind, { w: number; h: numb
   shed: { w: 0.14, h: 0.14 },
   firepit: { w: 0.1, h: 0.1 },
   car: { w: 0.1, h: 0.2 },
+  outdoor_deck: { w: 0.24, h: 0.18 },
+  fence: { w: 0.24, h: 0.04 },
+  outdoor_gate: { w: 0.1, h: 0.04 },
+  // Connectors & nooks
+  hallway: { w: 0.3, h: 0.08 },
+  nook: { w: 0.12, h: 0.1 },
+  alcove: { w: 0.16, h: 0.1 },
+  foyer: { w: 0.16, h: 0.16 },
+  landing: { w: 0.12, h: 0.12 },
+  vestibule: { w: 0.14, h: 0.12 },
   // HVAC & utilities
   radiator: { w: 0.12, h: 0.04 },
   water_heater: { w: 0.06, h: 0.1 },

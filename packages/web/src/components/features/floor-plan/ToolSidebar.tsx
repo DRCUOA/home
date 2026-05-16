@@ -139,7 +139,7 @@ export function ToolSidebar({ onStampRoom, onStampSticker }: Props) {
   return (
     <aside
       aria-label="Floor plan tools"
-      className="w-52 shrink-0 flex flex-col border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-100"
+      className="w-52 shrink-0 flex flex-col min-h-0 overflow-y-auto overscroll-contain border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-100"
     >
       {/* Select + Pan */}
       <section className="p-2 border-b border-slate-200 dark:border-slate-700">

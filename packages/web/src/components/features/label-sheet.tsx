@@ -129,22 +129,21 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
 
   /* LC30 — 30-up 64×25mm small-label layout.
    *
-   * 64×25mm leaves room for a 20mm QR + ~40×22mm text area. We use
-   * Code 128 boxes' barcode value but force the renderer to QR
-   * because a 1D barcode at this width is too compressed to scan
-   * reliably. The fragile state becomes a red 2mm left bar — chip
-   * text doesn't fit. Contents list is dropped entirely. */
+   * Spec from the user: just the Code 128 barcode (full width) with a
+   * single mono caption "Box N → Room" underneath. No QR, no fragile
+   * indicator, no barcode value text — keep it readable from across a
+   * room with the minimum ink that reliably scans. */
   lc30: {
     perPage: 30,
     label: "LC30 — 30 labels (64×25mm)",
-    description: "LC30 inkjet, 3 cols × 10 rows",
+    description: "LC30 inkjet, 3 cols × 10 rows, Code 128 only",
     previewCols: 3,
-    symbology: () => "qr",
+    symbology: () => "code128",
     previewCellClass:
-      "lc30-label relative flex items-stretch gap-2 rounded-sm border border-slate-300 bg-white p-1.5 text-slate-900 min-h-[60px]",
+      "lc30-label flex flex-col items-stretch justify-center gap-1 rounded-sm border border-slate-300 bg-white p-1.5 text-slate-900 min-h-[60px]",
     pageCss: `
       /* LC30 sheet: 3 cols × 10 rows of 64×25mm labels, ~7mm side
-         margins, ~13mm top/bottom margins, no inter-cell gap.
+         margins, ~13.5mm top/bottom margins, no inter-cell gap.
          Margins set on @page so the grid starts at the first die. */
       @page { size: A4; margin: 13.5mm 7mm; }
       .sheet {
@@ -159,68 +158,37 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
         height: 25mm;
         padding: 1.5mm 2mm;
         display: flex;
-        align-items: center;
-        gap: 2mm;
+        flex-direction: column;
+        justify-content: center;
+        gap: 0.8mm;
         page-break-inside: avoid;
         break-inside: avoid;
-        position: relative;
         overflow: hidden;
       }
-      /* Red edge bar for fragile boxes — visual alternative to a chip
-         text that wouldn't fit on a 25mm-tall label. */
-      .label.fragile::before {
-        content: "";
-        position: absolute;
-        left: 0; top: 0; bottom: 0;
-        width: 2mm;
-        background: #dc2626;
-      }
-      .label .qr-wrap { flex-shrink: 0; width: 20mm; height: 20mm; display: flex; align-items: center; justify-content: center; }
-      .label .qr-wrap svg { width: 20mm; height: 20mm; }
-      .label .text { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
-      .label .text h2 {
-        font-size: 11pt;
-        font-weight: 800;
-        line-height: 1.1;
-        margin: 0;
-        /* Truncate long labels — Box names should be short anyway. */
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      .label .text .sub {
-        font-size: 7.5pt;
-        line-height: 1.15;
-        color: #475569;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        margin-top: 0.5mm;
-      }
-      .label .text .code {
+      /* Barcode stretches to the full content width and a fixed height —
+         preserveAspectRatio=none on the SVG side makes this exact. */
+      .label .barcode { width: 100%; }
+      .label .barcode svg { display: block; width: 100%; height: 14mm; }
+      .label .caption {
         font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-        font-size: 7pt;
-        letter-spacing: 0.3pt;
-        color: #334155;
-        margin-top: 0.5mm;
+        font-size: 8pt;
+        line-height: 1.1;
+        text-align: center;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
     `,
     renderCell({ box, barcodeSvg, destination }) {
-      // Always render QR for LC30 regardless of box.code_type — see the
-      // template's `symbology()` above.
+      const caption = destination ? `${box.label} → ${destination}` : box.label;
       return (
         <>
-          <div className="qr-wrap">
-            <div
-              // eslint-disable-next-line react/no-danger
-              dangerouslySetInnerHTML={{ __html: barcodeSvg }}
-            />
-          </div>
-          <div className="text">
-            <h2>{box.label}</h2>
-            {destination && <div className="sub">→ {destination}</div>}
-            <div className="code">{box.barcode}</div>
-          </div>
+          <div
+            className="barcode"
+            // eslint-disable-next-line react/no-danger
+            dangerouslySetInnerHTML={{ __html: barcodeSvg }}
+          />
+          <div className="caption">{caption}</div>
         </>
       );
     },
@@ -229,10 +197,17 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
 
 /** Render the appropriate symbology SVG for a box, given the template
  *  the caller is using. Templates can force a symbology (LC30 forces
- *  QR) even when the box opted into Code 128. */
+ *  Code 128) regardless of box.code_type. LC30 also stretches the
+ *  bars to fill the slot exactly (preserveAspectRatio=none) because
+ *  every label cell has a fixed printed size. */
 function barcodeSvgFor(box: MoveBox, template: MoveLabelTemplate): string {
   const sym = TEMPLATES[template].symbology(box);
-  return sym === "code128" ? code128Svg(box.barcode) : qrSvg(box.barcode);
+  if (sym === "code128") {
+    return code128Svg(box.barcode, {
+      preserveAspectRatio: template === "lc30" ? "none" : undefined,
+    });
+  }
+  return qrSvg(box.barcode);
 }
 
 interface LabelSheetProps {

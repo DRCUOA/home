@@ -279,14 +279,77 @@ export const MOVE_ANNOTATION_KINDS = [
 ] as const;
 export type MoveAnnotationKind = (typeof MOVE_ANNOTATION_KINDS)[number];
 
+/** Item workflow lifecycle. Covers the full sell/buy move:
+ *  surveyed → awaiting_action → ready_to_pack → packed → staged →
+ *  loaded → delivered → unpacked → installed. Plus terminal/exception
+ *  states (removed, missing, damaged).
+ *
+ *  Backward-compat: the prior vocabulary was
+ *  ["unpacked","packed","loaded","delivered","unpacked_at_destination"]
+ *  where "unpacked" meant "not yet packed". Migration 0013 remaps
+ *  default-state "unpacked" → "surveyed" and "unpacked_at_destination"
+ *  → "unpacked" (terminal). New default for fresh rows is "surveyed". */
 export const MOVE_ITEM_STATUSES = [
-  "unpacked",
+  "surveyed",
+  "awaiting_action",
+  "ready_to_pack",
   "packed",
+  "staged",
   "loaded",
   "delivered",
-  "unpacked_at_destination",
+  "unpacked",
+  "installed",
+  "removed",
+  "missing",
+  "damaged",
 ] as const;
 export type MoveItemStatus = (typeof MOVE_ITEM_STATUSES)[number];
+
+/** Workflow disposition: what the user has decided to do with the
+ *  item. Drives the Declutter tab and links repair/sell/donate/dump
+ *  items into tasks. Independent of the lifecycle status. */
+export const MOVE_ITEM_DISPOSITIONS = [
+  "unassessed",
+  "keep",
+  "sell",
+  "donate",
+  "recycle",
+  "dump",
+  "stage_only",
+  "repair_clean_first",
+] as const;
+export type MoveItemDisposition = (typeof MOVE_ITEM_DISPOSITIONS)[number];
+
+export const MOVE_ITEM_DISPOSITION_LABELS: Record<MoveItemDisposition, string> = {
+  unassessed: "Unassessed",
+  keep: "Keep",
+  sell: "Sell",
+  donate: "Donate",
+  recycle: "Recycle",
+  dump: "Dump",
+  stage_only: "Stage only",
+  repair_clean_first: "Repair / clean first",
+};
+
+/** Room behaviour. Existing rooms default to `normal_room` so the
+ *  floor-plan renderer keeps the current look. Holding/staging/vehicle/
+ *  storage zones drive the Stage and Load tabs. */
+export const MOVE_ROOM_TYPES = [
+  "normal_room",
+  "holding_zone",
+  "staging_area",
+  "vehicle_zone",
+  "storage_zone",
+] as const;
+export type MoveRoomType = (typeof MOVE_ROOM_TYPES)[number];
+
+export const MOVE_ROOM_TYPE_LABELS: Record<MoveRoomType, string> = {
+  normal_room: "Normal room",
+  holding_zone: "Holding zone",
+  staging_area: "Staging area",
+  vehicle_zone: "Vehicle / truck",
+  storage_zone: "Storage",
+};
 
 export const MOVE_BOX_PRIORITIES = [
   "low",
@@ -298,10 +361,14 @@ export type MoveBoxPriority = (typeof MOVE_BOX_PRIORITIES)[number];
 
 /** Box lifecycle, driven by scan events. Mirrors the item status
  *  vocabulary but at the container level. `preparing` is the default
- *  on create; later stages advance as scans land. */
+ *  on create; later stages advance as scans land.
+ *
+ *  `staged` slots between packed and loaded: a box that's sealed and
+ *  parked in a staging area / holding zone waiting for the truck. */
 export const MOVE_BOX_STATUSES = [
   "preparing",
   "packed",
+  "staged",
   "loaded",
   "delivered",
   "unpacked",
@@ -314,7 +381,14 @@ export const MOVE_CODE_TYPES = ["qr", "code128"] as const;
 export type MoveCodeType = (typeof MOVE_CODE_TYPES)[number];
 
 /** Action recorded with each scan event. `lookup` is a no-op read
- *  (e.g. scan-to-inspect); all others advance the box lifecycle. */
+ *  (e.g. scan-to-inspect); all others advance the box / item lifecycle.
+ *
+ *  Original vocabulary (preserved): pack, load, transit, arrive, unpack,
+ *  lookup. Workflow extensions: stage (move to staging area / holding
+ *  zone), deliver_to_room (place at destination room), install (item
+ *  installed in final position), remove (sold/donated/dumped — removes
+ *  from inventory rollup), mark_missing, mark_damaged (exception logging
+ *  during pack/load/unpack). */
 export const MOVE_SCAN_ACTIONS = [
   "pack",
   "load",
@@ -322,6 +396,12 @@ export const MOVE_SCAN_ACTIONS = [
   "arrive",
   "unpack",
   "lookup",
+  "stage",
+  "deliver_to_room",
+  "install",
+  "remove",
+  "mark_missing",
+  "mark_damaged",
 ] as const;
 export type MoveScanAction = (typeof MOVE_SCAN_ACTIONS)[number];
 

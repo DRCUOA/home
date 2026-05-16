@@ -567,6 +567,13 @@ export const moveRooms = pgTable(
     side: varchar("side", { length: 20 }).notNull(),
     name: varchar("name", { length: 120 }).notNull(),
     color: varchar("color", { length: 20 }).default("#8b5cf6").notNull(),
+    // Workflow role. Existing rows default to `normal_room` so the
+    // floor-plan renderer keeps its current behaviour; new values
+    // (`holding_zone`, `staging_area`, `vehicle_zone`, `storage_zone`)
+    // drive the Stage / Load tabs.
+    room_type: varchar("room_type", { length: 30 })
+      .default("normal_room")
+      .notNull(),
     // SVG polygon as array of {x,y} in 0..1 floor-plan coordinates (relative
     // to the image so it scales with any render size). Kept for backward
     // compat with rooms drawn before the room-as-sticker refactor; new rooms
@@ -644,7 +651,16 @@ export const moveItems = pgTable(
     box_id: uuid("box_id").references(() => moveBoxes.id, {
       onDelete: "set null",
     }),
-    status: varchar("status", { length: 30 }).default("unpacked").notNull(),
+    // Workflow lifecycle. Default changed in migration 0013 from
+    // legacy "unpacked" (which meant "not yet packed") to "surveyed"
+    // (initial state in the survey → declutter → pack → unpack flow).
+    // Existing rows are remapped in the same migration.
+    status: varchar("status", { length: 30 }).default("surveyed").notNull(),
+    // Workflow disposition: what the user has decided to do with the
+    // item. Drives the Declutter tab. Independent of `status`.
+    disposition: varchar("disposition", { length: 30 })
+      .default("unassessed")
+      .notNull(),
     category: varchar("category", { length: 50 }),
     value_estimate: real("value_estimate"),
     fragile: boolean("fragile").default(false).notNull(),
@@ -665,6 +681,8 @@ export const moveItems = pgTable(
     index("move_items_destination_room_idx").on(t.destination_room_id),
     index("move_items_box_idx").on(t.box_id),
     index("move_items_barcode_idx").on(t.barcode),
+    index("move_items_disposition_idx").on(t.disposition),
+    index("move_items_status_idx").on(t.status),
   ]
 );
 

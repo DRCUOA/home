@@ -3,10 +3,12 @@ import {
   MOVE_STATUSES,
   MOVE_SIDES,
   MOVE_ITEM_STATUSES,
+  MOVE_ITEM_DISPOSITIONS,
   MOVE_ITEM_CATEGORIES,
   MOVE_BOX_PRIORITIES,
   MOVE_BOX_STATUSES,
   MOVE_CODE_TYPES,
+  MOVE_ROOM_TYPES,
   MOVE_SCAN_ACTIONS,
   MOVE_SCAN_TARGET_KINDS,
   MOVE_STICKER_KINDS,
@@ -47,6 +49,10 @@ export const createMoveRoomSchema = z.object({
   side: z.enum(MOVE_SIDES),
   name: z.string().min(1).max(120),
   color: z.string().max(20).optional(),
+  /** Workflow role for this room. Defaults to `normal_room` so existing
+   *  rooms keep the current floor-plan rendering. Holding/staging/vehicle/
+   *  storage zones drive the Stage and Load tabs. */
+  room_type: z.enum(MOVE_ROOM_TYPES).optional(),
   // Legacy polygon (from the original draw-room tool). Rooms are now
   // also persisted as rectangles so their editor UX mirrors stickers
   // (move/resize/rotate); polygon is kept for backward-compat reading
@@ -122,6 +128,8 @@ export const createMoveItemSchema = z.object({
   destination_room_id: z.string().uuid().optional(),
   box_id: z.string().uuid().optional(),
   status: z.enum(MOVE_ITEM_STATUSES).optional(),
+  /** Workflow disposition (Declutter tab). Defaults to `unassessed`. */
+  disposition: z.enum(MOVE_ITEM_DISPOSITIONS).optional(),
   category: z.enum(MOVE_ITEM_CATEGORIES).optional(),
   value_estimate: z.number().positive().optional(),
   fragile: z.boolean().optional(),

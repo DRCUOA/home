@@ -92,6 +92,13 @@
       "when": 1779235200000,
       "tag": "0012_move_barcode_workflow",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1779494400000,
+      "tag": "0013_move_workflow",
+      "breakpoints": true
     }
   ]
 }

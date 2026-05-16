@@ -304,6 +304,9 @@ export interface MoveRoom extends BaseEntity {
   side: "origin" | "destination";
   name: string;
   color: string;
+  /** Workflow role: `normal_room` | `holding_zone` | `staging_area` |
+   *  `vehicle_zone` | `storage_zone`. Defaults to `normal_room`. */
+  room_type: string;
   /** Legacy free-draw polygon. Empty for rooms created after the
    *  rooms-as-stickers refactor — those rely on the rect fields below. */
   polygon: MoveRoomPolygonPoint[];
@@ -339,6 +342,10 @@ export interface MoveItem extends BaseEntity {
   destination_room_id?: string;
   box_id?: string;
   status: string;
+  /** Workflow disposition (Declutter): unassessed | keep | sell | donate |
+   *  recycle | dump | stage_only | repair_clean_first. Defaults to
+   *  `unassessed`. */
+  disposition: string;
   category?: string;
   value_estimate?: number;
   fragile: boolean;

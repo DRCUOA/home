@@ -28,6 +28,7 @@ import {
   MOVE_BOX_STATUSES,
   MOVE_SCAN_ACTIONS,
   type MoveBoxStatus,
+  type MoveItemStatus,
   type MoveScanAction,
 } from "@hcc/shared";
 
@@ -59,18 +60,59 @@ async function assertOwnsMove(userId: string, moveId: string) {
 }
 
 /** Maps a scan action to the box status it advances to, when relevant.
- *  Returns null for non-advancing actions (transit, lookup) so the
- *  scan still gets logged but the box status is left alone. */
+ *  Returns null for non-advancing actions (transit, lookup, mark_*) so
+ *  the scan still gets logged but the box status is left alone.
+ *
+ *  Box-level vocabulary is narrower than item-level: install / remove
+ *  don't apply to boxes (they're item-only outcomes), so they map to
+ *  null at the box level. */
 function statusForAction(action: MoveScanAction): MoveBoxStatus | null {
   switch (action) {
     case "pack":
       return "packed";
+    case "stage":
+      return "staged";
     case "load":
       return "loaded";
     case "arrive":
+    case "deliver_to_room":
       return "delivered";
     case "unpack":
       return "unpacked";
+    case "transit":
+    case "lookup":
+    case "install":
+    case "remove":
+    case "mark_missing":
+    case "mark_damaged":
+      return null;
+  }
+}
+
+/** Maps a scan action to the item status it advances to. Items have a
+ *  broader vocabulary than boxes — install / remove / mark_missing /
+ *  mark_damaged advance to dedicated terminal/exception states. */
+function itemStatusForAction(action: MoveScanAction): MoveItemStatus | null {
+  switch (action) {
+    case "pack":
+      return "packed";
+    case "stage":
+      return "staged";
+    case "load":
+      return "loaded";
+    case "arrive":
+    case "deliver_to_room":
+      return "delivered";
+    case "unpack":
+      return "unpacked";
+    case "install":
+      return "installed";
+    case "remove":
+      return "removed";
+    case "mark_missing":
+      return "missing";
+    case "mark_damaged":
+      return "damaged";
     case "transit":
     case "lookup":
       return null;
@@ -193,6 +235,7 @@ export default async function movingRoutes(app: FastifyInstance) {
         side: body.side,
         name: body.name,
         color: body.color ?? "#8b5cf6",
+        room_type: body.room_type ?? "normal_room",
         polygon: body.polygon ?? [],
         sort_order: body.sort_order ?? 0,
       })
@@ -268,7 +311,8 @@ export default async function movingRoutes(app: FastifyInstance) {
         origin_room_id: body.origin_room_id,
         destination_room_id: body.destination_room_id,
         box_id: body.box_id,
-        status: body.status ?? "unpacked",
+        status: body.status ?? "surveyed",
+        disposition: body.disposition ?? "unassessed",
         category: body.category,
         value_estimate: body.value_estimate,
         fragile: body.fragile ?? false,
@@ -539,6 +583,8 @@ export default async function movingRoutes(app: FastifyInstance) {
     const action: MoveScanAction =
       body.status === "packed"
         ? "pack"
+        : body.status === "staged"
+        ? "stage"
         : body.status === "loaded"
         ? "load"
         : body.status === "delivered"
@@ -556,6 +602,16 @@ export default async function movingRoutes(app: FastifyInstance) {
       action,
       note: body.note,
     });
+
+    // Cascade item-status rollup for items in this box — same rule as
+    // the scan-events route, so manual status PATCHes stay coherent.
+    const newItemStatus = itemStatusForAction(action);
+    if (newItemStatus) {
+      await db
+        .update(schema.moveItems)
+        .set({ status: newItemStatus, updated_at: new Date() })
+        .where(eq(schema.moveItems.box_id, existing.id));
+    }
 
     return { data: row };
   });
@@ -648,19 +704,40 @@ export default async function movingRoutes(app: FastifyInstance) {
       })
       .returning();
 
-    // Advance box status when relevant. Items aren't auto-advanced
-    // here — the item-status vocabulary is broader and item state is
-    // typically driven by box status anyway.
-    const newStatus = statusForAction(body.action);
-    if (
-      newStatus &&
-      body.target_kind === "box" &&
-      resolvedTargetId
-    ) {
-      await db
-        .update(schema.moveBoxes)
-        .set({ status: newStatus, updated_at: new Date() })
-        .where(eq(schema.moveBoxes.id, resolvedTargetId));
+    // Advance the rollup status on the scanned target.
+    // - Box scan: update move_boxes.status (if action maps to a box
+    //   status) AND cascade to every move_items row inside that box
+    //   (if action maps to an item status). The item cascade keeps the
+    //   Survey/Pack/Load/Unpack/Exceptions panels coherent with what
+    //   the user just scanned — without a cascade the user would have
+    //   to scan every item individually to drive item rollups, which
+    //   defeats the whole point of grouping items into a box.
+    // - Item scan: update only the single item row.
+    // We intentionally don't error on the no-op (lookup, transit) —
+    // those scans still get logged for the audit trail.
+    const newBoxStatus = statusForAction(body.action);
+    const newItemStatus = itemStatusForAction(body.action);
+
+    if (body.target_kind === "box" && resolvedTargetId) {
+      if (newBoxStatus) {
+        await db
+          .update(schema.moveBoxes)
+          .set({ status: newBoxStatus, updated_at: new Date() })
+          .where(eq(schema.moveBoxes.id, resolvedTargetId));
+      }
+      if (newItemStatus) {
+        await db
+          .update(schema.moveItems)
+          .set({ status: newItemStatus, updated_at: new Date() })
+          .where(eq(schema.moveItems.box_id, resolvedTargetId));
+      }
+    } else if (body.target_kind === "item" && resolvedTargetId) {
+      if (newItemStatus) {
+        await db
+          .update(schema.moveItems)
+          .set({ status: newItemStatus, updated_at: new Date() })
+          .where(eq(schema.moveItems.id, resolvedTargetId));
+      }
     }
 
     return reply.status(201).send({ data: event });

@@ -2,15 +2,31 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ------------------------------------------------------------------
- * Design tokens are defined in src/design-system.ts. The variables
- * below mirror that file and are the ONLY values Tailwind references
- * in its @theme block. To change the design scheme, edit
- * design-system.ts, then (if you add a new token) mirror it here.
- * ------------------------------------------------------------------ */
+/* ==========================================================================
+ * Design tokens
+ *
+ * Two layers of tokens live here:
+ *
+ *   1. PRIMITIVES — the raw palette (mirrors src/design-system.ts).
+ *      Names: --ds-color-primary-*, --ds-color-neutral-*, --ds-color-{success,
+ *      warning,danger,info}, plus typography / spacing / radii / shadows.
+ *
+ *   2. SEMANTIC tokens (--ds-*) — what UI surfaces and components actually
+ *      use: background, foreground, card, popover, muted, accent, border,
+ *      input, ring, status (success/warning/destructive/info), overlay.
+ *      These re-map under `.dark`, and are then aliased into Tailwind's
+ *      theme inside @theme so they become utilities like `bg-card`,
+ *      `text-muted-foreground`, `border-input`, `ring-ring`, …
+ *
+ *   To change the design scheme, prefer editing the semantic --ds-* tokens
+ *   in :root and .dark below. Touch primitives only when you intend to
+ *   shift the entire underlying palette.
+ * ========================================================================== */
 
 :root {
-  /* Brand primary */
+  /* -- PRIMITIVES ------------------------------------------------------- */
+
+  /* Brand primary (green) */
   --ds-color-primary-50:  #edfff4;
   --ds-color-primary-100: #d5ffe6;
   --ds-color-primary-200: #adffd0;
@@ -22,7 +38,7 @@
   --ds-color-primary-800: #067a34;
   --ds-color-primary-900: #08652e;
 
-  /* Neutrals (slate) */
+  /* Neutrals (slate ramp) */
   --ds-color-neutral-50:  #f8fafc;
   --ds-color-neutral-100: #f1f5f9;
   --ds-color-neutral-200: #e2e8f0;
@@ -35,7 +51,7 @@
   --ds-color-neutral-900: #0f172a;
   --ds-color-neutral-950: #020617;
 
-  /* Semantic */
+  /* Status primitives */
   --ds-color-success: #16a34a;
   --ds-color-warning: #d97706;
   --ds-color-danger:  #dc2626;
@@ -77,15 +93,155 @@
   --ds-easing-standard: cubic-bezier(0.2, 0, 0, 1);
   --ds-easing-entrance: cubic-bezier(0, 0, 0, 1);
   --ds-easing-exit:     cubic-bezier(0.4, 0, 1, 1);
+
+  /* -- SEMANTIC TOKENS (LIGHT) ------------------------------------------ */
+
+  /* Surfaces — off-white base reduces glare in bright sunlight; cards stay
+     pure white so they read as elevated above the tinted page. */
+  --ds-background:           #f5f7fa;
+  --ds-card:                 #ffffff;
+  --ds-popover:              #ffffff;
+  --ds-muted:                #eef2f7;
+  --ds-muted-strong:         #e2e8f0;
+
+  /* Content */
+  --ds-foreground:           #0b1220;
+  --ds-foreground-secondary: #334155;
+  --ds-muted-foreground:     #64748b;
+  --ds-subtle-foreground:    #94a3b8;
+  --ds-disabled-foreground:  #cbd5e1;
+  --ds-foreground-inverse:   #f5f7fa;
+
+  /* Edges */
+  --ds-border:               #e2e8f0;
+  --ds-border-strong:        #cbd5e1;
+  --ds-input:                #cbd5e1;
+  --ds-ring:                 #00c94e;
+
+  /* Brand accent (primary-600 anchored) */
+  --ds-accent:               #00c94e;
+  --ds-accent-hover:         #009d3d;
+  --ds-accent-active:        #067a34;
+  --ds-accent-foreground:    #ffffff;
+  --ds-accent-soft:          #e6fbef;
+  --ds-accent-soft-foreground:#066c2f;
+
+  /* Status — `*-soft` are tinted surfaces for badges/alerts; `*-foreground`
+     is the text color on the saturated bg. */
+  --ds-success:              #15803d;
+  --ds-success-foreground:   #ffffff;
+  --ds-success-soft:         #dcfce7;
+  --ds-success-soft-foreground:#14532d;
+
+  --ds-warning:              #b45309;
+  --ds-warning-foreground:   #ffffff;
+  --ds-warning-soft:         #fef3c7;
+  --ds-warning-soft-foreground:#7c2d12;
+
+  --ds-destructive:          #b91c1c;
+  --ds-destructive-foreground:#ffffff;
+  --ds-destructive-soft:     #fee2e2;
+  --ds-destructive-soft-foreground:#7f1d1d;
+
+  --ds-info:                 #1d4ed8;
+  --ds-info-foreground:      #ffffff;
+  --ds-info-soft:            #dbeafe;
+  --ds-info-soft-foreground: #1e3a8a;
+
+  /* Overlay (modal scrim) */
+  --ds-overlay:              rgb(15 23 42 / 0.45);
+  --ds-overlay-strong:       rgb(15 23 42 / 0.65);
+
+  /* Scrollbar */
+  --ds-scrollbar-thumb:        #cbd5e1;
+  --ds-scrollbar-thumb-hover:  #94a3b8;
+  --ds-scrollbar-track:        transparent;
+
+  color-scheme: light;
 }
 
-/* Tailwind theme: every token it exposes as a utility is sourced from
-   a --ds-* variable so changing design-system.ts is sufficient. */
-@theme {
+.dark {
+  /* Surfaces — deep cool neutral (not pitch black), with explicit elevation
+     layers: bg < card < popover. */
+  --ds-background:           #0b1220;
+  --ds-card:                 #111a2e;
+  --ds-popover:              #172238;
+  --ds-muted:                #1a263d;
+  --ds-muted-strong:         #243150;
+
+  /* Content — off-white avoids the eye-strain of pure white on dark. */
+  --ds-foreground:           #e6ecf5;
+  --ds-foreground-secondary: #cbd5e1;
+  --ds-muted-foreground:     #94a3b8;
+  --ds-subtle-foreground:    #64748b;
+  --ds-disabled-foreground:  #475569;
+  --ds-foreground-inverse:   #0b1220;
+
+  /* Edges */
+  --ds-border:               #1e293b;
+  --ds-border-strong:        #334155;
+  --ds-input:                #334155;
+  --ds-ring:                 #2bff7e;
+
+  /* Brand accent — lift to primary-500 so it pops on dark surfaces. */
+  --ds-accent:               #00e85c;
+  --ds-accent-hover:         #2bff7e;
+  --ds-accent-active:        #00c94e;
+  --ds-accent-foreground:    #04210e;
+  --ds-accent-soft:          rgb(0 232 92 / 0.16);
+  --ds-accent-soft-foreground:#6fffab;
+
+  /* Status — brighter hues for dark, tinted-glass soft surfaces. */
+  --ds-success:              #22c55e;
+  --ds-success-foreground:   #052e16;
+  --ds-success-soft:         rgb(34 197 94 / 0.16);
+  --ds-success-soft-foreground:#86efac;
+
+  --ds-warning:              #f59e0b;
+  --ds-warning-foreground:   #422006;
+  --ds-warning-soft:         rgb(245 158 11 / 0.16);
+  --ds-warning-soft-foreground:#fcd34d;
+
+  --ds-destructive:          #f87171;
+  --ds-destructive-foreground:#450a0a;
+  --ds-destructive-soft:     rgb(248 113 113 / 0.16);
+  --ds-destructive-soft-foreground:#fca5a5;
+
+  --ds-info:                 #60a5fa;
+  --ds-info-foreground:      #0c1c40;
+  --ds-info-soft:            rgb(96 165 250 / 0.16);
+  --ds-info-soft-foreground: #bfdbfe;
+
+  /* Overlay — deeper scrim against lighter dark surfaces below. */
+  --ds-overlay:              rgb(0 0 0 / 0.65);
+  --ds-overlay-strong:       rgb(0 0 0 / 0.8);
+
+  /* Scrollbar */
+  --ds-scrollbar-thumb:        #334155;
+  --ds-scrollbar-thumb-hover:  #475569;
+  --ds-scrollbar-track:        transparent;
+
+  /* Stronger shadow tints on dark since dark-on-dark needs more contrast. */
+  --ds-shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+  --ds-shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.4), 0 1px 2px -1px rgb(0 0 0 / 0.3);
+  --ds-shadow-md: 0 4px 8px -2px rgb(0 0 0 / 0.5), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+  --ds-shadow-lg: 0 12px 24px -8px rgb(0 0 0 / 0.6), 0 4px 8px -4px rgb(0 0 0 / 0.4);
+  --ds-shadow-xl: 0 24px 48px -16px rgb(0 0 0 / 0.7), 0 8px 16px -8px rgb(0 0 0 / 0.5);
+  --ds-shadow-focus: 0 0 0 3px rgb(43 255 126 / 0.45);
+
+  color-scheme: dark;
+}
+
+/* Tailwind theme: every utility class is rooted in a --ds-* primitive so the
+   light/dark scopes above cleanly switch every consumer at once. The `inline`
+   keyword tells Tailwind to emit `var()` references rather than inlining the
+   compile-time value — required for runtime theming. */
+@theme inline {
   --font-display: var(--ds-font-display);
   --font-body:    var(--ds-font-body);
   --font-mono:    var(--ds-font-mono);
 
+  /* Primary palette — preserved for callsites that still want a specific stop. */
   --color-primary-50:  var(--ds-color-primary-50);
   --color-primary-100: var(--ds-color-primary-100);
   --color-primary-200: var(--ds-color-primary-200);
@@ -97,31 +253,157 @@
   --color-primary-800: var(--ds-color-primary-800);
   --color-primary-900: var(--ds-color-primary-900);
 
-  --color-success: var(--ds-color-success);
-  --color-warning: var(--ds-color-warning);
-  --color-danger:  var(--ds-color-danger);
-  --color-info:    var(--ds-color-info);
+  /* Semantic surface + content */
+  --color-background:           var(--ds-background);
+  --color-card:                 var(--ds-card);
+  --color-popover:              var(--ds-popover);
+  --color-muted:                var(--ds-muted);
+  --color-muted-strong:         var(--ds-muted-strong);
+
+  --color-foreground:           var(--ds-foreground);
+  --color-foreground-secondary: var(--ds-foreground-secondary);
+  --color-muted-foreground:     var(--ds-muted-foreground);
+  --color-subtle-foreground:    var(--ds-subtle-foreground);
+  --color-disabled-foreground:  var(--ds-disabled-foreground);
+  --color-foreground-inverse:   var(--ds-foreground-inverse);
+
+  --color-border:               var(--ds-border);
+  --color-border-strong:        var(--ds-border-strong);
+  --color-input:                var(--ds-input);
+  --color-ring:                 var(--ds-ring);
+
+  /* Brand accent (utility names: bg-accent, text-accent-foreground, …) */
+  --color-accent:               var(--ds-accent);
+  --color-accent-hover:         var(--ds-accent-hover);
+  --color-accent-active:        var(--ds-accent-active);
+  --color-accent-foreground:    var(--ds-accent-foreground);
+  --color-accent-soft:          var(--ds-accent-soft);
+  --color-accent-soft-foreground:var(--ds-accent-soft-foreground);
+
+  /* Status */
+  --color-success:              var(--ds-success);
+  --color-success-foreground:   var(--ds-success-foreground);
+  --color-success-soft:         var(--ds-success-soft);
+  --color-success-soft-foreground: var(--ds-success-soft-foreground);
+
+  --color-warning:              var(--ds-warning);
+  --color-warning-foreground:   var(--ds-warning-foreground);
+  --color-warning-soft:         var(--ds-warning-soft);
+  --color-warning-soft-foreground: var(--ds-warning-soft-foreground);
+
+  --color-destructive:          var(--ds-destructive);
+  --color-destructive-foreground:var(--ds-destructive-foreground);
+  --color-destructive-soft:     var(--ds-destructive-soft);
+  --color-destructive-soft-foreground: var(--ds-destructive-soft-foreground);
+
+  --color-info:                 var(--ds-info);
+  --color-info-foreground:      var(--ds-info-foreground);
+  --color-info-soft:            var(--ds-info-soft);
+  --color-info-soft-foreground: var(--ds-info-soft-foreground);
+
+  /* Overlay utility — used as bg-overlay on modal scrim */
+  --color-overlay:              var(--ds-overlay);
+  --color-overlay-strong:       var(--ds-overlay-strong);
 }
 
-/* Desktop baseline — dropped iOS/PWA-specific rules (tap highlight,
-   overscroll-none, 16px font-size hack). Desktop browsers don't need them. */
+/* --------------------------------------------------------------------------
+ * Base / reset
+ * -------------------------------------------------------------------------- */
+
 html,
 body {
   min-width: 1024px;
   font-family: var(--ds-font-body);
-  background: var(--ds-color-neutral-50);
-  color: var(--ds-color-neutral-900);
+  background: var(--ds-background);
+  color: var(--ds-foreground);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-.dark html,
-.dark body,
-html.dark,
-html.dark body {
-  background: var(--ds-color-neutral-950);
-  color: var(--ds-color-neutral-100);
+/* WCAG-compliant default focus ring — a 2px outline + 2px offset of the
+   ring color. Only fires for keyboard focus. Components can override with
+   their own focus-visible utilities. */
+:where(:focus-visible) {
+  outline: 2px solid var(--ds-ring);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
-/* Dense map measure dropdowns (retained; scoped). */
+::selection {
+  background: color-mix(in srgb, var(--ds-accent) 35%, transparent);
+  color: var(--ds-foreground);
+}
+
+/* --------------------------------------------------------------------------
+ * Smooth theme transitions
+ *
+ * Enabled only while the theme is actively changing — the theme store adds
+ * `theme-transitioning` to <html> on setTheme() and removes it ~280ms later.
+ * This means initial paint and steady-state interactions never fight the
+ * theme animation.
+ * -------------------------------------------------------------------------- */
+
+html.theme-transitioning,
+html.theme-transitioning *,
+html.theme-transitioning *::before,
+html.theme-transitioning *::after {
+  transition-property: background-color, border-color, color, fill, stroke, box-shadow !important;
+  transition-duration: 200ms !important;
+  transition-timing-function: var(--ds-easing-standard) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.theme-transitioning,
+  html.theme-transitioning *,
+  html.theme-transitioning *::before,
+  html.theme-transitioning *::after {
+    transition-duration: 0ms !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+ * Custom scrollbars — themed, slim, low-glare in both modes.
+ * -------------------------------------------------------------------------- */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ds-scrollbar-thumb) var(--ds-scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: var(--ds-scrollbar-track);
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--ds-scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--ds-scrollbar-thumb-hover);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.scrollbar-hide {
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* --------------------------------------------------------------------------
+ * MapLibre scoped overrides — token-driven, theme-aware.
+ * -------------------------------------------------------------------------- */
+
 select.measure-location-select,
 select.measure-location-select option,
 select.measure-location-select optgroup {
@@ -146,21 +428,15 @@ select.measure-location-select optgroup {
 }
 
 .maplibregl-ctrl-scale {
-  background-color: rgba(255, 255, 255, 0.85) !important;
-  border-color: var(--ds-color-neutral-700) !important;
+  background-color: color-mix(in srgb, var(--ds-card) 85%, transparent) !important;
+  border-color: var(--ds-border-strong) !important;
   border-width: 2px !important;
   border-top: none !important;
-  color: var(--ds-color-neutral-700) !important;
+  color: var(--ds-foreground-secondary) !important;
   font-size: 11px !important;
   font-weight: 600 !important;
   padding: 1px 6px !important;
   line-height: 1.4 !important;
   backdrop-filter: blur(4px);
   border-radius: 0 0 4px 4px !important;
-}
-
-.dark .maplibregl-ctrl-scale {
-  background-color: rgba(15, 23, 42, 0.85) !important;
-  border-color: var(--ds-color-neutral-400) !important;
-  color: var(--ds-color-neutral-200) !important;
 }

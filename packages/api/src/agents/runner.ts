@@ -12,6 +12,7 @@ import { recommendActionsWorkflow } from "./workflows/recommend-actions.js";
 import { projectSummaryWorkflow } from "./workflows/project-summary.js";
 import { qaWorkflow } from "./workflows/qa.js";
 import { enrichPropertyWorkflow } from "./workflows/enrich-property.js";
+import { proposeActionsWorkflow } from "./workflows/propose-actions.js";
 import { semanticSearch } from "./embeddings.js";
 import type { AssistantTool, ContextMessage } from "@hcc/shared";
 
@@ -27,7 +28,8 @@ type WorkflowType =
   | "project_state_summary"
   | "semantic_search"
   | "qa"
-  | "enrich_property";
+  | "enrich_property"
+  | "propose_actions";
 
 export async function runWorkflow(
   runId: string,
@@ -93,6 +95,12 @@ export async function runWorkflow(
         });
         break;
       }
+      case "propose_actions":
+        result = await proposeActionsWorkflow.invoke({
+          input,
+          context_messages: contextMessages ?? [],
+        });
+        break;
       default:
         throw new Error(`Unknown workflow type: ${workflowType}`);
     }

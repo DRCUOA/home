@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { AGENT_WORKFLOW_TYPES, OPENAI_MODELS, ASSISTANT_TOOLS } from "../constants/enums.js";
+import {
+  AGENT_WORKFLOW_TYPES,
+  OPENAI_MODELS,
+  ASSISTANT_TOOLS,
+  TASK_KINDS,
+  TASK_PRIORITIES,
+} from "../constants/enums.js";
 
 export const contextMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
@@ -20,3 +26,17 @@ export const runAssistantSchema = z.object({
 });
 
 export type RunAssistantInput = z.infer<typeof runAssistantSchema>;
+
+export const proposedActionSchema = z.object({
+  title: z.string().min(1).max(500),
+  description: z.string().optional().default(""),
+  kind: z.enum(TASK_KINDS).default("task"),
+  priority: z.enum(TASK_PRIORITIES).default("medium"),
+  suggested_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
+    .optional()
+    .nullable(),
+});
+
+export type ProposedAction = z.infer<typeof proposedActionSchema>;

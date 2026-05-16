@@ -71,8 +71,30 @@ import { CameraCapture } from "@/components/features/camera-capture";
 
 type ListResponse<T> = { data: T[]; total: number };
 
+type MovingTab = "overview" | "plans" | "inventory" | "boxes" | "scan" | "labels";
+const MOVING_TABS: readonly MovingTab[] = ["overview", "plans", "inventory", "boxes", "scan", "labels"];
+
+type MovingSearch = {
+  tab?: MovingTab;
+  /** Pre-select a move (used by deep links from /scan lookup). */
+  move?: string;
+  /** Open the BoxModal in edit-mode for this box id on mount. */
+  focusBoxId?: string;
+  /** Open the ItemModal in edit-mode for this item id on mount. */
+  focusItemId?: string;
+};
+
 export const Route = createFileRoute("/moving")({
   component: MovingPage,
+  validateSearch: (raw: Record<string, unknown>): MovingSearch => ({
+    tab:
+      typeof raw.tab === "string" && (MOVING_TABS as readonly string[]).includes(raw.tab)
+        ? (raw.tab as MovingTab)
+        : undefined,
+    move: typeof raw.move === "string" ? raw.move : undefined,
+    focusBoxId: typeof raw.focusBoxId === "string" ? raw.focusBoxId : undefined,
+    focusItemId: typeof raw.focusItemId === "string" ? raw.focusItemId : undefined,
+  }),
 });
 
 const ROOM_COLORS = [
@@ -98,10 +120,21 @@ function MovingPage() {
   const properties = propertiesQuery.data?.data ?? [];
   const moves = movesQuery.data?.data ?? [];
 
-  const [selectedMoveId, setSelectedMoveId] = useState<string | null>(null);
+  const search = Route.useSearch();
+  const navigate = useNavigate();
+
+  const [selectedMoveId, setSelectedMoveId] = useState<string | null>(
+    search.move ?? null
+  );
   useEffect(() => {
     if (!selectedMoveId && moves.length > 0) setSelectedMoveId(moves[0].id);
   }, [moves, selectedMoveId]);
+  // If the URL specified a move and it's available, sync the selection.
+  useEffect(() => {
+    if (search.move && moves.some((m) => m.id === search.move)) {
+      setSelectedMoveId(search.move);
+    }
+  }, [search.move, moves]);
 
   const selectedMove = moves.find((m) => m.id === selectedMoveId) ?? null;
 
@@ -140,9 +173,11 @@ function MovingPage() {
   const updateMove = useUpdate<Move>("moves", "/moves");
   const removeMove = useRemove("moves", "/moves");
 
-  const [tab, setTab] = useState<
-    "overview" | "plans" | "inventory" | "boxes" | "scan" | "labels"
-  >("overview");
+  const [tab, setTab] = useState<MovingTab>(search.tab ?? "overview");
+  // Honour URL ?tab= when it changes (deep links from /scan lookup).
+  useEffect(() => {
+    if (search.tab) setTab(search.tab);
+  }, [search.tab]);
 
   /* ---------- Loading / empty states ---------- */
   if (projectsQuery.isLoading || movesQuery.isLoading) {
@@ -270,10 +305,36 @@ function MovingPage() {
               />
             )}
             {tab === "inventory" && (
-              <InventoryTab move={selectedMove} rooms={rooms} boxes={boxes} items={items} />
+              <InventoryTab
+                move={selectedMove}
+                rooms={rooms}
+                boxes={boxes}
+                items={items}
+                focusItemId={search.focusItemId}
+                onFocusConsumed={() =>
+                  navigate({
+                    to: "/moving",
+                    search: (prev) => ({ ...prev, focusItemId: undefined }),
+                    replace: true,
+                  })
+                }
+              />
             )}
             {tab === "boxes" && (
-              <BoxesTab move={selectedMove} rooms={rooms} boxes={boxes} items={items} />
+              <BoxesTab
+                move={selectedMove}
+                rooms={rooms}
+                boxes={boxes}
+                items={items}
+                focusBoxId={search.focusBoxId}
+                onFocusConsumed={() =>
+                  navigate({
+                    to: "/moving",
+                    search: (prev) => ({ ...prev, focusBoxId: undefined }),
+                    replace: true,
+                  })
+                }
+              />
             )}
             {tab === "scan" && (
               <ScanTab move={selectedMove} boxes={boxes} items={items} rooms={rooms} />
@@ -1304,11 +1365,18 @@ function InventoryTab({
   rooms,
   boxes,
   items,
+  focusItemId,
+  onFocusConsumed,
 }: {
   move: Move;
   rooms: MoveRoom[];
   boxes: MoveBox[];
   items: MoveItem[];
+  /** Deep-link target: open the ItemModal for this id on mount. */
+  focusItemId?: string;
+  /** Called once the deep-link target has been opened, so the parent
+   *  can drop the search param from the URL. */
+  onFocusConsumed?: () => void;
 }) {
   const qc = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
@@ -1318,6 +1386,19 @@ function InventoryTab({
   const [filterBoxId, setFilterBoxId] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
+
+  // Deep-link: if /moving?focusItemId= matches an item once data loads,
+  // open its modal exactly once. Re-entries with the same id (e.g. user
+  // closes + reopens the tab) won't re-fire because the parent clears
+  // the search param via onFocusConsumed.
+  useEffect(() => {
+    if (!focusItemId) return;
+    const target = items.find((i) => i.id === focusItemId);
+    if (!target) return;
+    setEditing(target);
+    setModalOpen(true);
+    onFocusConsumed?.();
+  }, [focusItemId, items, onFocusConsumed]);
 
   const createItem = useMutation({
     mutationFn: (data: Record<string, unknown>) => apiPost("/move-items", data),
@@ -1678,11 +1759,18 @@ function BoxesTab({
   rooms,
   boxes,
   items,
+  focusBoxId,
+  onFocusConsumed,
 }: {
   move: Move;
   rooms: MoveRoom[];
   boxes: MoveBox[];
   items: MoveItem[];
+  /** Deep-link target: open the BoxModal for this id on mount. */
+  focusBoxId?: string;
+  /** Called once the deep-link target has been opened, so the parent
+   *  can drop the search param from the URL. */
+  onFocusConsumed?: () => void;
 }) {
   const qc = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
@@ -1690,6 +1778,17 @@ function BoxesTab({
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
+
+  // Deep-link: if /moving?focusBoxId= matches a box once data loads,
+  // open its modal exactly once. See InventoryTab for the same pattern.
+  useEffect(() => {
+    if (!focusBoxId) return;
+    const target = boxes.find((b) => b.id === focusBoxId);
+    if (!target) return;
+    setEditing(target);
+    setModalOpen(true);
+    onFocusConsumed?.();
+  }, [focusBoxId, boxes, onFocusConsumed]);
 
   const createBox = useMutation({
     mutationFn: (data: Record<string, unknown>) => apiPost("/move-boxes", data),

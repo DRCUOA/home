@@ -220,6 +220,23 @@ function ScanPage() {
       target_id: box?.id ?? item?.id,
       action: a,
     });
+
+    // On lookup with a resolved target: close the scan view and open
+    // the details modal for the scanned code. Other actions stay in
+    // scan-mode so the user can keep scanning more boxes in a row.
+    if (a === "lookup") {
+      if (box) {
+        navigate({
+          to: "/moving",
+          search: { tab: "boxes", move: mid, focusBoxId: box.id },
+        });
+      } else if (item) {
+        navigate({
+          to: "/moving",
+          search: { tab: "inventory", move: mid, focusItemId: item.id },
+        });
+      }
+    }
   };
 
   const cameraEnabled = !!moveId && !manualMode;

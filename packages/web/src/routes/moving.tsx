@@ -299,6 +299,97 @@ function MovingPage() {
   const [boxPrefillBarcode, setBoxPrefillBarcode] = useState<string | null>(null);
   const [viewBoxContents, setViewBoxContents] = useState<MoveBox | null>(null);
 
+  // ----- Derived state + workflow dispatch -----
+  // All declared BEFORE the early-return guards below — `useWorkflowDispatch`
+  // is itself a hook, so it must run on every render or React fires the
+  // "rendered more hooks than during the previous render" invariant when
+  // the loading state transitions to data.
+  const phase: WorkflowPhase = getMovePhase(boxes, items);
+  const workflowContext: WorkflowContext = {
+    move: selectedMove ?? ({} as Move),
+    rooms,
+    items,
+    boxes,
+    phase,
+  };
+
+  const dispatchProjectId = selectedMove?.project_id ?? "";
+  const workflowDispatch = useWorkflowDispatch(
+    selectedMoveId ?? "",
+    dispatchProjectId,
+    {
+      onOpenItemModal: (item) => {
+        setItemEdit(item);
+        setItemPrefillBarcode(null);
+        setItemEditOpen(true);
+      },
+      onOpenBoxModal: (box) => {
+        setBoxEdit(box);
+        setBoxPrefillBarcode(null);
+        setBoxEditOpen(true);
+      },
+      onViewBoxContents: (box) => setViewBoxContents(box),
+      onViewItemBox: (item) => {
+        const box = boxes.find((b) => b.id === item.box_id);
+        if (box) setViewBoxContents(box);
+      },
+      onChooseDisposition: (item) => {
+        setItemEdit(item);
+        setItemEditOpen(true);
+      },
+      onChooseDestinationRoom: (item) => {
+        setItemEdit(item);
+        setItemEditOpen(true);
+      },
+      onChooseBox: (item) => {
+        setItemEdit(item);
+        setItemEditOpen(true);
+      },
+      onChooseBoxDestinationRoom: (box) => {
+        setBoxEdit(box);
+        setBoxEditOpen(true);
+      },
+      onAddNewBox: (code) => {
+        setBoxEdit(null);
+        setBoxPrefillBarcode(code);
+        setBoxEditOpen(true);
+      },
+      onAddNewItem: (code) => {
+        setItemEdit(null);
+        setItemPrefillBarcode(code);
+        setItemEditOpen(true);
+      },
+      onPrintLabel: () => {
+        setTab("tools");
+      },
+      onViewScanHistory: () => {
+        setTab("problems");
+      },
+    }
+  );
+
+  const resolveScannedCode = (code: string): ResolvedTarget => {
+    const box = boxes.find((b) => b.barcode === code);
+    if (box) return { kind: "box", record: box };
+    const item = items.find((i) => i.barcode === code);
+    if (item) return { kind: "item", record: item };
+    return { kind: "unknown", code };
+  };
+
+  const problemCount = items.filter(
+    (i) => i.status === "missing" || i.status === "damaged"
+  ).length;
+
+  const tabDefs = [
+    { id: "dashboard", label: "Dashboard" },
+    { id: "survey", label: "Survey" },
+    { id: "move", label: "Move" },
+    ...(problemCount > 0
+      ? [{ id: "problems", label: "Problems", count: problemCount }]
+      : []),
+    { id: "tools", label: "Tools" },
+  ];
+
   /* ---------- Loading / empty states ---------- */
   if (projectsQuery.isLoading || movesQuery.isLoading) {
     return (
@@ -353,106 +444,6 @@ function MovingPage() {
       </PageShell>
     );
   }
-
-  // Workflow phase + context: derived once and shared with the workflow
-  // engine + Dashboard + universal-scan flow. Phase is the dominant
-  // bucket of outstanding work — it drives the dashboard "Current
-  // focus" card and breaks ties when an action could mean multiple
-  // things (e.g. on a packed box during the load phase, prefer Load
-  // over Move-to-staging).
-  const phase: WorkflowPhase = getMovePhase(boxes, items);
-  const workflowContext: WorkflowContext = {
-    move: selectedMove ?? ({} as Move),
-    rooms,
-    items,
-    boxes,
-    phase,
-  };
-
-  // Only show Problems when there's actually something to triage — the
-  // tab quietly disappears when the move is healthy.
-  const problemCount = items.filter(
-    (i) => i.status === "missing" || i.status === "damaged"
-  ).length;
-
-  const tabDefs = [
-    { id: "dashboard", label: "Dashboard" },
-    { id: "survey", label: "Survey" },
-    { id: "move", label: "Move" },
-    ...(problemCount > 0
-      ? [{ id: "problems", label: "Problems", count: problemCount }]
-      : []),
-    { id: "tools", label: "Tools" },
-  ];
-
-  // Workflow dispatch — bound to the selected move + project. Wired
-  // to the modal-state setters so action handlers can route UI intents
-  // (edit, view contents) without each tab knowing about modals.
-  const dispatchProjectId = selectedMove?.project_id ?? "";
-  const workflowDispatch = useWorkflowDispatch(
-    selectedMoveId ?? "",
-    dispatchProjectId,
-    {
-      onOpenItemModal: (item) => {
-        setItemEdit(item);
-        setItemPrefillBarcode(null);
-        setItemEditOpen(true);
-      },
-      onOpenBoxModal: (box) => {
-        setBoxEdit(box);
-        setBoxPrefillBarcode(null);
-        setBoxEditOpen(true);
-      },
-      onViewBoxContents: (box) => setViewBoxContents(box),
-      onViewItemBox: (item) => {
-        const box = boxes.find((b) => b.id === item.box_id);
-        if (box) setViewBoxContents(box);
-      },
-      onChooseDisposition: (item) => {
-        // Open the item edit modal pre-populated; disposition is one
-        // of the inline fields. Cheaper than a dedicated picker.
-        setItemEdit(item);
-        setItemEditOpen(true);
-      },
-      onChooseDestinationRoom: (item) => {
-        setItemEdit(item);
-        setItemEditOpen(true);
-      },
-      onChooseBox: (item) => {
-        setItemEdit(item);
-        setItemEditOpen(true);
-      },
-      onChooseBoxDestinationRoom: (box) => {
-        setBoxEdit(box);
-        setBoxEditOpen(true);
-      },
-      onAddNewBox: (code) => {
-        setBoxEdit(null);
-        setBoxPrefillBarcode(code);
-        setBoxEditOpen(true);
-      },
-      onAddNewItem: (code) => {
-        setItemEdit(null);
-        setItemPrefillBarcode(code);
-        setItemEditOpen(true);
-      },
-      onPrintLabel: () => {
-        setTab("tools");
-      },
-      onViewScanHistory: () => {
-        setTab("problems");
-      },
-    }
-  );
-
-  // Resolve a scanned code to a known box / item, or "unknown".
-  const resolveScannedCode = (code: string): ResolvedTarget => {
-    const box = boxes.find((b) => b.barcode === code);
-    if (box) return { kind: "box", record: box };
-    const item = items.find((i) => i.barcode === code);
-    if (item) return { kind: "item", record: item };
-    return { kind: "unknown", code };
-  };
 
   return (
     <PageShell title="Moving">

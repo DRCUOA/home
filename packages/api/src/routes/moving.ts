@@ -1,5 +1,6 @@
 import { FastifyInstance } from "fastify";
 import { eq, and, inArray } from "drizzle-orm";
+import { z } from "zod";
 import { authGuard } from "../middleware/auth.js";
 import { db, schema } from "../db/index.js";
 import {
@@ -487,6 +488,34 @@ export default async function movingRoutes(app: FastifyInstance) {
       .where(eq(schema.moveBoxes.id, id))
       .returning();
     return { data: row };
+  });
+
+  /**
+   * Bulk-delete box labels after the user has reviewed and selected
+   * them on the Labels tab. Items previously assigned to these boxes
+   * lose their box_id (move_items.box_id is ON DELETE SET NULL), so
+   * the items themselves survive — only the labels go.
+   */
+  app.post("/api/v1/moves/:moveId/boxes/bulk-delete", async (req, reply) => {
+    const { moveId } = req.params as { moveId: string };
+    if (!(await assertOwnsMove(req.userId, moveId))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    const { ids } = z
+      .object({ ids: z.array(z.string().uuid()).min(1).max(500) })
+      .parse(req.body);
+
+    const deleted = await db
+      .delete(schema.moveBoxes)
+      .where(
+        and(
+          eq(schema.moveBoxes.move_id, moveId),
+          inArray(schema.moveBoxes.id, ids),
+        ),
+      )
+      .returning({ id: schema.moveBoxes.id });
+
+    return { deleted: deleted.length, ids: deleted.map((r) => r.id) };
   });
 
   /**

@@ -1993,15 +1993,20 @@ const LABEL_TEMPLATE_LABELS: Record<MoveLabelTemplate, string> = {
 };
 
 function LabelsTab({
+  moveId,
   boxes,
   items,
   rooms,
 }: {
+  moveId: string;
   boxes: MoveBox[];
   items: MoveItem[];
   rooms: MoveRoom[];
 }) {
+  const qc = useQueryClient();
   const [printOpen, setPrintOpen] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmOpen, setConfirmOpen] = useState(false);
   // Persist the last-used template — most users print onto the same
   // stock every time, no point making them re-pick.
   const [template, setTemplate] = useState<MoveLabelTemplate>(() => {
@@ -2016,6 +2021,71 @@ function LabelsTab({
       window.localStorage.setItem(LABEL_TEMPLATE_KEY, template);
     }
   }, [template]);
+
+  // Drop any selected ids that no longer exist (e.g. after a delete or
+  // refetch). Keeps the selection set honest without manual cleanup.
+  useEffect(() => {
+    setSelected((prev) => {
+      const live = new Set(boxes.map((b) => b.id));
+      const next = new Set<string>();
+      let changed = false;
+      for (const id of prev) {
+        if (live.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [boxes]);
+
+  const itemsByBox = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const it of items) {
+      if (!it.box_id) continue;
+      map.set(it.box_id, (map.get(it.box_id) ?? 0) + 1);
+    }
+    return map;
+  }, [items]);
+
+  const allSelected = boxes.length > 0 && selected.size === boxes.length;
+  const someSelected = selected.size > 0 && !allSelected;
+
+  const toggleAll = () => {
+    setSelected(allSelected ? new Set() : new Set(boxes.map((b) => b.id)));
+  };
+
+  const toggleOne = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const bulkDelete = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const res = await fetch(`/api/v1/moves/${moveId}/boxes/bulk-delete`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) throw new Error(`Bulk delete failed (${res.status})`);
+      return res.json() as Promise<{ deleted: number; ids: string[] }>;
+    },
+    onSuccess: () => {
+      setSelected(new Set());
+      setConfirmOpen(false);
+      qc.invalidateQueries({ queryKey: ["move-boxes", moveId] });
+      qc.invalidateQueries({ queryKey: ["move-items", moveId] });
+    },
+  });
+
+  const selectedBoxes = boxes.filter((b) => selected.has(b.id));
+  const selectedItemCount = selectedBoxes.reduce(
+    (sum, b) => sum + (itemsByBox.get(b.id) ?? 0),
+    0,
+  );
 
   return (
     <div className="space-y-3">
@@ -2049,6 +2119,93 @@ function LabelsTab({
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Review &amp; delete labels</CardTitle>
+        </CardHeader>
+        <CardContent className="pb-4 space-y-3">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Tick the labels you no longer need and delete them in one go.
+            Items inside a deleted box are kept — they just lose their box
+            assignment so you can re-pack them.
+          </p>
+
+          {boxes.length === 0 ? (
+            <EmptyState
+              title="No labels yet"
+              description="Create boxes or use Tools → Bulk create to generate a stack of labels."
+            />
+          ) : (
+            <>
+              <div className="flex items-center gap-2 flex-wrap">
+                <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 cursor-pointer min-h-11">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-primary-500"
+                    checked={allSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = someSelected;
+                    }}
+                    onChange={toggleAll}
+                  />
+                  <span>
+                    {selected.size === 0
+                      ? `Select all (${boxes.length})`
+                      : `${selected.size} of ${boxes.length} selected`}
+                  </span>
+                </label>
+                <Button
+                  variant="danger"
+                  className="ml-auto min-h-11"
+                  disabled={selected.size === 0 || bulkDelete.isPending}
+                  onClick={() => setConfirmOpen(true)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete {selected.size > 0 ? selected.size : ""} selected
+                </Button>
+              </div>
+
+              <div className="max-h-96 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-md divide-y divide-slate-100 dark:divide-slate-800">
+                {boxes.map((box) => {
+                  const itemCount = itemsByBox.get(box.id) ?? 0;
+                  const checked = selected.has(box.id);
+                  return (
+                    <label
+                      key={box.id}
+                      className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/40"
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-primary-500 flex-shrink-0"
+                        checked={checked}
+                        onChange={() => toggleOne(box.id)}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
+                          {box.label}
+                        </div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">
+                          {box.barcode}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {itemCount > 0 && (
+                          <Badge variant="default">
+                            {itemCount} {itemCount === 1 ? "item" : "items"}
+                          </Badge>
+                        )}
+                        {box.fragile && <Badge variant="primary">Fragile</Badge>}
+                        <StatusBadge status={box.status} />
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
       <LabelSheet
         open={printOpen}
         onClose={() => setPrintOpen(false)}
@@ -2057,6 +2214,72 @@ function LabelsTab({
         rooms={rooms}
         template={template}
       />
+
+      {confirmOpen && (
+        <Modal
+          open
+          onClose={() => !bulkDelete.isPending && setConfirmOpen(false)}
+          title={`Delete ${selected.size} ${selected.size === 1 ? "label" : "labels"}?`}
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-slate-700 dark:text-slate-300">
+              This permanently removes {selected.size}{" "}
+              {selected.size === 1 ? "box" : "boxes"} from this move.
+              {selectedItemCount > 0 && (
+                <>
+                  {" "}
+                  <span className="font-medium">
+                    {selectedItemCount}{" "}
+                    {selectedItemCount === 1 ? "item" : "items"}
+                  </span>{" "}
+                  will be unassigned but kept.
+                </>
+              )}
+            </p>
+            <div className="max-h-40 overflow-y-auto text-xs text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-800 rounded p-2 space-y-0.5">
+              {selectedBoxes.slice(0, 50).map((b) => (
+                <div key={b.id} className="truncate">
+                  <span className="font-medium text-slate-700 dark:text-slate-300">
+                    {b.label}
+                  </span>{" "}
+                  <span className="font-mono">({b.barcode})</span>
+                </div>
+              ))}
+              {selectedBoxes.length > 50 && (
+                <div className="italic">
+                  …and {selectedBoxes.length - 50} more
+                </div>
+              )}
+            </div>
+            {bulkDelete.isError && (
+              <p className="text-xs text-red-600 dark:text-red-400">
+                Couldn't delete. Try again, or refresh and re-select.
+              </p>
+            )}
+            <div className="flex gap-2 pt-1">
+              <Button
+                variant="secondary"
+                className="flex-1 min-h-11"
+                onClick={() => setConfirmOpen(false)}
+                disabled={bulkDelete.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                className="flex-1 min-h-11"
+                onClick={() => bulkDelete.mutate([...selected])}
+                disabled={bulkDelete.isPending}
+              >
+                <Trash2 className="h-4 w-4" />
+                {bulkDelete.isPending
+                  ? "Deleting…"
+                  : `Delete ${selected.size}`}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -3198,7 +3421,7 @@ function ToolsTab({
       )}
 
       {section === "labels" && (
-        <LabelsTab boxes={boxes} items={items} rooms={rooms} />
+        <LabelsTab moveId={move.id} boxes={boxes} items={items} rooms={rooms} />
       )}
 
       {section === "bulk" && (

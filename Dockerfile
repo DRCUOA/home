@@ -54,15 +54,9 @@ COPY --from=build /app/packages/api/package.json    /app/packages/api/package.js
 COPY --from=build /app/packages/web/package.json    /app/packages/web/package.json
 COPY --from=build /app/packages/shared/package.json /app/packages/shared/package.json
 
-# Migrations + drizzle config (so drizzle-kit migrate works at boot)
-COPY --from=build /app/packages/api/drizzle.config.ts   /app/packages/api/drizzle.config.ts
+# SQL migration files are read at runtime by packages/api/dist/migrate.js
+# (uses drizzle-orm/node-postgres/migrator — a runtime dep, no CLI needed).
 COPY --from=build /app/packages/api/src/db/migrations   /app/packages/api/src/db/migrations
-COPY --from=build /app/packages/api/src/db/schema.ts    /app/packages/api/src/db/schema.ts
-# drizzle-kit is a devDep; copy its binary + deps from the build stage
-COPY --from=build /app/node_modules/drizzle-kit         /app/node_modules/drizzle-kit
-COPY --from=build /app/node_modules/.bin/drizzle-kit    /app/node_modules/.bin/drizzle-kit
-COPY --from=build /app/node_modules/tsx                 /app/node_modules/tsx
-COPY --from=build /app/node_modules/.bin/tsx            /app/node_modules/.bin/tsx
 
 # Volume mount point for user-uploaded files (Railway volume mounts here)
 RUN mkdir -p /app/uploads && chown -R nodejs:nodejs /app
@@ -71,5 +65,6 @@ USER nodejs
 ENV PORT=3001
 EXPOSE 3001
 
-# Run migrations, then start the API
-CMD ["sh", "-c", "node_modules/.bin/drizzle-kit migrate --config=packages/api/drizzle.config.ts && node packages/api/dist/index.js"]
+# Run migrations programmatically (drizzle-orm/migrator, no CLI),
+# then start the API.
+CMD ["sh", "-c", "node packages/api/dist/migrate.js && node packages/api/dist/index.js"]

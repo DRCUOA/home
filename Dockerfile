@@ -13,8 +13,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages/api/package.json   packages/api/package.json
 COPY packages/web/package.json   packages/web/package.json
 COPY packages/shared/package.json packages/shared/package.json
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
 # ---------- Stage 3: build api + web ----------
 FROM deps AS build
@@ -27,8 +26,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/api/package.json   packages/api/package.json
 COPY packages/web/package.json   packages/web/package.json
 COPY packages/shared/package.json packages/shared/package.json
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    pnpm install --frozen-lockfile --prod
+RUN pnpm install --frozen-lockfile --prod
 
 # ---------- Stage 5: runtime ----------
 FROM node:20-bookworm-slim AS runtime

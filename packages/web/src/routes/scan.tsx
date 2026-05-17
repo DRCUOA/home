@@ -455,7 +455,7 @@ function ScanPage() {
             <button
               type="button"
               onClick={() => setManualMode(true)}
-              className="text-xs underline decoration-dotted underline-offset-2"
+              className="inline-flex items-center min-h-11 px-3 text-xs underline decoration-dotted underline-offset-2 -my-2 -mr-2"
             >
               <Keyboard className="h-3.5 w-3.5 inline-block mr-1" />
               Manual

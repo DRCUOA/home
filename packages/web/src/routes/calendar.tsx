@@ -447,20 +447,24 @@ function CalendarPage() {
     return () => el.removeEventListener("wheel", handler);
   }, []);
 
-  // Global mouse handlers active only while dragging.
+  // Global pointer handlers active only while dragging. We listen to
+  // pointer rather than mouse events so the same code path works for
+  // mouse, pen, and (via the cell's onPointerDown) touch. `pointercancel`
+  // cleans up if iOS Safari interrupts the drag because the user scrolled
+  // or switched windows mid-gesture.
   useEffect(() => {
     if (!dragStart) return;
 
-    const onMove = (e: MouseEvent) => {
+    const onMove = (e: PointerEvent) => {
       setCursorPos({ x: e.clientX, y: e.clientY });
     };
 
-    const onUp = () => {
+    const commit = () => {
       const s = dragStartRef.current;
-      const e = dragEndRef.current;
-      if (s && e) {
-        const start = s <= e ? s : e;
-        const end = s <= e ? e : s;
+      const en = dragEndRef.current;
+      if (s && en) {
+        const start = s <= en ? s : en;
+        const end = s <= en ? en : s;
         openModalForRange(start, end, "event");
       }
       setDragStart(null);
@@ -468,11 +472,19 @@ function CalendarPage() {
       setCursorPos(null);
     };
 
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    const abort = () => {
+      setDragStart(null);
+      setDragEnd(null);
+      setCursorPos(null);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", commit);
+    window.addEventListener("pointercancel", abort);
     return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", commit);
+      window.removeEventListener("pointercancel", abort);
     };
   }, [dragStart]);
 
@@ -584,19 +596,26 @@ function CalendarPage() {
                     scale={scale}
                     entriesByDate={entriesByDate}
                     inDragRange={isInDragRange}
-                    onDayMouseDown={(day, e) => {
-                      if (e.button !== 0) return;
-                      e.preventDefault();
+                    onDayPointerDown={(day, e) => {
+                      // Mouse: only respond to the primary button.
+                      // Touch/pen always counts as primary.
+                      if (e.pointerType === "mouse" && e.button !== 0) return;
+                      // preventDefault stops mouse drag from selecting text.
+                      // On touch we deliberately do NOT preventDefault so the
+                      // browser can still handle vertical page scrolling when
+                      // the user swipes — `pointercancel` (handled above) then
+                      // aborts the drag cleanly.
+                      if (e.pointerType === "mouse") e.preventDefault();
                       setCursorPos({ x: e.clientX, y: e.clientY });
                       setDragStart(day);
                       setDragEnd(day);
                     }}
-                    onDayMouseEnter={(day, e) => {
+                    onDayPointerEnter={(day, e) => {
                       setHoveredDate(day);
                       setCursorPos({ x: e.clientX, y: e.clientY });
                       if (dragStartRef.current) setDragEnd(day);
                     }}
-                    onDayMouseMove={(e) => {
+                    onDayPointerMove={(e) => {
                       setCursorPos({ x: e.clientX, y: e.clientY });
                     }}
                     onEntryClick={(entryId, e) => {
@@ -737,9 +756,9 @@ function MonthSection({
   scale,
   entriesByDate,
   inDragRange,
-  onDayMouseDown,
-  onDayMouseEnter,
-  onDayMouseMove,
+  onDayPointerDown,
+  onDayPointerEnter,
+  onDayPointerMove,
   onEntryClick,
   registerRef,
 }: {
@@ -748,9 +767,9 @@ function MonthSection({
   scale: Scale;
   entriesByDate: Map<string, CalendarEntry[]>;
   inDragRange: (d: Date) => boolean;
-  onDayMouseDown: (day: Date, e: React.MouseEvent) => void;
-  onDayMouseEnter: (day: Date, e: React.MouseEvent) => void;
-  onDayMouseMove: (e: React.MouseEvent) => void;
+  onDayPointerDown: (day: Date, e: React.PointerEvent) => void;
+  onDayPointerEnter: (day: Date, e: React.PointerEvent) => void;
+  onDayPointerMove: (e: React.PointerEvent) => void;
   onEntryClick: (entryId: string, e: React.MouseEvent) => void;
   registerRef: (key: string, el: HTMLDivElement | null) => void;
 }) {
@@ -799,9 +818,9 @@ function MonthSection({
               isToday={isToday}
               inRange={inRange}
               entries={dayEntries}
-              onMouseDown={(e) => onDayMouseDown(day, e)}
-              onMouseEnter={(e) => onDayMouseEnter(day, e)}
-              onMouseMove={onDayMouseMove}
+              onPointerDown={(e) => onDayPointerDown(day, e)}
+              onPointerEnter={(e) => onDayPointerEnter(day, e)}
+              onPointerMove={onDayPointerMove}
               onEntryClick={onEntryClick}
             />
           );
@@ -817,9 +836,9 @@ function DayCell({
   isToday,
   inRange,
   entries,
-  onMouseDown,
-  onMouseEnter,
-  onMouseMove,
+  onPointerDown,
+  onPointerEnter,
+  onPointerMove,
   onEntryClick,
 }: {
   day: Date;
@@ -827,9 +846,9 @@ function DayCell({
   isToday: boolean;
   inRange: boolean;
   entries: CalendarEntry[];
-  onMouseDown: (e: React.MouseEvent) => void;
-  onMouseEnter: (e: React.MouseEvent) => void;
-  onMouseMove: (e: React.MouseEvent) => void;
+  onPointerDown: (e: React.PointerEvent) => void;
+  onPointerEnter: (e: React.PointerEvent) => void;
+  onPointerMove: (e: React.PointerEvent) => void;
   onEntryClick: (entryId: string, e: React.MouseEvent) => void;
 }) {
   const showFullChips = scale === "days";
@@ -838,9 +857,9 @@ function DayCell({
 
   return (
     <div
-      onMouseDown={onMouseDown}
-      onMouseEnter={onMouseEnter}
-      onMouseMove={onMouseMove}
+      onPointerDown={onPointerDown}
+      onPointerEnter={onPointerEnter}
+      onPointerMove={onPointerMove}
       className={cn(
         CELL_MIN_H[scale],
         "flex flex-col items-stretch gap-1 border-b border-r border-slate-100 dark:border-slate-800 p-1 text-left transition-colors cursor-pointer bg-white dark:bg-slate-900",
@@ -879,7 +898,7 @@ function DayCell({
               key={entry.id}
               entry={entry}
               onClick={(e) => onEntryClick(entry.id, e)}
-              onMouseDown={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
             />
           ))}
         </div>
@@ -1104,11 +1123,11 @@ function Legend() {
 function EntryChip({
   entry,
   onClick,
-  onMouseDown,
+  onPointerDown,
 }: {
   entry: CalendarEntry;
   onClick: (e: React.MouseEvent) => void;
-  onMouseDown: (e: React.MouseEvent) => void;
+  onPointerDown: (e: React.PointerEvent) => void;
 }) {
   const isEvent = entry.kind === "event";
   const Icon = isEvent ? Clock : CheckSquare;
@@ -1133,7 +1152,7 @@ function EntryChip({
       role="button"
       tabIndex={0}
       onClick={onClick}
-      onMouseDown={onMouseDown}
+      onPointerDown={onPointerDown}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();

@@ -20,7 +20,7 @@ export function Tabs({ tabs, active, onChange }: TabsProps) {
           key={tab.id}
           onClick={() => onChange(tab.id)}
           className={cn(
-            "whitespace-nowrap px-3 py-2.5 text-sm font-medium border-b-2 transition-colors",
+            "whitespace-nowrap inline-flex items-center min-h-11 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors",
             "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
             active === tab.id
               ? "border-accent text-accent-soft-foreground"

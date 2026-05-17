@@ -123,7 +123,7 @@ export function BarcodeScanner({
             <ScanLine className="h-10 w-10 text-slate-300 dark:text-slate-600 mb-3" />
             <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
               This browser can't auto-detect barcodes. Enter the code
-              manually, or open the app in Chrome/Edge/Safari on a phone.
+              manually below.
             </p>
             <Button onClick={() => setManualMode(true)}>
               <Keyboard className="h-4 w-4" />

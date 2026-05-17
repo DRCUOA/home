@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
- * Shared camera + BarcodeDetector loop, used by both the modal scanner
- * and the full-screen scan view. Manages getUserMedia lifecycle,
- * detection loop, and same-code debouncing so a code held in front of
- * the camera doesn't fire 60 times a second.
+ * Shared camera + barcode-detection loop, used by both the modal
+ * scanner and the full-screen scan view. Manages getUserMedia
+ * lifecycle, detection loop, and same-code debouncing so a code held
+ * in front of the camera doesn't fire 60 times a second.
  *
  * The hook owns all camera teardown — callers don't need to coordinate
  * stream stop with `enabled` changes; flipping `enabled` to false or
  * unmounting cleans up.
+ *
+ * Detection path: prefers the native `BarcodeDetector` (Chrome/Edge on
+ * Android + desktop). On iOS Safari — and therefore every browser on
+ * iPad/iPhone, since they're all forced onto WebKit — `BarcodeDetector`
+ * is missing, so we lazy-load `@zxing/browser` as a fallback. The
+ * fallback chunk is only fetched on devices that need it.
  *
  * BarcodeDetector is not yet in the TS DOM lib; typed loosely.
  */
@@ -57,6 +63,12 @@ export type BarcodeCameraState =
   | "unsupported"
   | "error";
 
+/** Minimal shape of @zxing/browser's IScannerControls — typed inline
+ *  so we don't need to pull in the type at module load. */
+interface ZxingControls {
+  stop: () => void;
+}
+
 interface UseBarcodeCameraResult {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   state: BarcodeCameraState;
@@ -76,6 +88,7 @@ export function useBarcodeCamera({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
+  const zxingControlsRef = useRef<ZxingControls | null>(null);
   const lastCodeRef = useRef<string | null>(null);
   const lastCodeAtRef = useRef<number>(0);
   // Hold the latest onScan in a ref so the camera loop never has a
@@ -91,6 +104,14 @@ export function useBarcodeCamera({
     if (rafRef.current != null) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
+    }
+    if (zxingControlsRef.current) {
+      try {
+        zxingControlsRef.current.stop();
+      } catch {
+        // ignore — best-effort teardown
+      }
+      zxingControlsRef.current = null;
     }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
@@ -126,8 +147,9 @@ export function useBarcodeCamera({
   const startCamera = useCallback(async () => {
     setError(null);
     setState("starting");
+    let stream: MediaStream | null = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: "environment" },
           width: { ideal: 1280 },
@@ -136,35 +158,67 @@ export function useBarcodeCamera({
         audio: false,
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
 
       const Detector = getDetector();
-      if (!Detector) {
-        setState("unsupported");
+
+      if (Detector) {
+        // Native fast path (Chrome/Edge on Android + desktop).
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+        const detector = new Detector({ formats });
+        setState("running");
+
+        const loop = async () => {
+          if (!videoRef.current || !streamRef.current) return;
+          if (videoRef.current.readyState >= 2) {
+            try {
+              const results = await detector.detect(videoRef.current);
+              if (results.length > 0) {
+                handleDetected(results[0].rawValue, results[0].format);
+              }
+            } catch {
+              // transient detect errors are fine — next frame retries
+            }
+          }
+          rafRef.current = requestAnimationFrame(loop);
+        };
+        rafRef.current = requestAnimationFrame(loop);
         return;
       }
 
-      const detector = new Detector({ formats });
-      setState("running");
-
-      const loop = async () => {
-        if (!videoRef.current || !streamRef.current) return;
-        if (videoRef.current.readyState >= 2) {
-          try {
-            const results = await detector.detect(videoRef.current);
-            if (results.length > 0) {
-              handleDetected(results[0].rawValue, results[0].format);
-            }
-          } catch {
-            // transient detect errors are fine — next frame retries
+      // Fallback path for WebKit (iPad/iPhone — every browser there
+      // is WebKit, and WebKit ships no BarcodeDetector). Lazy-import
+      // so non-iOS users don't pay the ~120 KB chunk cost.
+      if (!videoRef.current) {
+        // Component unmounted between starting and stream arrival.
+        stream.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+        return;
+      }
+      const { BrowserMultiFormatReader } = await import("@zxing/browser");
+      // BrowserMultiFormatReader's onDecodeResult passes (result, error).
+      // `result` is undefined on frames where nothing was decoded —
+      // those errors are noise, not real failures.
+      const reader = new BrowserMultiFormatReader();
+      const controls = await reader.decodeFromStream(
+        stream,
+        videoRef.current,
+        (result) => {
+          if (result) {
+            handleDetected(result.getText());
           }
         }
-        rafRef.current = requestAnimationFrame(loop);
-      };
-      rafRef.current = requestAnimationFrame(loop);
+      );
+      zxingControlsRef.current = controls;
+      setState("running");
     } catch {
+      // Tear down any partially-acquired stream so the camera light
+      // doesn't stay on after a failed start.
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+      }
+      streamRef.current = null;
       setError(
         "Camera unavailable. Grant camera permission and retry, or enter the code manually."
       );

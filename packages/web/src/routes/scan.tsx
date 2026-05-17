@@ -331,7 +331,7 @@ function ScanPage() {
             <CameraIcon className="h-12 w-12 text-slate-400" />
             <p className="text-sm text-slate-300 max-w-xs">
               {error ??
-                "This browser can't auto-detect barcodes. Try Chrome/Edge/Safari, or enter codes manually."}
+                "Couldn't start the camera. Check that the browser has permission, or enter codes manually."}
             </p>
             <div className="flex gap-2">
               <Button variant="secondary" onClick={retry}>

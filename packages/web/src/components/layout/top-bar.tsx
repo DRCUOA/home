@@ -40,16 +40,18 @@ export function TopBar({ onQuickAdd }: TopBarProps) {
   const [quickOpen, setQuickOpen] = useState(false);
   const quickRef = useRef<HTMLDivElement>(null);
 
-  // Close Quick Add dropdown on outside click.
+  // Close Quick Add dropdown on outside click. `pointerdown` fires earlier
+  // than the synthesised `mousedown` on iPad / touch devices, so the menu
+  // closes the moment the user taps outside instead of after the touch-up.
   useEffect(() => {
     if (!quickOpen) return;
-    const onDocClick = (e: MouseEvent) => {
+    const onDocPointer = (e: PointerEvent) => {
       if (quickRef.current && !quickRef.current.contains(e.target as Node)) {
         setQuickOpen(false);
       }
     };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
+    document.addEventListener("pointerdown", onDocPointer);
+    return () => document.removeEventListener("pointerdown", onDocPointer);
   }, [quickOpen]);
 
   const handleSignOut = async () => {
@@ -150,7 +152,7 @@ export function TopBar({ onQuickAdd }: TopBarProps) {
           type="button"
           onClick={handleSignOut}
           className={cn(
-            "rounded-full p-2 text-muted-foreground hover:bg-destructive-soft hover:text-destructive-soft-foreground",
+            "inline-flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive-soft hover:text-destructive-soft-foreground",
             "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           )}
           aria-label="Sign out"

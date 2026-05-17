@@ -31,12 +31,35 @@ export function Modal({
   size = "md",
 }: ModalProps) {
   useEffect(() => {
-    if (open) {
-      document.body.style.overflow = "hidden";
-      return () => {
-        document.body.style.overflow = "";
-      };
-    }
+    if (!open) return;
+    // iOS Safari ignores `body { overflow: hidden }` for the document scroll —
+    // the page rubber-bands behind the modal. Locking with position:fixed
+    // and restoring scrollY on close is the well-known fix.
+    const { scrollY } = window;
+    const { body } = document;
+    const prev = {
+      position: body.style.position,
+      top: body.style.top,
+      left: body.style.left,
+      right: body.style.right,
+      width: body.style.width,
+      overflow: body.style.overflow,
+    };
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.width = "100%";
+    body.style.overflow = "hidden";
+    return () => {
+      body.style.position = prev.position;
+      body.style.top = prev.top;
+      body.style.left = prev.left;
+      body.style.right = prev.right;
+      body.style.width = prev.width;
+      body.style.overflow = prev.overflow;
+      window.scrollTo(0, scrollY);
+    };
   }, [open]);
 
   useEffect(() => {
@@ -71,7 +94,7 @@ export function Modal({
         style={{ boxShadow: "var(--ds-shadow-xl)" }}
       >
         {title && (
-          <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <div className="flex items-center justify-between border-b border-border px-5 py-2">
             <h2 className="text-base font-semibold text-foreground">
               {title}
             </h2>
@@ -79,7 +102,7 @@ export function Modal({
               type="button"
               onClick={onClose}
               className={cn(
-                "rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground",
+                "-mr-2 inline-flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground",
                 "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               )}
               aria-label="Close"
@@ -88,7 +111,12 @@ export function Modal({
             </button>
           </div>
         )}
-        <div className="flex-1 overflow-y-auto p-5">{children}</div>
+        {/* `overscroll-contain` keeps a fully-scrolled modal panel from
+            bubbling the wheel/scroll up into the locked page underneath
+            (iOS Safari + Chrome both honour this). */}
+        <div className="flex-1 overflow-y-auto p-5 overscroll-contain">
+          {children}
+        </div>
       </div>
     </div>
   );

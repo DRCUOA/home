@@ -68,7 +68,7 @@ export function MapSearch({
   }, [query, search]);
 
   useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
+    function handleClickOutside(e: PointerEvent) {
       if (
         containerRef.current &&
         !containerRef.current.contains(e.target as Node)
@@ -76,8 +76,11 @@ export function MapSearch({
         setIsOpen(false);
       }
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    // `pointerdown` fires before iOS's synthesised `mousedown`, so the
+    // suggestions panel dismisses on the first touch instead of waiting
+    // for the touch-up event.
+    document.addEventListener("pointerdown", handleClickOutside);
+    return () => document.removeEventListener("pointerdown", handleClickOutside);
   }, []);
 
   const selectResult = async (result: AutocompleteResult) => {

@@ -401,6 +401,38 @@ html.theme-transitioning *::after {
 }
 
 /* --------------------------------------------------------------------------
+ * Touch ergonomics
+ *
+ * `touch-action: manipulation` removes the legacy 300ms tap delay on iOS
+ * Safari for interactive controls (without disabling pinch-zoom on the
+ * page itself). The transparent tap-highlight removes the dark flash iOS
+ * draws on tappable elements — focus-visible rings give us better
+ * keyboard feedback instead. Both are scoped to interactive elements so
+ * non-interactive surfaces (canvases, maps, scroll containers) keep
+ * their browser-default gesture handling.
+ * -------------------------------------------------------------------------- */
+
+button,
+a,
+select,
+summary,
+[role="button"],
+[role="link"],
+[role="radio"],
+[role="checkbox"],
+[role="tab"],
+[role="menuitem"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Pad the safe-area bottom inset onto fixed-bottom elements (BottomNav,
+ * etc.) so the iPad home indicator never overlaps tappable controls. */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* --------------------------------------------------------------------------
  * MapLibre scoped overrides — token-driven, theme-aware.
  * -------------------------------------------------------------------------- */
 

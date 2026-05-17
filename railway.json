@@ -5,7 +5,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "sh -c \"node_modules/.bin/drizzle-kit migrate --config=packages/api/drizzle.config.ts && node packages/api/dist/index.js\"",
+    "startCommand": "sh -c \"node packages/api/dist/migrate.js && node packages/api/dist/index.js\"",
     "healthcheckPath": "/healthz",
     "healthcheckTimeout": 30,
     "restartPolicyType": "ON_FAILURE",

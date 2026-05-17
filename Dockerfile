@@ -45,7 +45,7 @@ COPY --from=prod-deps /app/packages/shared/node_modules       /app/packages/shar
 # Built artifacts
 COPY --from=build /app/packages/api/dist        /app/packages/api/dist
 COPY --from=build /app/packages/web/dist        /app/packages/web/dist
-COPY --from=build /app/packages/shared/src      /app/packages/shared/src
+COPY --from=build /app/packages/shared/dist     /app/packages/shared/dist
 
 # Package manifests (needed for ESM resolution / workspace layout)
 COPY --from=build /app/package.json             /app/package.json

@@ -2,7 +2,7 @@
   "name": "home-control-centre",
   "private": true,
   "scripts": {
-    "dev": "pnpm --parallel -r run dev",
+    "dev": "pnpm --filter @hcc/shared run build && pnpm --parallel -r run dev",
     "dev:api": "pnpm --filter @hcc/api run dev",
     "dev:web": "pnpm --filter @hcc/web run dev",
     "build": "pnpm -r run build",

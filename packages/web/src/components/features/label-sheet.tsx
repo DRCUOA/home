@@ -27,8 +27,10 @@ import { qrSvg } from "@/lib/qrcode";
 
 /* ============ Template specs ============ */
 
-/** Page-margin overrides (mm). User-tweakable per template. */
-export interface PageMargins {
+/** Per-label padding (mm). User-tweakable per template — this is the
+ *  inner cell padding around the printed content, NOT the @page margin
+ *  (that's left to the browser / OS print driver). */
+export interface LabelPadding {
   top: number;
   right: number;
   bottom: number;
@@ -57,14 +59,18 @@ interface TemplateSpec {
   symbology(box: MoveBox): "qr" | "code128";
   /** Tailwind classes applied to the on-screen preview cell. */
   previewCellClass: string;
-  /** Default page margins (mm) for the stock this template targets. */
-  defaultMargins: PageMargins;
-  /** Per-template CSS rules embedded in the print window. Takes current
-   *  margins so the user's tweaks flow into the printed @page. */
-  pageCss(margins: PageMargins): string;
-  /** Layout of every cell on a single page given current margins, in mm.
-   *  Drives the page-layout preview. */
-  computeCells(margins: PageMargins): CellRect[];
+  /** Default per-label inner padding (mm) for the stock this template
+   *  targets. */
+  defaultPadding: LabelPadding;
+  /** Per-template CSS rules embedded in the print window. Takes the
+   *  current label padding so the user's tweaks flow into every printed
+   *  cell. The @page margin stays hardcoded and is honoured by the
+   *  browser / OS print driver, not by us. */
+  pageCss(padding: LabelPadding): string;
+  /** Layout of every cell on a single page, in mm. Drives the page-
+   *  layout preview. (Page margins are hardcoded so cell positions are
+   *  fixed.) */
+  computeCells(): CellRect[];
   /** Render a single label cell. Used for both preview and print. */
   renderCell(args: {
     box: MoveBox;
@@ -87,20 +93,23 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
     symbology: (box) => (box.code_type === "code128" ? "code128" : "qr"),
     previewCellClass:
       "label rounded border-2 border-dashed border-slate-400 bg-white p-3 text-slate-900",
-    defaultMargins: { top: 10, right: 10, bottom: 10, left: 10 },
-    computeCells(m) {
+    defaultPadding: { top: 6, right: 6, bottom: 6, left: 6 },
+    computeCells() {
+      /* Page margins are hardcoded at 10mm uniform; the cells line up
+       * with the Avery die-cuts inside that. */
+      const pageMargin = 10;
       const cols = 2;
       const rows = 4;
       const colGap = 6;
       const rowGap = 6;
-      const cellW = (A4_W_MM - m.left - m.right - colGap * (cols - 1)) / cols;
+      const cellW = (A4_W_MM - pageMargin * 2 - colGap * (cols - 1)) / cols;
       const cellH = 60;
       const cells: CellRect[] = [];
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           cells.push({
-            xMm: m.left + c * (cellW + colGap),
-            yMm: m.top + r * (cellH + rowGap),
+            xMm: pageMargin + c * (cellW + colGap),
+            yMm: pageMargin + r * (cellH + rowGap),
             wMm: cellW,
             hMm: cellH,
           });
@@ -108,13 +117,13 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
       }
       return cells;
     },
-    pageCss: (m) => `
-      @page { size: A4; margin: ${m.top}mm ${m.right}mm ${m.bottom}mm ${m.left}mm; }
+    pageCss: (p) => `
+      @page { size: A4; margin: 10mm; }
       .sheet { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6mm; padding: 0; }
       .label {
         border: 1.5pt dashed #94a3b8;
         border-radius: 4pt;
-        padding: 6mm;
+        padding: ${p.top}mm ${p.right}mm ${p.bottom}mm ${p.left}mm;
         page-break-inside: avoid;
         break-inside: avoid;
         min-height: 60mm;
@@ -188,8 +197,13 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
     symbology: () => "code128",
     previewCellClass:
       "lc30-label flex flex-col items-stretch justify-center gap-1 rounded-sm border border-slate-300 bg-white p-1.5 text-slate-900 min-h-[60px]",
-    defaultMargins: { top: 13.5, right: 7, bottom: 13.5, left: 7 },
-    computeCells(m) {
+    defaultPadding: { top: 1.5, right: 2, bottom: 1.5, left: 2 },
+    computeCells() {
+      /* LC30 page margins are fixed by the stock — 13.5mm top/bottom,
+       * 7mm sides — so the 3×10 grid lands on the die-cuts. The user
+       * controls inner cell padding, not these. */
+      const marginTop = 13.5;
+      const marginLeft = 7;
       const cellW = 64;
       const cellH = 25;
       const cols = 3;
@@ -198,8 +212,8 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           cells.push({
-            xMm: m.left + c * cellW,
-            yMm: m.top + r * cellH,
+            xMm: marginLeft + c * cellW,
+            yMm: marginTop + r * cellH,
             wMm: cellW,
             hMm: cellH,
           });
@@ -207,11 +221,11 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
       }
       return cells;
     },
-    pageCss: (m) => `
-      /* LC30 sheet: 3 cols × 10 rows of 64×25mm labels. Margins now
-         come from the user controls so misaligned printers can be
-         nudged without re-rolling the template. */
-      @page { size: A4; margin: ${m.top}mm ${m.right}mm ${m.bottom}mm ${m.left}mm; }
+    pageCss: (p) => `
+      /* LC30 sheet: 3 cols × 10 rows of 64×25mm labels, ~7mm side
+         margins, ~13.5mm top/bottom margins, no inter-cell gap.
+         Margins set on @page so the grid starts at the first die. */
+      @page { size: A4; margin: 13.5mm 7mm; }
       .sheet {
         display: grid;
         grid-template-columns: repeat(3, 64mm);
@@ -222,7 +236,7 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
       .label {
         width: 64mm;
         height: 25mm;
-        padding: 1.5mm 2mm;
+        padding: ${p.top}mm ${p.right}mm ${p.bottom}mm ${p.left}mm;
         display: flex;
         flex-direction: column;
         justify-content: center;
@@ -278,21 +292,25 @@ function barcodeSvgFor(box: MoveBox, template: MoveLabelTemplate): string {
 
 /* ============ Page layout preview ============ */
 
-/** Renders a to-scale A4 page diagram with all cell outlines for the
- *  given template + margins, plus four input boxes (top/right/bottom/
- *  left) connected to the corresponding margin guides by dotted red
- *  arrows. Editing any input live-updates the page diagram so the
- *  user can dial in where labels will actually print before sending
- *  the job to the browser/OS print dialog. */
+/** Renders a to-scale A4 page diagram with every label cell on it.
+ *  The first top-left cell is the called-out example: its inner
+ *  content area (after padding) is highlighted and four dotted red
+ *  arrows fan out from the four mm-unit input boxes to the matching
+ *  padding band of that cell.
+ *
+ *  Editing any input live-updates EVERY cell's inner content area
+ *  (since one padding value applies to every label) AND flows into
+ *  the printed `.label { padding: ... }` rule. The @page margin is
+ *  not touched — that's the browser / OS print driver's job. */
 function PageLayoutPreview({
   template,
-  margins,
+  padding,
   onChange,
   onReset,
 }: {
   template: MoveLabelTemplate;
-  margins: PageMargins;
-  onChange: (side: keyof PageMargins, value: number) => void;
+  padding: LabelPadding;
+  onChange: (side: keyof LabelPadding, value: number) => void;
   onReset: () => void;
 }) {
   /* Layout constants — chosen so the whole diagram fits inside the
@@ -300,7 +318,7 @@ function PageLayoutPreview({
   const SCALE = 1.2; // px per mm
   const PAGE_W = A4_W_MM * SCALE; // ≈252
   const PAGE_H = A4_H_MM * SCALE; // ≈356
-  const INPUT_W = 70; // width of each margin input (number + "mm")
+  const INPUT_W = 70;
   const INPUT_H = 26;
   const PAD_X = 80; // room either side for left/right inputs + arrows
   const PAD_Y = 56; // room above/below for top/bottom inputs + arrows
@@ -308,67 +326,100 @@ function PageLayoutPreview({
   const WRAP_H = PAGE_H + PAD_Y * 2;
 
   const spec = TEMPLATES[template];
-  const cells = spec.computeCells(margins);
+  const cells = spec.computeCells();
 
   /* Page origin in SVG coordinates */
   const pageX = PAD_X;
   const pageY = PAD_Y;
 
-  /* Margin guide rectangle (printable area) */
-  const guideX = pageX + margins.left * SCALE;
-  const guideY = pageY + margins.top * SCALE;
-  const guideW = (A4_W_MM - margins.left - margins.right) * SCALE;
-  const guideH = (A4_H_MM - margins.top - margins.bottom) * SCALE;
+  /* First label cell — the called-out example */
+  const first = cells[0];
+  const firstX = pageX + first.xMm * SCALE;
+  const firstY = pageY + first.yMm * SCALE;
+  const firstW = first.wMm * SCALE;
+  const firstH = first.hMm * SCALE;
 
-  /* Arrow endpoints — start just outside the page edge (where the
-   * input box sits) and end on the margin guide line. Dotted red so
-   * it's obvious which input drives which edge, even when the margin
-   * itself is small. */
-  const arrowGap = 6;
-  const topX = pageX + PAGE_W / 2;
+  /* Inner content area of the first label, after the current padding */
+  const padL = padding.left * SCALE;
+  const padR = padding.right * SCALE;
+  const padT = padding.top * SCALE;
+  const padB = padding.bottom * SCALE;
+  const innerX = firstX + padL;
+  const innerY = firstY + padT;
+  const innerW = Math.max(0, firstW - padL - padR);
+  const innerH = Math.max(0, firstH - padT - padB);
+
+  /* Inputs align with the first label's centre (not the page centre)
+   * so the dotted arrows are straight verticals / horizontals — no
+   * confusing diagonals. The bottom/right arrows are longer than the
+   * top/left ones because the first label lives in the top-left of
+   * the page; they still cross other cells, which is fine — every
+   * cell on the sheet gets the same padding. */
+  const firstCenterX = firstX + firstW / 2;
+  const firstCenterY = firstY + firstH / 2;
+
+  /* Arrow endpoints — each starts at the outer edge of the cell (or
+   * just inside it) and points inward to the content edge. */
+  const arrowGap = 4;
+  const topArrowX = firstCenterX;
   const topArrowY1 = pageY - arrowGap;
-  const topArrowY2 = guideY;
+  const topArrowY2 = innerY;
 
-  const bottomX = pageX + PAGE_W / 2;
+  const bottomArrowX = firstCenterX;
   const bottomArrowY1 = pageY + PAGE_H + arrowGap;
-  const bottomArrowY2 = guideY + guideH;
+  const bottomArrowY2 = innerY + innerH;
 
-  const leftY = pageY + PAGE_H / 2;
+  const leftArrowY = firstCenterY;
   const leftArrowX1 = pageX - arrowGap;
-  const leftArrowX2 = guideX;
+  const leftArrowX2 = innerX;
 
-  const rightY = pageY + PAGE_H / 2;
+  const rightArrowY = firstCenterY;
   const rightArrowX1 = pageX + PAGE_W + arrowGap;
-  const rightArrowX2 = guideX + guideW;
+  const rightArrowX2 = innerX + innerW;
 
   const numberInput = (
-    side: keyof PageMargins,
+    side: keyof LabelPadding,
     label: string,
     posStyle: React.CSSProperties,
   ) => (
     <div
       className="absolute flex items-center gap-1 rounded-md border border-slate-300 bg-white px-1.5 py-0.5 shadow-sm dark:border-slate-700 dark:bg-slate-900"
       style={{ ...posStyle, height: INPUT_H }}
-      title={`${label} margin`}
+      title={`${label} padding inside each label`}
     >
       <input
         type="number"
         min={0}
         step={0.5}
-        value={margins[side]}
+        value={padding[side]}
         onChange={(e) => onChange(side, parseFloat(e.target.value))}
         className="w-9 bg-transparent text-center text-xs font-mono text-slate-900 outline-none dark:text-slate-100"
-        aria-label={`${label} margin in millimetres`}
+        aria-label={`${label} padding inside each label, in millimetres`}
       />
       <span className="text-[10px] text-slate-500 dark:text-slate-400">mm</span>
     </div>
   );
 
+  /* Helper: the inner (content) rect for an arbitrary cell, in SVG
+   * coords. Used to draw the padded content area on every cell. */
+  const innerRectFor = (cell: CellRect) => {
+    const cx = pageX + cell.xMm * SCALE;
+    const cy = pageY + cell.yMm * SCALE;
+    const cw = cell.wMm * SCALE;
+    const ch = cell.hMm * SCALE;
+    return {
+      x: cx + padL,
+      y: cy + padT,
+      w: Math.max(0, cw - padL - padR),
+      h: Math.max(0, ch - padT - padB),
+    };
+  };
+
   return (
     <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-medium text-slate-700 dark:text-slate-200">
-          Page margins (live preview)
+          Label padding (mm) — applies inside every label on the sheet
         </p>
         <button
           type="button"
@@ -391,7 +442,7 @@ function PageLayoutPreview({
         >
           <defs>
             <marker
-              id="margin-arrow"
+              id="pad-arrow"
               viewBox="0 0 10 10"
               refX="9"
               refY="5"
@@ -401,20 +452,10 @@ function PageLayoutPreview({
             >
               <path d="M0,0 L10,5 L0,10 z" fill="#dc2626" />
             </marker>
-            {/* Decorative pattern for the highlighted "first label" cell
-                — a few thin vertical bars so the cell reads as a label
-                rather than an empty rectangle. */}
-            <pattern
-              id="first-bars"
-              patternUnits="userSpaceOnUse"
-              width={3}
-              height={10}
-            >
-              <rect width={1.4} height={10} fill="#0f172a" />
-            </pattern>
           </defs>
 
-          {/* Page outline */}
+          {/* Page outline (purely contextual — @page margins are
+              hardcoded, the user doesn't control them here). */}
           <rect
             x={pageX}
             y={pageY}
@@ -425,147 +466,140 @@ function PageLayoutPreview({
             strokeWidth={1}
           />
 
-          {/* Margin guide (printable area) */}
-          <rect
-            x={guideX}
-            y={guideY}
-            width={Math.max(0, guideW)}
-            height={Math.max(0, guideH)}
-            fill="none"
-            stroke="#94a3b8"
-            strokeDasharray="3 3"
-            strokeWidth={0.75}
-          />
-
-          {/* All label cells outlined. Cell 0 (top-left) is highlighted
-              with a solid darker stroke so the "first label" the user
-              asked for is unambiguous. */}
+          {/* All label cells. Every cell shows its outer die-cut and
+              its inner content rectangle so the user sees the padding
+              applied to all labels, not just the called-out one. */}
           {cells.map((cell, i) => {
             const cx = pageX + cell.xMm * SCALE;
             const cy = pageY + cell.yMm * SCALE;
             const cw = cell.wMm * SCALE;
             const ch = cell.hMm * SCALE;
+            const inner = innerRectFor(cell);
             const isFirst = i === 0;
             return (
               <g key={i}>
+                {/* Outer cell (die-cut) */}
                 <rect
                   x={cx}
                   y={cy}
                   width={cw}
                   height={ch}
-                  fill={isFirst ? "#eff6ff" : "#ffffff"}
-                  stroke={isFirst ? "#1e293b" : "#cbd5e1"}
+                  fill={isFirst ? "#fef2f2" : "#ffffff"}
+                  stroke={isFirst ? "#0f172a" : "#cbd5e1"}
                   strokeWidth={isFirst ? 1.25 : 0.5}
                   strokeDasharray={isFirst ? undefined : "2 2"}
                 />
+                {/* Inner content rectangle (cell minus padding) */}
+                {inner.w > 0 && inner.h > 0 && (
+                  <rect
+                    x={inner.x}
+                    y={inner.y}
+                    width={inner.w}
+                    height={inner.h}
+                    fill={isFirst ? "#ffffff" : "#f8fafc"}
+                    stroke={isFirst ? "#0f172a" : "#94a3b8"}
+                    strokeWidth={isFirst ? 0.75 : 0.4}
+                    strokeDasharray="2 1.5"
+                  />
+                )}
                 {!isFirst && (
                   <text
                     x={cx + cw / 2}
                     y={cy + ch / 2 + 3}
                     textAnchor="middle"
                     fontSize={9}
-                    fill="#94a3b8"
+                    fill="#cbd5e1"
                   >
                     {i + 1}
                   </text>
                 )}
-                {isFirst && (
-                  <>
-                    {/* Mini label preview: bars + caption. Generic so
-                        the user sees the layout, not specific data. */}
-                    <rect
-                      x={cx + cw * 0.1}
-                      y={cy + ch * 0.18}
-                      width={cw * 0.8}
-                      height={ch * 0.45}
-                      fill="url(#first-bars)"
-                      stroke="#1e293b"
-                      strokeWidth={0.4}
-                    />
-                    <text
-                      x={cx + cw / 2}
-                      y={cy + ch * 0.85}
-                      textAnchor="middle"
-                      fontSize={Math.max(7, Math.min(11, cw * 0.09))}
-                      fontWeight={700}
-                      fill="#0f172a"
-                    >
-                      First label
-                    </text>
-                  </>
+                {isFirst && inner.w > 0 && inner.h > 0 && (
+                  <text
+                    x={inner.x + inner.w / 2}
+                    y={inner.y + inner.h / 2 + 3}
+                    textAnchor="middle"
+                    fontSize={Math.max(7, Math.min(10, inner.w * 0.08))}
+                    fontWeight={600}
+                    fill="#0f172a"
+                  >
+                    First label
+                  </text>
                 )}
               </g>
             );
           })}
 
-          {/* Dotted red arrows from each input to the matching margin edge */}
+          {/* Dotted red arrows from each input to the matching padding
+              band on the first label. Vertical for top/bottom,
+              horizontal for left/right. */}
           <line
-            x1={topX}
+            x1={topArrowX}
             y1={topArrowY1}
-            x2={topX}
+            x2={topArrowX}
             y2={topArrowY2}
             stroke="#dc2626"
             strokeWidth={1.25}
             strokeDasharray="2 2"
-            markerEnd="url(#margin-arrow)"
+            markerEnd="url(#pad-arrow)"
           />
           <line
-            x1={bottomX}
+            x1={bottomArrowX}
             y1={bottomArrowY1}
-            x2={bottomX}
+            x2={bottomArrowX}
             y2={bottomArrowY2}
             stroke="#dc2626"
             strokeWidth={1.25}
             strokeDasharray="2 2"
-            markerEnd="url(#margin-arrow)"
+            markerEnd="url(#pad-arrow)"
           />
           <line
             x1={leftArrowX1}
-            y1={leftY}
+            y1={leftArrowY}
             x2={leftArrowX2}
-            y2={leftY}
+            y2={leftArrowY}
             stroke="#dc2626"
             strokeWidth={1.25}
             strokeDasharray="2 2"
-            markerEnd="url(#margin-arrow)"
+            markerEnd="url(#pad-arrow)"
           />
           <line
             x1={rightArrowX1}
-            y1={rightY}
+            y1={rightArrowY}
             x2={rightArrowX2}
-            y2={rightY}
+            y2={rightArrowY}
             stroke="#dc2626"
             strokeWidth={1.25}
             strokeDasharray="2 2"
-            markerEnd="url(#margin-arrow)"
+            markerEnd="url(#pad-arrow)"
           />
         </svg>
 
-        {/* Four margin inputs — absolutely positioned so each sits
-            outside its matching page edge, lined up with the arrow. */}
+        {/* Four padding inputs — absolutely positioned so each sits
+            outside the page, aligned with the first label's centre so
+            the arrows are clean verticals / horizontals. */}
         {numberInput("top", "Top", {
           top: 8,
-          left: topX - INPUT_W / 2,
+          left: topArrowX - INPUT_W / 2,
           width: INPUT_W,
         })}
         {numberInput("bottom", "Bottom", {
           top: pageY + PAGE_H + PAD_Y - INPUT_H - 8,
-          left: bottomX - INPUT_W / 2,
+          left: bottomArrowX - INPUT_W / 2,
           width: INPUT_W,
         })}
         {numberInput("left", "Left", {
-          top: leftY - INPUT_H / 2,
+          top: leftArrowY - INPUT_H / 2,
           left: 4,
           width: INPUT_W,
         })}
         {numberInput("right", "Right", {
-          top: rightY - INPUT_H / 2,
+          top: rightArrowY - INPUT_H / 2,
           left: pageX + PAGE_W + PAD_X - INPUT_W - 4,
           width: INPUT_W,
         })}
       </div>
       <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400 text-center">
-        {spec.label} — values are saved per template.
+        {spec.label} — page margins are handled by the print dialog. Padding is saved per template.
       </p>
     </div>
   );
@@ -573,32 +607,43 @@ function PageLayoutPreview({
 
 const MAX_COPIES = 50;
 
-/** localStorage key for the saved margins of a given template. Margins
- *  drift per-printer/per-stock, so each template keeps its own value. */
-const marginsKey = (template: MoveLabelTemplate) =>
-  `homelhar-label-margins-${template}`;
+/** localStorage key for the saved per-label padding of a given
+ *  template. Padding drifts per-printer/per-stock, so each template
+ *  keeps its own value. */
+const paddingKey = (template: MoveLabelTemplate) =>
+  `homelhar-label-padding-${template}`;
 
-/** Clamp a margin value into a sensible range — never negative, never
- *  more than half of the corresponding page dimension (which would
- *  leave nothing to print on). */
-function clampMargin(side: keyof PageMargins, value: number): number {
-  if (Number.isNaN(value)) return 0;
-  const max = side === "top" || side === "bottom" ? A4_H_MM / 2 : A4_W_MM / 2;
-  return Math.max(0, Math.min(max, value));
+/** Pick a cap so the user can't pad the content area into negative
+ *  size. Capped at ~45% of the smaller cell dimension on each axis. */
+function paddingCap(template: MoveLabelTemplate, axis: "x" | "y"): number {
+  const cell = TEMPLATES[template].computeCells()[0];
+  return axis === "x" ? cell.wMm * 0.45 : cell.hMm * 0.45;
 }
 
-function loadMargins(template: MoveLabelTemplate): PageMargins {
-  const fallback = TEMPLATES[template].defaultMargins;
+/** Clamp a padding value into a sensible range — never negative, never
+ *  enough to crush the content area. */
+function clampPadding(
+  template: MoveLabelTemplate,
+  side: keyof LabelPadding,
+  value: number,
+): number {
+  if (Number.isNaN(value)) return 0;
+  const axis = side === "top" || side === "bottom" ? "y" : "x";
+  return Math.max(0, Math.min(paddingCap(template, axis), value));
+}
+
+function loadPadding(template: MoveLabelTemplate): LabelPadding {
+  const fallback = TEMPLATES[template].defaultPadding;
   if (typeof window === "undefined") return fallback;
   try {
-    const raw = window.localStorage.getItem(marginsKey(template));
+    const raw = window.localStorage.getItem(paddingKey(template));
     if (!raw) return fallback;
-    const parsed = JSON.parse(raw) as Partial<PageMargins>;
+    const parsed = JSON.parse(raw) as Partial<LabelPadding>;
     return {
-      top: clampMargin("top", Number(parsed.top ?? fallback.top)),
-      right: clampMargin("right", Number(parsed.right ?? fallback.right)),
-      bottom: clampMargin("bottom", Number(parsed.bottom ?? fallback.bottom)),
-      left: clampMargin("left", Number(parsed.left ?? fallback.left)),
+      top: clampPadding(template, "top", Number(parsed.top ?? fallback.top)),
+      right: clampPadding(template, "right", Number(parsed.right ?? fallback.right)),
+      bottom: clampPadding(template, "bottom", Number(parsed.bottom ?? fallback.bottom)),
+      left: clampPadding(template, "left", Number(parsed.left ?? fallback.left)),
     };
   } catch {
     return fallback;
@@ -630,7 +675,7 @@ export function LabelSheet({
 }: LabelSheetProps) {
   const printRef = useRef<HTMLDivElement>(null);
   const [copies, setCopies] = useState(initialCopies);
-  const [margins, setMargins] = useState<PageMargins>(() => loadMargins(template));
+  const [padding, setPadding] = useState<LabelPadding>(() => loadPadding(template));
 
   // Reset copies when the modal re-opens so a previous run's value
   // doesn't surprise the next user.
@@ -638,30 +683,30 @@ export function LabelSheet({
     if (open) setCopies(initialCopies);
   }, [open, initialCopies]);
 
-  // Reload saved margins when the active template changes — each
-  // template keeps its own margin profile.
+  // Reload saved padding when the active template changes — each
+  // template keeps its own padding profile.
   useEffect(() => {
-    setMargins(loadMargins(template));
+    setPadding(loadPadding(template));
   }, [template]);
 
-  // Persist margins whenever they change so the same printer line-up
+  // Persist padding whenever it changes so the same printer line-up
   // sticks across sessions.
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      window.localStorage.setItem(marginsKey(template), JSON.stringify(margins));
+      window.localStorage.setItem(paddingKey(template), JSON.stringify(padding));
     } catch {
       /* localStorage full / disabled — non-fatal, just don't persist. */
     }
-  }, [margins, template]);
+  }, [padding, template]);
 
   const spec = TEMPLATES[template];
 
-  const updateMargin = (side: keyof PageMargins, value: number) => {
-    setMargins((prev) => ({ ...prev, [side]: clampMargin(side, value) }));
+  const updatePadding = (side: keyof LabelPadding, value: number) => {
+    setPadding((prev) => ({ ...prev, [side]: clampPadding(template, side, value) }));
   };
 
-  const resetMargins = () => setMargins(spec.defaultMargins);
+  const resetPadding = () => setPadding(spec.defaultPadding);
 
   // Repeat each box `copies` times. Each repetition gets a unique React
   // key but renders the same underlying label (same barcode).
@@ -700,7 +745,7 @@ export function LabelSheet({
   <style>
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0f172a; }
-    ${spec.pageCss(margins)}
+    ${spec.pageCss(padding)}
   </style>
 </head>
 <body>
@@ -764,15 +809,18 @@ export function LabelSheet({
           </div>
         </div>
 
-        {/* Page-layout preview — to-scale A4 diagram with adjustable
-            margins. Edits live-update the diagram AND flow into the
-            print CSS so what the user sees is what the printer prints. */}
+        {/* Per-label padding preview — to-scale A4 diagram with the
+            first label called out by dotted red arrows. Edits live-
+            update every cell on the diagram AND flow into the print
+            CSS so what the user sees is what the printer prints. The
+            page (@page) margin stays hardcoded; that's the browser /
+            OS print driver's job. */}
         <div className="overflow-x-auto">
           <PageLayoutPreview
             template={template}
-            margins={margins}
-            onChange={updateMargin}
-            onReset={resetMargins}
+            padding={padding}
+            onChange={updatePadding}
+            onReset={resetPadding}
           />
         </div>
 
@@ -791,6 +839,13 @@ export function LabelSheet({
                 <div
                   key={`${box.id}-${copyIndex}`}
                   className={`${spec.previewCellClass}${box.fragile ? " fragile" : ""}`}
+                  /* Inline padding wins over the Tailwind p-* utility
+                   * in previewCellClass, so on-screen cells reflect
+                   * the user's chosen padding alongside the print
+                   * output. */
+                  style={{
+                    padding: `${padding.top}mm ${padding.right}mm ${padding.bottom}mm ${padding.left}mm`,
+                  }}
                 >
                   {spec.renderCell({ box, barcodeSvg, destination: dest, contents })}
                 </div>

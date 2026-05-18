@@ -27,6 +27,22 @@ import { qrSvg } from "@/lib/qrcode";
 
 /* ============ Template specs ============ */
 
+/** Page-margin overrides (mm). User-tweakable per template. */
+export interface PageMargins {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+/** A single label cell's position on the page, in millimetres. */
+interface CellRect {
+  xMm: number;
+  yMm: number;
+  wMm: number;
+  hMm: number;
+}
+
 interface TemplateSpec {
   /** Cells per page — used by the on-screen preview header. */
   perPage: number;
@@ -41,8 +57,14 @@ interface TemplateSpec {
   symbology(box: MoveBox): "qr" | "code128";
   /** Tailwind classes applied to the on-screen preview cell. */
   previewCellClass: string;
-  /** Per-template CSS rules embedded in the print window. */
-  pageCss: string;
+  /** Default page margins (mm) for the stock this template targets. */
+  defaultMargins: PageMargins;
+  /** Per-template CSS rules embedded in the print window. Takes current
+   *  margins so the user's tweaks flow into the printed @page. */
+  pageCss(margins: PageMargins): string;
+  /** Layout of every cell on a single page given current margins, in mm.
+   *  Drives the page-layout preview. */
+  computeCells(margins: PageMargins): CellRect[];
   /** Render a single label cell. Used for both preview and print. */
   renderCell(args: {
     box: MoveBox;
@@ -51,6 +73,10 @@ interface TemplateSpec {
     contents: MoveItem[];
   }): React.ReactNode;
 }
+
+/** Physical A4 dimensions in millimetres — used by the page-layout preview. */
+const A4_W_MM = 210;
+const A4_H_MM = 297;
 
 const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
   "a4-8up": {
@@ -61,8 +87,29 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
     symbology: (box) => (box.code_type === "code128" ? "code128" : "qr"),
     previewCellClass:
       "label rounded border-2 border-dashed border-slate-400 bg-white p-3 text-slate-900",
-    pageCss: `
-      @page { size: A4; margin: 10mm; }
+    defaultMargins: { top: 10, right: 10, bottom: 10, left: 10 },
+    computeCells(m) {
+      const cols = 2;
+      const rows = 4;
+      const colGap = 6;
+      const rowGap = 6;
+      const cellW = (A4_W_MM - m.left - m.right - colGap * (cols - 1)) / cols;
+      const cellH = 60;
+      const cells: CellRect[] = [];
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          cells.push({
+            xMm: m.left + c * (cellW + colGap),
+            yMm: m.top + r * (cellH + rowGap),
+            wMm: cellW,
+            hMm: cellH,
+          });
+        }
+      }
+      return cells;
+    },
+    pageCss: (m) => `
+      @page { size: A4; margin: ${m.top}mm ${m.right}mm ${m.bottom}mm ${m.left}mm; }
       .sheet { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6mm; padding: 0; }
       .label {
         border: 1.5pt dashed #94a3b8;
@@ -141,11 +188,30 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
     symbology: () => "code128",
     previewCellClass:
       "lc30-label flex flex-col items-stretch justify-center gap-1 rounded-sm border border-slate-300 bg-white p-1.5 text-slate-900 min-h-[60px]",
-    pageCss: `
-      /* LC30 sheet: 3 cols × 10 rows of 64×25mm labels, ~7mm side
-         margins, ~13.5mm top/bottom margins, no inter-cell gap.
-         Margins set on @page so the grid starts at the first die. */
-      @page { size: A4; margin: 13.5mm 7mm; }
+    defaultMargins: { top: 13.5, right: 7, bottom: 13.5, left: 7 },
+    computeCells(m) {
+      const cellW = 64;
+      const cellH = 25;
+      const cols = 3;
+      const rows = 10;
+      const cells: CellRect[] = [];
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          cells.push({
+            xMm: m.left + c * cellW,
+            yMm: m.top + r * cellH,
+            wMm: cellW,
+            hMm: cellH,
+          });
+        }
+      }
+      return cells;
+    },
+    pageCss: (m) => `
+      /* LC30 sheet: 3 cols × 10 rows of 64×25mm labels. Margins now
+         come from the user controls so misaligned printers can be
+         nudged without re-rolling the template. */
+      @page { size: A4; margin: ${m.top}mm ${m.right}mm ${m.bottom}mm ${m.left}mm; }
       .sheet {
         display: grid;
         grid-template-columns: repeat(3, 64mm);
@@ -210,7 +276,334 @@ function barcodeSvgFor(box: MoveBox, template: MoveLabelTemplate): string {
   return qrSvg(box.barcode);
 }
 
+/* ============ Page layout preview ============ */
+
+/** Renders a to-scale A4 page diagram with all cell outlines for the
+ *  given template + margins, plus four input boxes (top/right/bottom/
+ *  left) connected to the corresponding margin guides by dotted red
+ *  arrows. Editing any input live-updates the page diagram so the
+ *  user can dial in where labels will actually print before sending
+ *  the job to the browser/OS print dialog. */
+function PageLayoutPreview({
+  template,
+  margins,
+  onChange,
+  onReset,
+}: {
+  template: MoveLabelTemplate;
+  margins: PageMargins;
+  onChange: (side: keyof PageMargins, value: number) => void;
+  onReset: () => void;
+}) {
+  /* Layout constants — chosen so the whole diagram fits inside the
+   * default `md` modal width on phones and desktops alike. */
+  const SCALE = 1.2; // px per mm
+  const PAGE_W = A4_W_MM * SCALE; // ≈252
+  const PAGE_H = A4_H_MM * SCALE; // ≈356
+  const INPUT_W = 70; // width of each margin input (number + "mm")
+  const INPUT_H = 26;
+  const PAD_X = 80; // room either side for left/right inputs + arrows
+  const PAD_Y = 56; // room above/below for top/bottom inputs + arrows
+  const WRAP_W = PAGE_W + PAD_X * 2;
+  const WRAP_H = PAGE_H + PAD_Y * 2;
+
+  const spec = TEMPLATES[template];
+  const cells = spec.computeCells(margins);
+
+  /* Page origin in SVG coordinates */
+  const pageX = PAD_X;
+  const pageY = PAD_Y;
+
+  /* Margin guide rectangle (printable area) */
+  const guideX = pageX + margins.left * SCALE;
+  const guideY = pageY + margins.top * SCALE;
+  const guideW = (A4_W_MM - margins.left - margins.right) * SCALE;
+  const guideH = (A4_H_MM - margins.top - margins.bottom) * SCALE;
+
+  /* Arrow endpoints — start just outside the page edge (where the
+   * input box sits) and end on the margin guide line. Dotted red so
+   * it's obvious which input drives which edge, even when the margin
+   * itself is small. */
+  const arrowGap = 6;
+  const topX = pageX + PAGE_W / 2;
+  const topArrowY1 = pageY - arrowGap;
+  const topArrowY2 = guideY;
+
+  const bottomX = pageX + PAGE_W / 2;
+  const bottomArrowY1 = pageY + PAGE_H + arrowGap;
+  const bottomArrowY2 = guideY + guideH;
+
+  const leftY = pageY + PAGE_H / 2;
+  const leftArrowX1 = pageX - arrowGap;
+  const leftArrowX2 = guideX;
+
+  const rightY = pageY + PAGE_H / 2;
+  const rightArrowX1 = pageX + PAGE_W + arrowGap;
+  const rightArrowX2 = guideX + guideW;
+
+  const numberInput = (
+    side: keyof PageMargins,
+    label: string,
+    posStyle: React.CSSProperties,
+  ) => (
+    <div
+      className="absolute flex items-center gap-1 rounded-md border border-slate-300 bg-white px-1.5 py-0.5 shadow-sm dark:border-slate-700 dark:bg-slate-900"
+      style={{ ...posStyle, height: INPUT_H }}
+      title={`${label} margin`}
+    >
+      <input
+        type="number"
+        min={0}
+        step={0.5}
+        value={margins[side]}
+        onChange={(e) => onChange(side, parseFloat(e.target.value))}
+        className="w-9 bg-transparent text-center text-xs font-mono text-slate-900 outline-none dark:text-slate-100"
+        aria-label={`${label} margin in millimetres`}
+      />
+      <span className="text-[10px] text-slate-500 dark:text-slate-400">mm</span>
+    </div>
+  );
+
+  return (
+    <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-medium text-slate-700 dark:text-slate-200">
+          Page margins (live preview)
+        </p>
+        <button
+          type="button"
+          onClick={onReset}
+          className="text-[11px] text-primary-600 hover:underline dark:text-primary-400"
+        >
+          Reset to template defaults
+        </button>
+      </div>
+      <div
+        className="relative mx-auto"
+        style={{ width: WRAP_W, height: WRAP_H }}
+      >
+        <svg
+          width={WRAP_W}
+          height={WRAP_H}
+          viewBox={`0 0 ${WRAP_W} ${WRAP_H}`}
+          className="block"
+          aria-hidden
+        >
+          <defs>
+            <marker
+              id="margin-arrow"
+              viewBox="0 0 10 10"
+              refX="9"
+              refY="5"
+              markerWidth="6"
+              markerHeight="6"
+              orient="auto-start-reverse"
+            >
+              <path d="M0,0 L10,5 L0,10 z" fill="#dc2626" />
+            </marker>
+            {/* Decorative pattern for the highlighted "first label" cell
+                — a few thin vertical bars so the cell reads as a label
+                rather than an empty rectangle. */}
+            <pattern
+              id="first-bars"
+              patternUnits="userSpaceOnUse"
+              width={3}
+              height={10}
+            >
+              <rect width={1.4} height={10} fill="#0f172a" />
+            </pattern>
+          </defs>
+
+          {/* Page outline */}
+          <rect
+            x={pageX}
+            y={pageY}
+            width={PAGE_W}
+            height={PAGE_H}
+            fill="#ffffff"
+            stroke="#cbd5e1"
+            strokeWidth={1}
+          />
+
+          {/* Margin guide (printable area) */}
+          <rect
+            x={guideX}
+            y={guideY}
+            width={Math.max(0, guideW)}
+            height={Math.max(0, guideH)}
+            fill="none"
+            stroke="#94a3b8"
+            strokeDasharray="3 3"
+            strokeWidth={0.75}
+          />
+
+          {/* All label cells outlined. Cell 0 (top-left) is highlighted
+              with a solid darker stroke so the "first label" the user
+              asked for is unambiguous. */}
+          {cells.map((cell, i) => {
+            const cx = pageX + cell.xMm * SCALE;
+            const cy = pageY + cell.yMm * SCALE;
+            const cw = cell.wMm * SCALE;
+            const ch = cell.hMm * SCALE;
+            const isFirst = i === 0;
+            return (
+              <g key={i}>
+                <rect
+                  x={cx}
+                  y={cy}
+                  width={cw}
+                  height={ch}
+                  fill={isFirst ? "#eff6ff" : "#ffffff"}
+                  stroke={isFirst ? "#1e293b" : "#cbd5e1"}
+                  strokeWidth={isFirst ? 1.25 : 0.5}
+                  strokeDasharray={isFirst ? undefined : "2 2"}
+                />
+                {!isFirst && (
+                  <text
+                    x={cx + cw / 2}
+                    y={cy + ch / 2 + 3}
+                    textAnchor="middle"
+                    fontSize={9}
+                    fill="#94a3b8"
+                  >
+                    {i + 1}
+                  </text>
+                )}
+                {isFirst && (
+                  <>
+                    {/* Mini label preview: bars + caption. Generic so
+                        the user sees the layout, not specific data. */}
+                    <rect
+                      x={cx + cw * 0.1}
+                      y={cy + ch * 0.18}
+                      width={cw * 0.8}
+                      height={ch * 0.45}
+                      fill="url(#first-bars)"
+                      stroke="#1e293b"
+                      strokeWidth={0.4}
+                    />
+                    <text
+                      x={cx + cw / 2}
+                      y={cy + ch * 0.85}
+                      textAnchor="middle"
+                      fontSize={Math.max(7, Math.min(11, cw * 0.09))}
+                      fontWeight={700}
+                      fill="#0f172a"
+                    >
+                      First label
+                    </text>
+                  </>
+                )}
+              </g>
+            );
+          })}
+
+          {/* Dotted red arrows from each input to the matching margin edge */}
+          <line
+            x1={topX}
+            y1={topArrowY1}
+            x2={topX}
+            y2={topArrowY2}
+            stroke="#dc2626"
+            strokeWidth={1.25}
+            strokeDasharray="2 2"
+            markerEnd="url(#margin-arrow)"
+          />
+          <line
+            x1={bottomX}
+            y1={bottomArrowY1}
+            x2={bottomX}
+            y2={bottomArrowY2}
+            stroke="#dc2626"
+            strokeWidth={1.25}
+            strokeDasharray="2 2"
+            markerEnd="url(#margin-arrow)"
+          />
+          <line
+            x1={leftArrowX1}
+            y1={leftY}
+            x2={leftArrowX2}
+            y2={leftY}
+            stroke="#dc2626"
+            strokeWidth={1.25}
+            strokeDasharray="2 2"
+            markerEnd="url(#margin-arrow)"
+          />
+          <line
+            x1={rightArrowX1}
+            y1={rightY}
+            x2={rightArrowX2}
+            y2={rightY}
+            stroke="#dc2626"
+            strokeWidth={1.25}
+            strokeDasharray="2 2"
+            markerEnd="url(#margin-arrow)"
+          />
+        </svg>
+
+        {/* Four margin inputs — absolutely positioned so each sits
+            outside its matching page edge, lined up with the arrow. */}
+        {numberInput("top", "Top", {
+          top: 8,
+          left: topX - INPUT_W / 2,
+          width: INPUT_W,
+        })}
+        {numberInput("bottom", "Bottom", {
+          top: pageY + PAGE_H + PAD_Y - INPUT_H - 8,
+          left: bottomX - INPUT_W / 2,
+          width: INPUT_W,
+        })}
+        {numberInput("left", "Left", {
+          top: leftY - INPUT_H / 2,
+          left: 4,
+          width: INPUT_W,
+        })}
+        {numberInput("right", "Right", {
+          top: rightY - INPUT_H / 2,
+          left: pageX + PAGE_W + PAD_X - INPUT_W - 4,
+          width: INPUT_W,
+        })}
+      </div>
+      <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400 text-center">
+        {spec.label} — values are saved per template.
+      </p>
+    </div>
+  );
+}
+
 const MAX_COPIES = 50;
+
+/** localStorage key for the saved margins of a given template. Margins
+ *  drift per-printer/per-stock, so each template keeps its own value. */
+const marginsKey = (template: MoveLabelTemplate) =>
+  `homelhar-label-margins-${template}`;
+
+/** Clamp a margin value into a sensible range — never negative, never
+ *  more than half of the corresponding page dimension (which would
+ *  leave nothing to print on). */
+function clampMargin(side: keyof PageMargins, value: number): number {
+  if (Number.isNaN(value)) return 0;
+  const max = side === "top" || side === "bottom" ? A4_H_MM / 2 : A4_W_MM / 2;
+  return Math.max(0, Math.min(max, value));
+}
+
+function loadMargins(template: MoveLabelTemplate): PageMargins {
+  const fallback = TEMPLATES[template].defaultMargins;
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(marginsKey(template));
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<PageMargins>;
+    return {
+      top: clampMargin("top", Number(parsed.top ?? fallback.top)),
+      right: clampMargin("right", Number(parsed.right ?? fallback.right)),
+      bottom: clampMargin("bottom", Number(parsed.bottom ?? fallback.bottom)),
+      left: clampMargin("left", Number(parsed.left ?? fallback.left)),
+    };
+  } catch {
+    return fallback;
+  }
+}
 
 interface LabelSheetProps {
   open: boolean;
@@ -237,6 +630,7 @@ export function LabelSheet({
 }: LabelSheetProps) {
   const printRef = useRef<HTMLDivElement>(null);
   const [copies, setCopies] = useState(initialCopies);
+  const [margins, setMargins] = useState<PageMargins>(() => loadMargins(template));
 
   // Reset copies when the modal re-opens so a previous run's value
   // doesn't surprise the next user.
@@ -244,7 +638,30 @@ export function LabelSheet({
     if (open) setCopies(initialCopies);
   }, [open, initialCopies]);
 
+  // Reload saved margins when the active template changes — each
+  // template keeps its own margin profile.
+  useEffect(() => {
+    setMargins(loadMargins(template));
+  }, [template]);
+
+  // Persist margins whenever they change so the same printer line-up
+  // sticks across sessions.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(marginsKey(template), JSON.stringify(margins));
+    } catch {
+      /* localStorage full / disabled — non-fatal, just don't persist. */
+    }
+  }, [margins, template]);
+
   const spec = TEMPLATES[template];
+
+  const updateMargin = (side: keyof PageMargins, value: number) => {
+    setMargins((prev) => ({ ...prev, [side]: clampMargin(side, value) }));
+  };
+
+  const resetMargins = () => setMargins(spec.defaultMargins);
 
   // Repeat each box `copies` times. Each repetition gets a unique React
   // key but renders the same underlying label (same barcode).
@@ -283,7 +700,7 @@ export function LabelSheet({
   <style>
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0f172a; }
-    ${spec.pageCss}
+    ${spec.pageCss(margins)}
   </style>
 </head>
 <body>
@@ -347,7 +764,19 @@ export function LabelSheet({
           </div>
         </div>
 
-        {/* On-screen preview — the printed output uses its own stylesheet above. */}
+        {/* Page-layout preview — to-scale A4 diagram with adjustable
+            margins. Edits live-update the diagram AND flow into the
+            print CSS so what the user sees is what the printer prints. */}
+        <div className="overflow-x-auto">
+          <PageLayoutPreview
+            template={template}
+            margins={margins}
+            onChange={updateMargin}
+            onReset={resetMargins}
+          />
+        </div>
+
+        {/* On-screen content preview — the printed output uses its own stylesheet above. */}
         <div className="max-h-[60vh] overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
           <div
             ref={printRef}

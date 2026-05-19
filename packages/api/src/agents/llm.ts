@@ -9,16 +9,16 @@ const llmStore = new AsyncLocalStorage<LLMContext>();
 const llmCache = new Map<string, ChatOpenAI>();
 
 const FIXED_TEMPERATURE_MODELS = new Set([
-  "gpt-5-nano",
-  "gpt-5-mini",
+  "gpt-5.5",
   "gpt-5.4",
-  "o4-mini",
+  "gpt-5.4-mini",
+  "gpt-5.4-nano",
 ]);
 
 export function getLLM(modelOverride?: string): ChatOpenAI {
   const ctx = llmStore.getStore();
   const model =
-    modelOverride ?? ctx?.model ?? process.env.LLM_MODEL ?? "gpt-4o-mini";
+    modelOverride ?? ctx?.model ?? process.env.LLM_MODEL ?? "gpt-5.4-mini";
 
   let llm = llmCache.get(model);
   if (!llm) {

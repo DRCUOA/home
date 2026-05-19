@@ -134,7 +134,7 @@ function AssistantPage() {
 
   const [inputText, setInputText] = useState("");
   const [workflowType, setWorkflowType] = useState<string>("qa");
-  const [selectedModel, setSelectedModel] = useState<string>("gpt-5-mini");
+  const [selectedModel, setSelectedModel] = useState<string>("gpt-5.4-mini");
   const [enabledTools, setEnabledTools] = useState<AssistantTool[]>([]);
   const [scopeProjectId, setScopeProjectId] = useState("");
   const [scopePropertyId, setScopePropertyId] = useState("");

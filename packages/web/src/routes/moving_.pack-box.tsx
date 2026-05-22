@@ -46,7 +46,7 @@ type SearchParams = { move?: string };
 
 const PRESET_COUNT = 6;
 
-export const Route = createFileRoute("/moving/pack-box")({
+export const Route = createFileRoute("/moving_/pack-box")({
   component: PackBoxPage,
   validateSearch: (raw: Record<string, unknown>): SearchParams => ({
     move: typeof raw.move === "string" ? raw.move : undefined,

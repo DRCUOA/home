@@ -327,10 +327,16 @@ export interface MoveBox extends BaseEntity {
   code_type: string;
   label: string;
   destination_room_id?: string;
+  /** Optional room the box was packed in (set via the pack-box flow). */
+  source_room_id?: string;
   fragile: boolean;
   priority: string;
   /** "preparing" | "packed" | "loaded" | "delivered" | "unpacked". */
   status: string;
+  /** YYYY-MM-DD string set when the box is sealed via pack-box flow. */
+  packed_on?: string;
+  /** Freeform name set when the box is sealed via pack-box flow. */
+  packed_by?: string;
   notes?: string;
 }
 

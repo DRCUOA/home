@@ -444,8 +444,11 @@ export default async function movingRoutes(app: FastifyInstance) {
         barcode: body.barcode,
         label: body.label,
         destination_room_id: body.destination_room_id,
+        source_room_id: body.source_room_id ?? null,
         fragile: body.fragile ?? false,
         priority: body.priority ?? "normal",
+        packed_on: body.packed_on ?? null,
+        packed_by: body.packed_by ?? null,
         notes: body.notes,
       })
       .returning();

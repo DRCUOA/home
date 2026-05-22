@@ -2977,16 +2977,31 @@ function MoveTab({
               New box
             </Button>
           </div>
-          <Button
-            variant="secondary"
-            className="w-full min-h-11"
-            onClick={() =>
-              navigate({ to: "/scan", search: { move: move.id } })
-            }
-          >
-            <ScanLine className="h-4 w-4" />
-            Walk-around scanner
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              className="flex-1 min-h-11"
+              onClick={() =>
+                navigate({ to: "/scan", search: { move: move.id } })
+              }
+            >
+              <ScanLine className="h-4 w-4" />
+              Walk-around scanner
+            </Button>
+            <Button
+              variant="secondary"
+              className="flex-1 min-h-11"
+              onClick={() =>
+                navigate({
+                  to: "/moving/pack-box",
+                  search: { move: move.id },
+                })
+              }
+            >
+              <Package className="h-4 w-4" />
+              Pack a box
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

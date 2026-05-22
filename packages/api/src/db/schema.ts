@@ -615,11 +615,22 @@ export const moveBoxes = pgTable(
       () => moveRooms.id,
       { onDelete: "set null" }
     ),
+    // Optional source room captured during the pack-box flow so the
+    // packing session can stamp every item with the same origin room.
+    source_room_id: uuid("source_room_id").references(() => moveRooms.id, {
+      onDelete: "set null",
+    }),
     fragile: boolean("fragile").default(false).notNull(),
     priority: varchar("priority", { length: 20 }).default("normal").notNull(),
     // Lifecycle: preparing → packed → loaded → delivered → unpacked.
     // Driven by scan events; see move_scan_events.
     status: varchar("status", { length: 20 }).default("preparing").notNull(),
+    // Set when the box is sealed via the pack-box flow. packed_on is a
+    // YYYY-MM-DD string to match the move_date convention; packed_by is
+    // freeform so a crew member's name can be captured even when they're
+    // not the authenticated user.
+    packed_on: varchar("packed_on", { length: 20 }),
+    packed_by: varchar("packed_by", { length: 200 }),
     notes: text("notes"),
     ...timestamps(),
   },

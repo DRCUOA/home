@@ -24,6 +24,7 @@ import { Route as CalendarRouteImport } from './routes/calendar'
 import { Route as BuyRouteImport } from './routes/buy'
 import { Route as AssistantRouteImport } from './routes/assistant'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as MovingPackBoxRouteImport } from './routes/moving.pack-box'
 
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
@@ -100,6 +101,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MovingPackBoxRoute = MovingPackBoxRouteImport.update({
+  id: '/pack-box',
+  path: '/pack-box',
+  getParentRoute: () => MovingRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -111,12 +117,13 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/map': typeof MapRoute
   '/money': typeof MoneyRoute
-  '/moving': typeof MovingRoute
+  '/moving': typeof MovingRouteWithChildren
   '/register': typeof RegisterRoute
   '/scan': typeof ScanRoute
   '/search': typeof SearchRoute
   '/sell': typeof SellRoute
   '/tasks': typeof TasksRoute
+  '/moving/pack-box': typeof MovingPackBoxRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -128,12 +135,13 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/map': typeof MapRoute
   '/money': typeof MoneyRoute
-  '/moving': typeof MovingRoute
+  '/moving': typeof MovingRouteWithChildren
   '/register': typeof RegisterRoute
   '/scan': typeof ScanRoute
   '/search': typeof SearchRoute
   '/sell': typeof SellRoute
   '/tasks': typeof TasksRoute
+  '/moving/pack-box': typeof MovingPackBoxRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -146,12 +154,13 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/map': typeof MapRoute
   '/money': typeof MoneyRoute
-  '/moving': typeof MovingRoute
+  '/moving': typeof MovingRouteWithChildren
   '/register': typeof RegisterRoute
   '/scan': typeof ScanRoute
   '/search': typeof SearchRoute
   '/sell': typeof SellRoute
   '/tasks': typeof TasksRoute
+  '/moving/pack-box': typeof MovingPackBoxRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -171,6 +180,7 @@ export interface FileRouteTypes {
     | '/search'
     | '/sell'
     | '/tasks'
+    | '/moving/pack-box'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -188,6 +198,7 @@ export interface FileRouteTypes {
     | '/search'
     | '/sell'
     | '/tasks'
+    | '/moving/pack-box'
   id:
     | '__root__'
     | '/'
@@ -205,6 +216,7 @@ export interface FileRouteTypes {
     | '/search'
     | '/sell'
     | '/tasks'
+    | '/moving/pack-box'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -217,7 +229,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   MapRoute: typeof MapRoute
   MoneyRoute: typeof MoneyRoute
-  MovingRoute: typeof MovingRoute
+  MovingRoute: typeof MovingRouteWithChildren
   RegisterRoute: typeof RegisterRoute
   ScanRoute: typeof ScanRoute
   SearchRoute: typeof SearchRoute
@@ -332,8 +344,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/moving/pack-box': {
+      id: '/moving/pack-box'
+      path: '/pack-box'
+      fullPath: '/moving/pack-box'
+      preLoaderRoute: typeof MovingPackBoxRouteImport
+      parentRoute: typeof MovingRoute
+    }
   }
 }
+
+interface MovingRouteChildren {
+  MovingPackBoxRoute: typeof MovingPackBoxRoute
+}
+
+const MovingRouteChildren: MovingRouteChildren = {
+  MovingPackBoxRoute: MovingPackBoxRoute,
+}
+
+const MovingRouteWithChildren =
+  MovingRoute._addFileChildren(MovingRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -345,7 +375,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   MapRoute: MapRoute,
   MoneyRoute: MoneyRoute,
-  MovingRoute: MovingRoute,
+  MovingRoute: MovingRouteWithChildren,
   RegisterRoute: RegisterRoute,
   ScanRoute: ScanRoute,
   SearchRoute: SearchRoute,

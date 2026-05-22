@@ -83,9 +83,18 @@ export const createMoveBoxSchema = z.object({
   code_type: z.enum(MOVE_CODE_TYPES).optional(),
   label: z.string().min(1).max(200),
   destination_room_id: z.string().uuid().optional(),
+  /** Source room the box was packed in. Set once per pack session;
+   *  every item scanned into the box inherits this as origin_room_id. */
+  source_room_id: z.string().uuid().nullish(),
   fragile: z.boolean().optional(),
   priority: z.enum(MOVE_BOX_PRIORITIES).optional(),
   status: z.enum(MOVE_BOX_STATUSES).optional(),
+  /** YYYY-MM-DD string captured when the box is sealed. Matches the
+   *  moves.move_date convention so the same date-picker components reuse. */
+  packed_on: z.string().max(20).nullish(),
+  /** Freeform name of the person who packed the box. Defaults to the
+   *  signed-in user on the client but stays editable. */
+  packed_by: z.string().max(200).nullish(),
   notes: z.string().optional(),
 });
 export const updateMoveBoxSchema = createMoveBoxSchema.partial();

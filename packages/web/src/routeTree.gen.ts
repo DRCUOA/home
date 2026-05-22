@@ -24,7 +24,7 @@ import { Route as CalendarRouteImport } from './routes/calendar'
 import { Route as BuyRouteImport } from './routes/buy'
 import { Route as AssistantRouteImport } from './routes/assistant'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as MovingPackBoxRouteImport } from './routes/moving.pack-box'
+import { Route as MovingPackBoxRouteImport } from './routes/moving_.pack-box'
 
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
@@ -102,9 +102,9 @@ const IndexRoute = IndexRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const MovingPackBoxRoute = MovingPackBoxRouteImport.update({
-  id: '/pack-box',
-  path: '/pack-box',
-  getParentRoute: () => MovingRoute,
+  id: '/moving_/pack-box',
+  path: '/moving/pack-box',
+  getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -117,7 +117,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/map': typeof MapRoute
   '/money': typeof MoneyRoute
-  '/moving': typeof MovingRouteWithChildren
+  '/moving': typeof MovingRoute
   '/register': typeof RegisterRoute
   '/scan': typeof ScanRoute
   '/search': typeof SearchRoute
@@ -135,7 +135,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/map': typeof MapRoute
   '/money': typeof MoneyRoute
-  '/moving': typeof MovingRouteWithChildren
+  '/moving': typeof MovingRoute
   '/register': typeof RegisterRoute
   '/scan': typeof ScanRoute
   '/search': typeof SearchRoute
@@ -154,13 +154,13 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/map': typeof MapRoute
   '/money': typeof MoneyRoute
-  '/moving': typeof MovingRouteWithChildren
+  '/moving': typeof MovingRoute
   '/register': typeof RegisterRoute
   '/scan': typeof ScanRoute
   '/search': typeof SearchRoute
   '/sell': typeof SellRoute
   '/tasks': typeof TasksRoute
-  '/moving/pack-box': typeof MovingPackBoxRoute
+  '/moving_/pack-box': typeof MovingPackBoxRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -216,7 +216,7 @@ export interface FileRouteTypes {
     | '/search'
     | '/sell'
     | '/tasks'
-    | '/moving/pack-box'
+    | '/moving_/pack-box'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -229,12 +229,13 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   MapRoute: typeof MapRoute
   MoneyRoute: typeof MoneyRoute
-  MovingRoute: typeof MovingRouteWithChildren
+  MovingRoute: typeof MovingRoute
   RegisterRoute: typeof RegisterRoute
   ScanRoute: typeof ScanRoute
   SearchRoute: typeof SearchRoute
   SellRoute: typeof SellRoute
   TasksRoute: typeof TasksRoute
+  MovingPackBoxRoute: typeof MovingPackBoxRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -344,26 +345,15 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/moving/pack-box': {
-      id: '/moving/pack-box'
-      path: '/pack-box'
+    '/moving_/pack-box': {
+      id: '/moving_/pack-box'
+      path: '/moving/pack-box'
       fullPath: '/moving/pack-box'
       preLoaderRoute: typeof MovingPackBoxRouteImport
-      parentRoute: typeof MovingRoute
+      parentRoute: typeof rootRouteImport
     }
   }
 }
-
-interface MovingRouteChildren {
-  MovingPackBoxRoute: typeof MovingPackBoxRoute
-}
-
-const MovingRouteChildren: MovingRouteChildren = {
-  MovingPackBoxRoute: MovingPackBoxRoute,
-}
-
-const MovingRouteWithChildren =
-  MovingRoute._addFileChildren(MovingRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -375,12 +365,13 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   MapRoute: MapRoute,
   MoneyRoute: MoneyRoute,
-  MovingRoute: MovingRouteWithChildren,
+  MovingRoute: MovingRoute,
   RegisterRoute: RegisterRoute,
   ScanRoute: ScanRoute,
   SearchRoute: SearchRoute,
   SellRoute: SellRoute,
   TasksRoute: TasksRoute,
+  MovingPackBoxRoute: MovingPackBoxRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

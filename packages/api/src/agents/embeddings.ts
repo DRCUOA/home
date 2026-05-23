@@ -1,6 +1,6 @@
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { db, schema } from "../db/index.js";
-import { eq, and, sql, desc } from "drizzle-orm";
+import { eq, and, sql, desc, inArray } from "drizzle-orm";
 
 let _embeddings: OpenAIEmbeddings | null = null;
 
@@ -356,16 +356,16 @@ export async function gatherUserContext(userId: string): Promise<string | null> 
   if (projects.length === 0) return null;
 
   // Single query for all criteria rows belonging to these projects so we
-  // don't N+1 the DB.
+  // don't N+1 the DB. Uses drizzle's inArray helper because the manual
+  // ANY(${arr}::uuid[]) form binds the JS array as a Postgres composite
+  // record, not a uuid[], and fails with "cannot cast type record to uuid[]".
   const projectIds = projects.map((p) => p.id);
   const criteriaRows =
     projectIds.length > 0
       ? await db
           .select()
           .from(schema.propertyCriteria)
-          .where(
-            sql`${schema.propertyCriteria.project_id} = ANY(${projectIds}::uuid[])`
-          )
+          .where(inArray(schema.propertyCriteria.project_id, projectIds))
       : [];
   const criteriaByProject = new Map<string, (typeof criteriaRows)[number]>();
   for (const c of criteriaRows) criteriaByProject.set(c.project_id, c);
@@ -378,10 +378,20 @@ export async function gatherUserContext(userId: string): Promise<string | null> 
   // the QA workflow (and downstream features) do.
   if (criteriaRows.length > 0) {
     const criteriaIds = criteriaRows.map((c) => c.id);
+    // Build an explicit IN list with per-value uuid casts. The natural
+    // `= ANY(${arr}::uuid[])` form fails with "cannot cast type record to
+    // uuid[]" because drizzle's sql tag binds JS arrays as a composite
+    // record. The embeddings table isn't in the drizzle schema (raw SQL
+    // only — pgvector dependency), so we can't lean on the inArray helper
+    // here either.
+    const idList = sql.join(
+      criteriaIds.map((id) => sql`${id}::uuid`),
+      sql`, `
+    );
     const existing = await db.execute(
       sql`SELECT source_id FROM embeddings
           WHERE source_type = 'property_criteria'
-            AND source_id = ANY(${criteriaIds}::uuid[])`
+            AND source_id IN (${idList})`
     );
     const indexed = new Set(
       ((existing as any).rows || []).map((r: any) => r.source_id)

@@ -1,7 +1,7 @@
 import { StateGraph, Annotation, END, START } from "@langchain/langgraph";
 import { tools as openaiTools } from "@langchain/openai";
 import { getLLM } from "../llm.js";
-import { semanticSearch } from "../embeddings.js";
+import { semanticSearch, gatherProjectContext } from "../embeddings.js";
 import type { AssistantTool, ContextMessage } from "@hcc/shared";
 
 const QAState = Annotation.Root({
@@ -10,6 +10,12 @@ const QAState = Annotation.Root({
   image_base64: Annotation<string>,
   tools: Annotation<AssistantTool[]>,
   context_messages: Annotation<ContextMessage[]>,
+  // user_id and project_id are passed through from the assistant route so
+  // retrieveAndAnswer can pull the project's structured records directly,
+  // not just whatever happens to land in the top-N semantic-search results.
+  user_id: Annotation<string>,
+  project_id: Annotation<string>,
+  property_id: Annotation<string>,
   answer: Annotation<string>,
   citations: Annotation<Array<{ source_type: string; source_id: string; excerpt: string }>>,
   confidence: Annotation<string>,
@@ -61,16 +67,49 @@ Your job: produce a single, self-contained question (or instruction) that incorp
 
 async function retrieveAndAnswer(state: typeof QAState.State) {
   const effectiveInput = state.synthesized_input || state.input;
-  const searchResults = await semanticSearch(effectiveInput, 8);
 
-  const context = searchResults
+  // Two-track retrieval:
+  //   1. Deterministic project context — if the run is scoped to a project,
+  //      pull that project's structured records (criteria, watchlist, recent
+  //      tasks, recent decisions) directly. This is the antidote to relying
+  //      on whether the criteria row happens to be one of the 8 nearest
+  //      embeddings to the user's question.
+  //   2. Semantic search — the existing approach, still useful for finding
+  //      relevant notes / communications / research items.
+  const projectContext =
+    state.project_id && state.user_id
+      ? await gatherProjectContext(state.project_id, state.user_id)
+      : null;
+
+  // Scope to the user (and project when known) so embeddings belonging to
+  // other users can't surface as [Source N] citations.
+  const searchResults = state.user_id
+    ? await semanticSearch(effectiveInput, state.user_id, {
+        limit: 8,
+        projectId: state.project_id || null,
+      })
+    : [];
+  const semanticBlock = searchResults
     .map(
       (r, i) =>
         `[Source ${i + 1}: ${r.source_type}/${r.source_id}]\n${r.content_preview}`
     )
     .join("\n\n");
 
-  const hasContext = searchResults.length > 0;
+  const contextParts: string[] = [];
+  if (projectContext) {
+    contextParts.push(
+      `# Active project records (authoritative — fetched directly, not via search)\n${projectContext}`
+    );
+  }
+  if (semanticBlock) {
+    contextParts.push(
+      `# Related records from your knowledge base (semantic search)\n${semanticBlock}`
+    );
+  }
+  const context = contextParts.join("\n\n");
+
+  const hasContext = contextParts.length > 0;
   const hasImage = state.image_base64 && state.image_base64.length > 0;
   const enabledTools = state.tools ?? [];
   const useWebSearch = enabledTools.includes("web_search");
@@ -83,7 +122,13 @@ async function retrieveAndAnswer(state: typeof QAState.State) {
 
   const systemPrompt = `You are an expert assistant helping someone buy or sell a home in New Zealand. You have ${useWebSearch ? "three" : "two"} knowledge sources:
 
-1. **App data** (PRIMARY): The user's own records provided below as context — projects, properties, notes, tasks, contacts, financials, etc. This is the authoritative source of truth about their specific situation.
+1. **App data** (PRIMARY): The user's own records provided below as context — projects, properties, buying criteria, notes, tasks, contacts, financials, etc. This is the authoritative source of truth about their specific situation.${
+    projectContext
+      ? `
+
+   IMPORTANT: This run is scoped to a specific project, so a block titled "Active project records (authoritative — fetched directly, not via search)" appears at the top of the context. Treat it as **definitive** — it is the user's saved data for the active project (buying criteria, watchlist, tasks, decisions). If the user asks about their criteria, budget, locations, must-haves, or properties they're tracking, READ THIS BLOCK FIRST. Do not say "no criteria are saved" unless the block explicitly says so.`
+      : ""
+  }
 2. **General knowledge** (SUPPLEMENTARY): Your training knowledge about NZ property law, real estate processes, market practices, finance, and home buying/selling. Use this to enrich answers, explain concepts, or answer when app data is insufficient.
 ${webSearchBlock}
 

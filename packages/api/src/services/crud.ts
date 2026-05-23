@@ -25,12 +25,29 @@ interface CrudOptions {
 
 function tryIndex(config: IndexConfig | undefined, row: Record<string, any>) {
   if (!config || !row) return;
+  // user_id and project_id are required by the indexer to keep the
+  // embeddings table scoped per-user. Skip indexing if we can't determine
+  // ownership — logging instead of throwing because the caller treats
+  // indexing as best-effort fire-and-forget.
+  const ownerUserId = row.user_id as string | undefined;
+  if (!ownerUserId) {
+    console.error(
+      `[Embeddings] Skipping ${config.sourceType}/${row.id}: row has no user_id column. ` +
+        `Indexing without an owner would leak this row across users.`
+    );
+    return;
+  }
   const fieldData: Record<string, any> = {};
   for (const f of config.fields) {
     if (row[f] != null) fieldData[f] = row[f];
   }
-  indexRecord(config.sourceType, row.id, fieldData).catch((err) =>
-    console.error(`[Embeddings] Failed to index ${config.sourceType}/${row.id}:`, err.message)
+  const projectId = (row.project_id as string | undefined) ?? null;
+  indexRecord(config.sourceType, row.id, fieldData, ownerUserId, projectId).catch(
+    (err) =>
+      console.error(
+        `[Embeddings] Failed to index ${config.sourceType}/${row.id}:`,
+        err.message
+      )
   );
 }
 

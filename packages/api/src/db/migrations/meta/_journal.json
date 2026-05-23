@@ -120,6 +120,13 @@
       "when": 1779494700000,
       "tag": "0016_task_recurrence",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1779494800000,
+      "tag": "0017_embeddings_user_scope",
+      "breakpoints": true
     }
   ]
 }

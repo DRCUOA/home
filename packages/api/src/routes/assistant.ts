@@ -12,8 +12,64 @@ const REINDEX_CONFIG: Array<{
   table: any;
   fields: string[];
 }> = [
-  { sourceType: "project", table: schema.projects, fields: ["name", "type", "sale_strategy", "sell_milestone", "buy_milestone"] },
-  { sourceType: "property", table: schema.properties, fields: ["address", "suburb", "city", "property_type", "listing_method", "listing_description", "watchlist_status", "bedrooms", "bathrooms", "price_asking"] },
+  {
+    sourceType: "project",
+    table: schema.projects,
+    fields: [
+      "name",
+      "type",
+      "sale_strategy",
+      "sell_milestone",
+      "buy_milestone",
+      // Target prices and timing matter for both market analysis and
+      // recommendations — they were silently dropped before because the
+      // old indexer couldn't render numeric fields.
+      "target_sale_price_low",
+      "target_sale_price_high",
+      "minimum_acceptable_price",
+      "sale_timing_start",
+      "sale_timing_end",
+    ],
+  },
+  {
+    sourceType: "property",
+    table: schema.properties,
+    fields: [
+      "address",
+      "suburb",
+      "city",
+      "property_type",
+      "listing_method",
+      "listing_description",
+      "watchlist_status",
+      "rejection_reason",
+      "bedrooms",
+      "bathrooms",
+      "parking",
+      "land_area_sqm",
+      "floor_area_sqm",
+      "price_asking",
+    ],
+  },
+  // The single most important addition for the buy flow: indexing the saved
+  // criteria so questions like "what's my budget / what suburbs am I looking
+  // in" can hit the right record via semantic search even from screens that
+  // aren't project-scoped.
+  {
+    sourceType: "property_criteria",
+    table: schema.propertyCriteria,
+    fields: [
+      "must_haves",
+      "nice_to_haves",
+      "exclusions",
+      "property_types",
+      "locations",
+      "budget_ceiling",
+      "timing_window_start",
+      "timing_window_end",
+      "financing_assumptions",
+    ],
+  },
   { sourceType: "note", table: schema.notes, fields: ["body", "tags"] },
   { sourceType: "task", table: schema.tasks, fields: ["title", "description", "priority", "status"] },
   { sourceType: "contact", table: schema.contacts, fields: ["name", "email", "phone", "organisation", "role_tags", "notes"] },
@@ -74,7 +130,9 @@ export default async function assistantRoutes(app: FastifyInstance) {
       imageBase64,
       body.model,
       body.tools as any,
-      body.context_messages
+      body.context_messages,
+      body.project_id,
+      body.property_id
     ).catch((err) => app.log.error(err, "Agent workflow failed"));
 
     return reply.status(201).send({ data: run });
@@ -342,22 +400,57 @@ If you cannot read parts of the card, extract what you can and leave unknowns as
     }
   });
 
-  app.post("/api/v1/assistant/reindex", async (_req, reply) => {
+  app.post("/api/v1/assistant/reindex", async (req, reply) => {
     let indexed = 0;
     const errors: string[] = [];
 
+    // Resolve which projects the caller owns up front. Used to scope the
+    // tables that lack a direct user_id column (properties,
+    // property_criteria) to this user's data only.
+    const userProjects = await db
+      .select({ id: schema.projects.id })
+      .from(schema.projects)
+      .where(eq(schema.projects.user_id, req.userId));
+    const userProjectIds = new Set(userProjects.map((p) => p.id));
+
     for (const config of REINDEX_CONFIG) {
-      const rows = await db.select().from(config.table);
+      // For tables that have user_id, fetch only the caller's rows. For
+      // properties / property_criteria (no user_id), fetch all and filter
+      // by project ownership in the loop below.
+      const tableHasUserId = "user_id" in (config.table as any);
+      const rows = tableHasUserId
+        ? await db
+            .select()
+            .from(config.table)
+            .where(eq((config.table as any).user_id, req.userId))
+        : await db.select().from(config.table);
+
       for (const row of rows) {
+        const r = row as any;
         try {
+          // Resolve ownership. Tables with user_id are already filtered, so
+          // we just use it. property / property_criteria carry only
+          // project_id, so we check membership in the user's project set.
+          let ownerUserId: string | undefined = r.user_id;
+          if (!ownerUserId) {
+            if (!r.project_id || !userProjectIds.has(r.project_id)) continue;
+            ownerUserId = req.userId;
+          }
+
           const fields: Record<string, any> = {};
           for (const f of config.fields) {
-            if ((row as any)[f] != null) fields[f] = (row as any)[f];
+            if (r[f] != null) fields[f] = r[f];
           }
-          await indexRecord(config.sourceType, (row as any).id, fields);
+          await indexRecord(
+            config.sourceType,
+            r.id,
+            fields,
+            ownerUserId,
+            r.project_id ?? null
+          );
           indexed++;
         } catch (err: any) {
-          errors.push(`${config.sourceType}/${(row as any).id}: ${err.message}`);
+          errors.push(`${config.sourceType}/${r.id}: ${err.message}`);
         }
       }
     }

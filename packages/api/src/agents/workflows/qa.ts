@@ -1,7 +1,11 @@
 import { StateGraph, Annotation, END, START } from "@langchain/langgraph";
 import { tools as openaiTools } from "@langchain/openai";
 import { getLLM } from "../llm.js";
-import { semanticSearch, gatherProjectContext } from "../embeddings.js";
+import {
+  semanticSearch,
+  gatherProjectContext,
+  gatherUserContext,
+} from "../embeddings.js";
 import type { AssistantTool, ContextMessage } from "@hcc/shared";
 
 const QAState = Annotation.Root({
@@ -68,14 +72,24 @@ Your job: produce a single, self-contained question (or instruction) that incorp
 async function retrieveAndAnswer(state: typeof QAState.State) {
   const effectiveInput = state.synthesized_input || state.input;
 
-  // Two-track retrieval:
-  //   1. Deterministic project context — if the run is scoped to a project,
-  //      pull that project's structured records (criteria, watchlist, recent
-  //      tasks, recent decisions) directly. This is the antidote to relying
-  //      on whether the criteria row happens to be one of the 8 nearest
-  //      embeddings to the user's question.
-  //   2. Semantic search — the existing approach, still useful for finding
-  //      relevant notes / communications / research items.
+  // Three-track retrieval. Each track guards against a different failure
+  // mode in the previous design.
+  //
+  //   1. Always-on user context — every project the user owns and every
+  //      saved buying-criteria row, fetched directly from Postgres. Small
+  //      (a few KB) and bounded. This is what makes "what's my budget?"
+  //      answerable even when the user hasn't picked a project scope in
+  //      the UI and even when the criteria row's embedding doesn't exist
+  //      yet (pre-existing data, new install, indexer regression, etc).
+  //   2. Active-project deep dive — when the run is scoped to a project,
+  //      pull that project's full watchlist, tasks, and decisions on top
+  //      of what (1) already returned.
+  //   3. Semantic search — still useful for surfacing tangentially
+  //      related notes/comms/research items that the deterministic
+  //      gatherers don't include.
+  const userContext = state.user_id
+    ? await gatherUserContext(state.user_id)
+    : null;
   const projectContext =
     state.project_id && state.user_id
       ? await gatherProjectContext(state.project_id, state.user_id)
@@ -97,9 +111,14 @@ async function retrieveAndAnswer(state: typeof QAState.State) {
     .join("\n\n");
 
   const contextParts: string[] = [];
+  if (userContext) {
+    contextParts.push(
+      `# Your projects and saved criteria (always included — fetched directly, not via search)\n${userContext}`
+    );
+  }
   if (projectContext) {
     contextParts.push(
-      `# Active project records (authoritative — fetched directly, not via search)\n${projectContext}`
+      `# Active project deep dive (authoritative — fetched directly, not via search)\n${projectContext}`
     );
   }
   if (semanticBlock) {
@@ -123,10 +142,16 @@ async function retrieveAndAnswer(state: typeof QAState.State) {
   const systemPrompt = `You are an expert assistant helping someone buy or sell a home in New Zealand. You have ${useWebSearch ? "three" : "two"} knowledge sources:
 
 1. **App data** (PRIMARY): The user's own records provided below as context — projects, properties, buying criteria, notes, tasks, contacts, financials, etc. This is the authoritative source of truth about their specific situation.${
+    userContext
+      ? `
+
+   IMPORTANT — every run includes a block titled "Your projects and saved criteria (always included — fetched directly, not via search)" at the top of the context. It lists EVERY project the user owns and the buying criteria attached to each buy project. Treat this block as **definitive**: if the user asks about their criteria, budget, locations, must-haves, deal-breakers, or which projects they have, READ THIS BLOCK FIRST. Do NOT say "I can't find your criteria" or "no criteria are saved" unless the block explicitly says so for the project in question. The user gets very frustrated when the assistant claims data is missing while it's sitting right in this block.`
+      : ""
+  }${
     projectContext
       ? `
 
-   IMPORTANT: This run is scoped to a specific project, so a block titled "Active project records (authoritative — fetched directly, not via search)" appears at the top of the context. Treat it as **definitive** — it is the user's saved data for the active project (buying criteria, watchlist, tasks, decisions). If the user asks about their criteria, budget, locations, must-haves, or properties they're tracking, READ THIS BLOCK FIRST. Do not say "no criteria are saved" unless the block explicitly says so.`
+   This run is also scoped to a specific project, so an "Active project deep dive" block follows the always-on block with that project's full watchlist, tasks, and decisions.`
       : ""
   }
 2. **General knowledge** (SUPPLEMENTARY): Your training knowledge about NZ property law, real estate processes, market practices, finance, and home buying/selling. Use this to enrich answers, explain concepts, or answer when app data is insufficient.

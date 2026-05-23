@@ -329,3 +329,161 @@ export async function gatherProjectContext(
 
   return lines.join("\n");
 }
+
+/**
+ * Always-on user context. Returns a compact markdown summary of EVERY
+ * project the user owns plus the buying criteria attached to each one.
+ *
+ * Why this exists separately from gatherProjectContext: a user can ask the
+ * assistant "what's my budget?" or "find me listings matching my criteria"
+ * without first picking a project in the scope dropdown. With no project_id
+ * on the run, gatherProjectContext bails and the assistant has only the
+ * lossy top-N semantic search to lean on — which fails outright if the
+ * criteria row has no embedding yet (pre-existing data, new install, etc).
+ *
+ * This block is small (a user typically has 1-3 projects, each with a
+ * single criteria row), bounded in size by hard caps, and contains the
+ * actual structured values — so the assistant can always answer questions
+ * about the user's projects and criteria regardless of embedding state.
+ */
+export async function gatherUserContext(userId: string): Promise<string | null> {
+  const projects = await db
+    .select()
+    .from(schema.projects)
+    .where(eq(schema.projects.user_id, userId))
+    .orderBy(desc(schema.projects.created_at))
+    .limit(10);
+  if (projects.length === 0) return null;
+
+  // Single query for all criteria rows belonging to these projects so we
+  // don't N+1 the DB.
+  const projectIds = projects.map((p) => p.id);
+  const criteriaRows =
+    projectIds.length > 0
+      ? await db
+          .select()
+          .from(schema.propertyCriteria)
+          .where(
+            sql`${schema.propertyCriteria.project_id} = ANY(${projectIds}::uuid[])`
+          )
+      : [];
+  const criteriaByProject = new Map<string, (typeof criteriaRows)[number]>();
+  for (const c of criteriaRows) criteriaByProject.set(c.project_id, c);
+
+  // Self-heal embeddings for any criteria row that doesn't have one yet.
+  // This covers the migration gap: rows saved BEFORE property_criteria was
+  // added to REINDEX_CONFIG have no embedding, so semantic search misses
+  // them even after the indexer was wired up to PUT. gatherUserContext
+  // doesn't depend on embeddings for its own output, but other parts of
+  // the QA workflow (and downstream features) do.
+  if (criteriaRows.length > 0) {
+    const criteriaIds = criteriaRows.map((c) => c.id);
+    const existing = await db.execute(
+      sql`SELECT source_id FROM embeddings
+          WHERE source_type = 'property_criteria'
+            AND source_id = ANY(${criteriaIds}::uuid[])`
+    );
+    const indexed = new Set(
+      ((existing as any).rows || []).map((r: any) => r.source_id)
+    );
+    for (const c of criteriaRows) {
+      if (indexed.has(c.id)) continue;
+      const fields: Record<string, any> = {};
+      for (const key of [
+        "must_haves",
+        "nice_to_haves",
+        "exclusions",
+        "property_types",
+        "locations",
+        "budget_ceiling",
+        "timing_window_start",
+        "timing_window_end",
+        "financing_assumptions",
+      ]) {
+        const v = (c as any)[key];
+        if (v != null) fields[key] = v;
+      }
+      // Fire-and-forget; failures are non-fatal for the gatherer's purpose.
+      indexRecord(
+        "property_criteria",
+        c.id,
+        fields,
+        userId,
+        c.project_id
+      ).catch((err) =>
+        console.error(
+          `[Embeddings] Lazy reindex failed for property_criteria/${c.id}:`,
+          err.message
+        )
+      );
+    }
+  }
+
+  const lines: string[] = [];
+  lines.push("## Your projects");
+  for (const p of projects) {
+    const milestone = p.type === "buy" ? p.buy_milestone : p.sell_milestone;
+    const header = `### ${p.name} (${p.type}${milestone ? `, ${milestone}` : ""})`;
+    lines.push(header);
+
+    if (p.type === "sell") {
+      const lo = formatMoney(p.target_sale_price_low);
+      const hi = formatMoney(p.target_sale_price_high);
+      if (lo || hi) lines.push(`- Target sale price: ${lo ?? "?"} – ${hi ?? "?"}`);
+      if (p.minimum_acceptable_price != null) {
+        lines.push(`- Minimum acceptable: ${formatMoney(p.minimum_acceptable_price)}`);
+      }
+      if (p.sale_strategy) lines.push(`- Sale strategy: ${p.sale_strategy}`);
+      if (p.sale_timing_start || p.sale_timing_end) {
+        lines.push(
+          `- Sale timing: ${p.sale_timing_start ?? "?"} – ${p.sale_timing_end ?? "?"}`
+        );
+      }
+    } else {
+      // Buy project: inline its criteria. This is the data the assistant
+      // has been failing to find via semantic search alone.
+      const criteria = criteriaByProject.get(p.id);
+      if (criteria) {
+        lines.push("- Saved buying criteria:");
+        const budget = formatMoney(criteria.budget_ceiling);
+        if (budget) lines.push(`  - Budget ceiling: ${budget}`);
+        const locations = criteria.locations as unknown[];
+        if (Array.isArray(locations) && locations.length > 0) {
+          lines.push(`  - Preferred locations: ${locations.join(", ")}`);
+        }
+        const propertyTypes = criteria.property_types as unknown[];
+        if (Array.isArray(propertyTypes) && propertyTypes.length > 0) {
+          lines.push(`  - Property types: ${propertyTypes.join(", ")}`);
+        }
+        const mustHaves = criteria.must_haves as unknown[];
+        if (Array.isArray(mustHaves) && mustHaves.length > 0) {
+          lines.push(`  - Must-haves: ${mustHaves.join(", ")}`);
+        }
+        const niceToHaves = criteria.nice_to_haves as unknown[];
+        if (Array.isArray(niceToHaves) && niceToHaves.length > 0) {
+          lines.push(`  - Nice-to-haves: ${niceToHaves.join(", ")}`);
+        }
+        const exclusions = criteria.exclusions as unknown[];
+        if (Array.isArray(exclusions) && exclusions.length > 0) {
+          lines.push(`  - Exclusions / deal-breakers: ${exclusions.join(", ")}`);
+        }
+        if (criteria.timing_window_start || criteria.timing_window_end) {
+          lines.push(
+            `  - Timing window: ${criteria.timing_window_start ?? "?"} – ${criteria.timing_window_end ?? "?"}`
+          );
+        }
+        const financing = criteria.financing_assumptions;
+        if (financing && Object.keys(financing).length > 0) {
+          lines.push(`  - Financing assumptions: ${JSON.stringify(financing)}`);
+        }
+      } else {
+        lines.push(
+          "- No buying criteria saved yet. The assistant should ask the user to fill these in (budget, suburbs, bedrooms, must-haves, etc.) before recommending specific listings."
+        );
+      }
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n").trimEnd();
+}

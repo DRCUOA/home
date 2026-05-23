@@ -1,6 +1,6 @@
 import { StateGraph, Annotation, END, START } from "@langchain/langgraph";
 import { getLLM } from "../llm.js";
-import { semanticSearch } from "../embeddings.js";
+import { semanticSearch, gatherUserContext } from "../embeddings.js";
 import type { ContextMessage } from "@hcc/shared";
 import { TASK_KINDS, TASK_PRIORITIES } from "@hcc/shared";
 
@@ -51,18 +51,35 @@ function sanitisePriority(value: unknown): "low" | "medium" | "high" | "urgent" 
 }
 
 async function proposeActions(state: typeof ProposeActionsState.State) {
+  // Always-on user context so the proposed actions can reflect the user's
+  // saved criteria / projects without relying on whether those records
+  // happen to land in the top-6 semantic-search results.
+  const userContext = state.user_id
+    ? await gatherUserContext(state.user_id)
+    : null;
   const searchResults = state.user_id
     ? await semanticSearch(state.input, state.user_id, {
         limit: 6,
         projectId: state.project_id || null,
       })
     : [];
-  const context = searchResults
+  const semanticBlock = searchResults
     .map(
       (r, i) =>
         `[Source ${i + 1}: ${r.source_type}/${r.source_id}]\n${r.content_preview}`
     )
     .join("\n\n");
+
+  const contextParts: string[] = [];
+  if (userContext) {
+    contextParts.push(
+      `Your projects and saved criteria (always included):\n${userContext}`
+    );
+  }
+  if (semanticBlock) {
+    contextParts.push(`Related records:\n${semanticBlock}`);
+  }
+  const context = contextParts.join("\n\n");
 
   const conversation = (state.context_messages ?? [])
     .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)

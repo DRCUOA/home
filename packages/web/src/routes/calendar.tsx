@@ -410,14 +410,10 @@ function CalendarPage() {
     pendingPrependHeight.current = null;
   }, [loadedMonths]);
 
-  // Scroll to today's month on first render.
-  useEffect(() => {
-    if (didInitialScroll.current) return;
-    const el = monthRefs.current.get(monthKey(today));
-    if (!el) return;
-    didInitialScroll.current = true;
-    el.scrollIntoView({ block: "start" });
-  }, [today]);
+  // The scroll-to-today is driven from the month's ref callback (below) so it
+  // fires the moment today's element actually mounts. A useEffect on `today`
+  // alone runs before the loading spinner gives way to the month grid, which
+  // is why the previous attempt silently no-op'd on fresh loads.
 
   // IntersectionObserver-driven infinite scroll: prepend/append when sentinels
   // come into view. rootMargin gives us a little lead time before the user
@@ -659,8 +655,24 @@ function CalendarPage() {
                       openEditModal(entryId);
                     }}
                     registerRef={(key, el) => {
-                      if (el) monthRefs.current.set(key, el);
-                      else monthRefs.current.delete(key);
+                      if (el) {
+                        monthRefs.current.set(key, el);
+                        // Anchor the viewport on today the first time today's
+                        // month enters the DOM. Doing it here (rather than in
+                        // a useEffect) handles the case where the spinner
+                        // suppresses month rendering during the initial data
+                        // fetch — by the time today's element registers, we
+                        // scroll to it immediately.
+                        if (
+                          !didInitialScroll.current &&
+                          key === monthKey(today)
+                        ) {
+                          didInitialScroll.current = true;
+                          el.scrollIntoView({ block: "start" });
+                        }
+                      } else {
+                        monthRefs.current.delete(key);
+                      }
                     }}
                   />
                 ))}

@@ -39,7 +39,9 @@ export async function runWorkflow(
   imageBase64?: string,
   model?: string,
   tools?: AssistantTool[],
-  contextMessages?: ContextMessage[]
+  contextMessages?: ContextMessage[],
+  projectId?: string,
+  propertyId?: string
 ): Promise<void> {
   const run = async () => {
     let result: any;
@@ -73,7 +75,12 @@ export async function runWorkflow(
         result = await projectSummaryWorkflow.invoke({ input });
         break;
       case "semantic_search": {
-        const searchResults = await semanticSearch(input, 10);
+        // Always pass userId so the search is scoped to the caller's data.
+        // The route's authGuard guarantees userId is present.
+        const searchResults = await semanticSearch(input, userId, {
+          limit: 10,
+          projectId: projectId || null,
+        });
         result = { results: searchResults };
         break;
       }
@@ -83,6 +90,12 @@ export async function runWorkflow(
           image_base64: imageBase64 ?? "",
           tools: tools ?? [],
           context_messages: contextMessages ?? [],
+          // userId and (optionally) projectId let the workflow pull the
+          // user's structured records deterministically — without these
+          // it has only the lossy semantic-search retrieval to lean on.
+          user_id: userId,
+          project_id: projectId ?? "",
+          property_id: propertyId ?? "",
         });
         break;
       case "enrich_property": {
@@ -99,6 +112,8 @@ export async function runWorkflow(
         result = await proposeActionsWorkflow.invoke({
           input,
           context_messages: contextMessages ?? [],
+          user_id: userId,
+          project_id: projectId ?? "",
         });
         break;
       default:

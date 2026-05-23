@@ -7,6 +7,10 @@ import { TASK_KINDS, TASK_PRIORITIES } from "@hcc/shared";
 const ProposeActionsState = Annotation.Root({
   input: Annotation<string>,
   context_messages: Annotation<ContextMessage[]>,
+  // Required so semanticSearch can scope to the caller's records and we
+  // don't surface other users' data as proposal context.
+  user_id: Annotation<string>,
+  project_id: Annotation<string>,
   answer: Annotation<string>,
   proposed_actions: Annotation<
     Array<{
@@ -47,7 +51,12 @@ function sanitisePriority(value: unknown): "low" | "medium" | "high" | "urgent" 
 }
 
 async function proposeActions(state: typeof ProposeActionsState.State) {
-  const searchResults = await semanticSearch(state.input, 6);
+  const searchResults = state.user_id
+    ? await semanticSearch(state.input, state.user_id, {
+        limit: 6,
+        projectId: state.project_id || null,
+      })
+    : [];
   const context = searchResults
     .map(
       (r, i) =>

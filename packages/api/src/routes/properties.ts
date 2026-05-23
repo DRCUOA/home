@@ -169,7 +169,14 @@ async function downloadPhoto(
   }
 }
 
-function indexProperty(row: Record<string, any>) {
+// Properties don't carry user_id directly (they're owned via project_id),
+// so we resolve the owning user via the project before indexing. Without
+// this the embedding row would be unscoped and visible to every user's
+// assistant search.
+//
+// Always fire-and-forget: returns a promise that resolves silently after
+// logging any errors, so the route handler doesn't have to await.
+function indexProperty(row: Record<string, any>): Promise<void> {
   const fields: Record<string, any> = {};
   for (const f of PROPERTY_INDEX_FIELDS) {
     if (row[f] != null) fields[f] = row[f];
@@ -177,9 +184,34 @@ function indexProperty(row: Record<string, any>) {
   if (row.bedrooms) fields.bedrooms = `${row.bedrooms} bedrooms`;
   if (row.bathrooms) fields.bathrooms = `${row.bathrooms} bathrooms`;
   if (row.price_asking) fields.price_asking = `$${row.price_asking}`;
-  indexRecord("property", row.id, fields).catch((err) =>
-    console.error(`[Embeddings] Failed to index property/${row.id}:`, err.message)
-  );
+
+  return (async () => {
+    try {
+      const [project] = await db
+        .select({ user_id: schema.projects.user_id })
+        .from(schema.projects)
+        .where(eq(schema.projects.id, row.project_id))
+        .limit(1);
+      if (!project?.user_id) {
+        console.error(
+          `[Embeddings] Skipping property/${row.id}: could not resolve owning user via project/${row.project_id}.`
+        );
+        return;
+      }
+      await indexRecord(
+        "property",
+        row.id,
+        fields,
+        project.user_id,
+        row.project_id
+      );
+    } catch (err: any) {
+      console.error(
+        `[Embeddings] Failed to index property/${row.id}:`,
+        err.message
+      );
+    }
+  })();
 }
 
 export default async function propertyRoutes(app: FastifyInstance) {

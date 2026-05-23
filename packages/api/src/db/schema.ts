@@ -252,6 +252,15 @@ export const tasks = pgTable(
     property_id: uuid("property_id").references(() => properties.id),
     template_source: varchar("template_source", { length: 50 }),
     owner_user_id: uuid("owner_user_id").references(() => users.id),
+    // Recurrence. When recurrence_frequency is non-null the task is a
+    // series template — the calendar route expands it into per-day
+    // occurrences within the requested window. See
+    // packages/shared/src/schemas/task.ts for semantics.
+    recurrence_frequency: varchar("recurrence_frequency", { length: 10 }),
+    recurrence_interval: integer("recurrence_interval"),
+    recurrence_weekdays: varchar("recurrence_weekdays", { length: 20 }),
+    recurrence_end_date: timestamp("recurrence_end_date"),
+    recurrence_count: integer("recurrence_count"),
     ...timestamps(),
   },
   (t) => [

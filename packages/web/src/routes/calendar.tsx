@@ -17,6 +17,7 @@ import {
   Clock,
   CheckSquare,
   Crosshair,
+  Repeat,
 } from "lucide-react";
 import type { Task, Project } from "@hcc/shared";
 import { TASK_STATUSES, TASK_PRIORITIES, TASK_KINDS } from "@hcc/shared";
@@ -44,7 +45,16 @@ type ProjectFilter = "all" | "sell" | "buy";
 
 type Scale = "days" | "weeks" | "months" | "years";
 
-type CalendarEntry = Task & { project_type: "sell" | "buy" | null };
+type CalendarEntry = Task & {
+  project_type: "sell" | "buy" | null;
+  // For recurring series the calendar route expands occurrences and supplies
+  // these per-occurrence dates. For non-recurring entries they mirror
+  // due_date/end_date, so callers can read them uniformly. due_date/end_date
+  // always reference the SERIES original, so the edit modal hydrates from
+  // the correct row.
+  occurrence_start?: string | null;
+  occurrence_end?: string | null;
+};
 
 type SpanPosition = "single" | "start" | "middle" | "end";
 
@@ -290,9 +300,15 @@ function CalendarPage() {
   const entriesByDate = useMemo(() => {
     const map = new Map<string, DayEntry[]>();
     for (const entry of entries) {
-      if (!entry.due_date) continue;
-      const startIso = entry.due_date.slice(0, 10);
-      const endIso = entry.end_date ? entry.end_date.slice(0, 10) : startIso;
+      // Prefer the per-occurrence date when present (recurring series). Falls
+      // back to due_date/end_date for non-recurring entries — the API mirrors
+      // those into the occurrence fields too, so this fallback is only
+      // exercised against older responses without the new fields.
+      const startSource = entry.occurrence_start ?? entry.due_date;
+      const endSource = entry.occurrence_end ?? entry.end_date;
+      if (!startSource) continue;
+      const startIso = startSource.slice(0, 10);
+      const endIso = endSource ? endSource.slice(0, 10) : startIso;
       // Parse as local dates (no time / no timezone) so we can step day by day
       // without DST drift.
       const [sy, sm, sd] = startIso.split("-").map(Number);
@@ -1189,7 +1205,9 @@ function EntryChip({
   const isEvent = entry.kind === "event";
   const Icon = isEvent ? Clock : CheckSquare;
   const time = isEvent ? formatTimeOfDay(entry.start_time) : null;
-  const endIso = entry.end_date?.slice(0, 10);
+  // The "→ end" annotation on the start chip should reflect this occurrence's
+  // span, not the series template's, so prefer occurrence_end when present.
+  const endIso = (entry.occurrence_end ?? entry.end_date)?.slice(0, 10);
 
   const dotColor =
     entry.project_type === "sell"
@@ -1245,6 +1263,12 @@ function EntryChip({
       {isFirstDay && (
         <Icon
           className={cn("h-3 w-3 shrink-0", iconColor)}
+          aria-hidden="true"
+        />
+      )}
+      {isFirstDay && entry.recurrence_frequency && (
+        <Repeat
+          className="h-3 w-3 shrink-0 text-slate-500 dark:text-slate-400"
           aria-hidden="true"
         />
       )}
@@ -1314,6 +1338,22 @@ function EntryModal({
   const [status, setStatus] = useState("todo");
   const [projectId, setProjectId] = useState("");
 
+  // Recurrence state. recurrenceFreq === "" means "doesn't repeat" — the
+  // submit handler sends null for every recurrence_* field in that case.
+  // recurrenceEndKind is a UI-only discriminator: "never" sends both
+  // recurrence_end_date and recurrence_count as null, "on" sends a date,
+  // "after" sends a count.
+  const [recurrenceFreq, setRecurrenceFreq] = useState<string>("");
+  const [recurrenceInterval, setRecurrenceInterval] = useState(1);
+  const [recurrenceWeekdays, setRecurrenceWeekdays] = useState<Set<number>>(
+    () => new Set()
+  );
+  const [recurrenceEndKind, setRecurrenceEndKind] = useState<
+    "never" | "on" | "after"
+  >("never");
+  const [recurrenceEndDate, setRecurrenceEndDate] = useState("");
+  const [recurrenceCount, setRecurrenceCount] = useState(10);
+
   useEffect(() => {
     if (!open) return;
     if (existing) {
@@ -1328,6 +1368,23 @@ function EntryModal({
       setPriority(existing.priority);
       setStatus(existing.status);
       setProjectId(existing.project_id ?? "");
+      setRecurrenceFreq(existing.recurrence_frequency ?? "");
+      setRecurrenceInterval(existing.recurrence_interval ?? 1);
+      setRecurrenceWeekdays(
+        new Set(
+          existing.recurrence_weekdays
+            ? existing.recurrence_weekdays
+                .split(",")
+                .map(Number)
+                .filter((n) => n >= 0 && n <= 6)
+            : []
+        )
+      );
+      setRecurrenceEndDate(existing.recurrence_end_date?.slice(0, 10) ?? "");
+      setRecurrenceCount(existing.recurrence_count ?? 10);
+      if (existing.recurrence_end_date) setRecurrenceEndKind("on");
+      else if (existing.recurrence_count != null) setRecurrenceEndKind("after");
+      else setRecurrenceEndKind("never");
     } else {
       const preferred = defaultProjectType
         ? projects.find((p) => p.type === defaultProjectType)
@@ -1341,6 +1398,12 @@ function EntryModal({
       setPriority("medium");
       setStatus("todo");
       setProjectId(preferred?.id ?? projects[0]?.id ?? "");
+      setRecurrenceFreq("");
+      setRecurrenceInterval(1);
+      setRecurrenceWeekdays(new Set());
+      setRecurrenceEndKind("never");
+      setRecurrenceEndDate("");
+      setRecurrenceCount(10);
     }
   }, [
     open,
@@ -1383,6 +1446,40 @@ function EntryModal({
         className="space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
+          // Collapse the UI state into the API shape: when freq is empty
+          // every recurrence_* column is cleared; otherwise interval is
+          // always sent and exactly one of end_date / count is populated
+          // based on the "Ends" radio.
+          const recPayload =
+            recurrenceFreq === ""
+              ? {
+                  recurrence_frequency: null,
+                  recurrence_interval: null,
+                  recurrence_weekdays: null,
+                  recurrence_end_date: null,
+                  recurrence_count: null,
+                }
+              : {
+                  recurrence_frequency: recurrenceFreq,
+                  recurrence_interval: Math.max(
+                    1,
+                    Math.min(366, recurrenceInterval || 1)
+                  ),
+                  recurrence_weekdays:
+                    recurrenceFreq === "weekly" && recurrenceWeekdays.size > 0
+                      ? Array.from(recurrenceWeekdays)
+                          .sort((a, b) => a - b)
+                          .join(",")
+                      : null,
+                  recurrence_end_date:
+                    recurrenceEndKind === "on" && recurrenceEndDate
+                      ? recurrenceEndDate
+                      : null,
+                  recurrence_count:
+                    recurrenceEndKind === "after"
+                      ? Math.max(1, Math.min(999, recurrenceCount || 1))
+                      : null,
+                };
           onSubmit({
             title: title.trim(),
             description: description || undefined,
@@ -1393,6 +1490,7 @@ function EntryModal({
             priority,
             status,
             project_id: projectId || undefined,
+            ...recPayload,
           });
         }}
       >
@@ -1506,6 +1604,40 @@ function EntryModal({
             placeholder="None"
           />
         )}
+
+        <RecurrenceFields
+          freq={recurrenceFreq}
+          interval={recurrenceInterval}
+          weekdays={recurrenceWeekdays}
+          endKind={recurrenceEndKind}
+          endDate={recurrenceEndDate}
+          count={recurrenceCount}
+          dueDate={dueDate}
+          isEditingSeries={!!existing?.recurrence_frequency}
+          onChange={(patch) => {
+            if (patch.freq !== undefined) {
+              setRecurrenceFreq(patch.freq);
+              // When the user switches to weekly with no weekdays picked
+              // yet, seed the start-date's weekday so the picker reflects
+              // what the series will actually do.
+              if (
+                patch.freq === "weekly" &&
+                recurrenceWeekdays.size === 0 &&
+                dueDate
+              ) {
+                const jsDay = new Date(dueDate + "T00:00:00").getDay();
+                const idx = (jsDay + 6) % 7; // 0=Mon..6=Sun
+                setRecurrenceWeekdays(new Set([idx]));
+              }
+            }
+            if (patch.interval !== undefined) setRecurrenceInterval(patch.interval);
+            if (patch.weekdays !== undefined) setRecurrenceWeekdays(patch.weekdays);
+            if (patch.endKind !== undefined) setRecurrenceEndKind(patch.endKind);
+            if (patch.endDate !== undefined) setRecurrenceEndDate(patch.endDate);
+            if (patch.count !== undefined) setRecurrenceCount(patch.count);
+          }}
+        />
+
         <div className="flex flex-wrap gap-2 pt-2">
           {existing && (
             <Button
@@ -1541,5 +1673,240 @@ function EntryModal({
         </div>
       </form>
     </Modal>
+  );
+}
+
+const WEEKDAY_SHORT = ["M", "T", "W", "T", "F", "S", "S"]; // index 0=Mon..6=Sun
+const WEEKDAY_LONG = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+];
+
+const FREQ_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "", label: "Doesn't repeat" },
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "monthly", label: "Monthly" },
+  { value: "yearly", label: "Yearly" },
+];
+
+const FREQ_UNIT_LABEL: Record<string, [string, string]> = {
+  daily: ["day", "days"],
+  weekly: ["week", "weeks"],
+  monthly: ["month", "months"],
+  yearly: ["year", "years"],
+};
+
+type RecurrencePatch = {
+  freq?: string;
+  interval?: number;
+  weekdays?: Set<number>;
+  endKind?: "never" | "on" | "after";
+  endDate?: string;
+  count?: number;
+};
+
+// The styled Input component wraps each control in a block-level div, which
+// breaks the inline "Every [N] days" / "After [N] occurrences" layout used
+// in this section. These styles mirror Input.tsx so raw inputs visually
+// match the rest of the modal.
+const INLINE_INPUT_CLASS =
+  "rounded-lg border border-input bg-card px-2 py-1.5 text-sm text-foreground " +
+  "focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30";
+
+function RecurrenceFields({
+  freq,
+  interval,
+  weekdays,
+  endKind,
+  endDate,
+  count,
+  dueDate,
+  isEditingSeries,
+  onChange,
+}: {
+  freq: string;
+  interval: number;
+  weekdays: Set<number>;
+  endKind: "never" | "on" | "after";
+  endDate: string;
+  count: number;
+  dueDate: string;
+  isEditingSeries: boolean;
+  onChange: (patch: RecurrencePatch) => void;
+}) {
+  const unitLabels = freq ? FREQ_UNIT_LABEL[freq] : null;
+  const unitLabel = unitLabels
+    ? interval === 1
+      ? unitLabels[0]
+      : unitLabels[1]
+    : null;
+
+  function toggleWeekday(idx: number) {
+    const next = new Set(weekdays);
+    if (next.has(idx)) next.delete(idx);
+    else next.add(idx);
+    onChange({ weekdays: next });
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/40 p-3 space-y-3">
+      <div className="flex items-center gap-2">
+        <Repeat
+          className="h-4 w-4 text-slate-500 dark:text-slate-400"
+          aria-hidden="true"
+        />
+        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+          Repeats
+        </span>
+      </div>
+
+      <Select
+        value={freq}
+        onChange={(e) => onChange({ freq: e.target.value })}
+        options={FREQ_OPTIONS}
+      />
+
+      {freq && (
+        <>
+          <div className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+            <label htmlFor="rec-interval" className="shrink-0">
+              Every
+            </label>
+            <input
+              id="rec-interval"
+              type="number"
+              min={1}
+              max={366}
+              value={interval}
+              onChange={(e) =>
+                onChange({
+                  interval: Math.max(1, Number(e.target.value) || 1),
+                })
+              }
+              className={cn(INLINE_INPUT_CLASS, "w-20")}
+            />
+            <span className="shrink-0">{unitLabel}</span>
+          </div>
+
+          {freq === "weekly" && (
+            <div className="space-y-1.5">
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                On
+              </span>
+              <div
+                role="group"
+                aria-label="Weekdays"
+                className="flex flex-wrap gap-1"
+              >
+                {WEEKDAY_SHORT.map((label, idx) => {
+                  const active = weekdays.has(idx);
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      aria-pressed={active}
+                      aria-label={WEEKDAY_LONG[idx]}
+                      onClick={() => toggleWeekday(idx)}
+                      className={cn(
+                        "inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold transition-colors",
+                        active
+                          ? "bg-primary-600 text-white"
+                          : "bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                      )}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              {weekdays.size === 0 && dueDate && (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  No days selected — will repeat on{" "}
+                  {
+                    WEEKDAY_LONG[
+                      (new Date(dueDate + "T00:00:00").getDay() + 6) % 7
+                    ]
+                  }{" "}
+                  (matching the start date).
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              Ends
+            </span>
+            <div
+              role="radiogroup"
+              aria-label="Recurrence end"
+              className="flex flex-wrap items-center gap-3 text-sm text-slate-700 dark:text-slate-300"
+            >
+              <label className="inline-flex items-center gap-1.5">
+                <input
+                  type="radio"
+                  name="rec-end"
+                  checked={endKind === "never"}
+                  onChange={() => onChange({ endKind: "never" })}
+                />
+                Never
+              </label>
+              <label className="inline-flex items-center gap-1.5">
+                <input
+                  type="radio"
+                  name="rec-end"
+                  checked={endKind === "on"}
+                  onChange={() => onChange({ endKind: "on" })}
+                />
+                On
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => onChange({ endDate: e.target.value })}
+                  onFocus={() => onChange({ endKind: "on" })}
+                  min={dueDate || undefined}
+                  className={cn(INLINE_INPUT_CLASS, "w-40")}
+                />
+              </label>
+              <label className="inline-flex items-center gap-1.5">
+                <input
+                  type="radio"
+                  name="rec-end"
+                  checked={endKind === "after"}
+                  onChange={() => onChange({ endKind: "after" })}
+                />
+                After
+                <input
+                  type="number"
+                  min={1}
+                  max={999}
+                  value={count}
+                  onChange={(e) =>
+                    onChange({
+                      count: Math.max(1, Number(e.target.value) || 1),
+                    })
+                  }
+                  onFocus={() => onChange({ endKind: "after" })}
+                  className={cn(INLINE_INPUT_CLASS, "w-20")}
+                />
+                occurrences
+              </label>
+            </div>
+          </div>
+
+          {isEditingSeries && (
+            <p className="text-xs italic text-slate-500 dark:text-slate-400">
+              Changes apply to the whole series.
+            </p>
+          )}
+        </>
+      )}
+    </div>
   );
 }

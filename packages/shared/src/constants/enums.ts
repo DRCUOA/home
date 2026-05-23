@@ -85,6 +85,31 @@ export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 export const TASK_KINDS = ["task", "event"] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
+// Recurrence patterns for tasks/events. Modeled after the common subset of
+// iCalendar RRULE that Outlook/Google/Apple Calendar all expose:
+//   - frequency: daily/weekly/monthly/yearly
+//   - interval:  "every N" (defaults to 1)
+//   - weekdays:  only meaningful for weekly; CSV of 0..6 with 0=Mon..6=Sun
+//                to match the calendar grid's weekday header order.
+// End condition is expressed as exactly one of:
+//   - recurrence_end_date (inclusive) — series stops on/before this date
+//   - recurrence_count                — series stops after this many occurrences
+//   - neither                         — series repeats indefinitely
+// Per-occurrence overrides/skips are intentionally NOT modeled in v1. Edits
+// and deletes always apply to the whole series.
+export const RECURRENCE_FREQUENCIES = [
+  "daily",
+  "weekly",
+  "monthly",
+  "yearly",
+] as const;
+export type RecurrenceFrequency = (typeof RECURRENCE_FREQUENCIES)[number];
+
+// 0=Mon..6=Sun. Matches WEEKDAYS array used by the calendar grid so the UI
+// can render weekday chips in display order without translating indices.
+export const RECURRENCE_WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
+export type RecurrenceWeekday = (typeof RECURRENCE_WEEKDAYS)[number];
+
 export const CHECKLIST_STATES = [
   "not_started",
   "in_progress",

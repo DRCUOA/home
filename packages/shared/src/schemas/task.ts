@@ -5,9 +5,14 @@ import {
   TASK_KINDS,
   CHECKLIST_TYPES,
   CHECKLIST_STATES,
+  RECURRENCE_FREQUENCIES,
 } from "../constants/enums.js";
 
 const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+// CSV of weekday indices, 0=Mon..6=Sun. Empty string is allowed and is
+// normalized to null so the API can write a clean NULL.
+const weekdayCsvRegex = /^([0-6])(,[0-6])*$/;
 
 export const createTaskSchema = z.object({
   title: z.string().min(1).max(500),
@@ -34,6 +39,30 @@ export const createTaskSchema = z.object({
   project_id: z.string().uuid().optional(),
   property_id: z.string().uuid().optional(),
   template_source: z.enum(CHECKLIST_TYPES).optional(),
+
+  // Recurrence fields. All nullable; non-null recurrence_frequency turns the
+  // entry into a series that the calendar route expands across the visible
+  // window. The four "ends" knobs (end_date, count) are mutually exclusive
+  // in the UI — server tolerates either being set, treating whichever
+  // triggers first as the stop condition.
+  recurrence_frequency: z
+    .union([z.enum(RECURRENCE_FREQUENCIES), z.null()])
+    .optional()
+    .transform((v) => (v === null ? null : v)),
+  recurrence_interval: z
+    .union([z.number().int().min(1).max(366), z.null()])
+    .optional(),
+  recurrence_weekdays: z
+    .union([z.string().regex(weekdayCsvRegex), z.literal(""), z.null()])
+    .optional()
+    .transform((v) => (v === "" || v === null ? null : v)),
+  recurrence_end_date: z
+    .union([z.string(), z.literal(""), z.null()])
+    .optional()
+    .transform((v) => (v === "" || v === null ? null : v)),
+  recurrence_count: z
+    .union([z.number().int().min(1).max(999), z.null()])
+    .optional(),
 });
 
 export const updateTaskSchema = createTaskSchema.partial();

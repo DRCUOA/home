@@ -113,6 +113,13 @@
       "when": 1779494600000,
       "tag": "0015_pack_box_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1779494700000,
+      "tag": "0016_task_recurrence",
+      "breakpoints": true
     }
   ]
 }

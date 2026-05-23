@@ -112,6 +112,12 @@ export interface Task extends BaseEntity {
   property_id?: string;
   template_source?: string;
   owner_user_id?: string;
+  // Recurrence — see packages/shared/src/schemas/task.ts for semantics.
+  recurrence_frequency?: string | null;
+  recurrence_interval?: number | null;
+  recurrence_weekdays?: string | null;
+  recurrence_end_date?: string | null;
+  recurrence_count?: number | null;
 }
 
 export interface ChecklistItem extends BaseEntity {

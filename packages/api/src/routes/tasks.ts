@@ -98,6 +98,9 @@ export default async function taskRoutes(app: FastifyInstance) {
         ...body,
         due_date: body.due_date ? new Date(body.due_date) : undefined,
         end_date: body.end_date ? new Date(body.end_date) : undefined,
+        recurrence_end_date: body.recurrence_end_date
+          ? new Date(body.recurrence_end_date)
+          : undefined,
       },
       req.userId
     );
@@ -122,6 +125,19 @@ export default async function taskRoutes(app: FastifyInstance) {
 
     if (body.start_time === undefined) delete updates.start_time;
     // start_time === null is preserved as-is to clear the column.
+
+    // Recurrence fields follow the same null = clear / undefined = leave-alone
+    // convention as the date fields above.
+    if (body.recurrence_end_date)
+      updates.recurrence_end_date = new Date(body.recurrence_end_date);
+    else if (body.recurrence_end_date === null)
+      updates.recurrence_end_date = null;
+    else delete updates.recurrence_end_date;
+
+    if (body.recurrence_frequency === undefined) delete updates.recurrence_frequency;
+    if (body.recurrence_interval === undefined) delete updates.recurrence_interval;
+    if (body.recurrence_weekdays === undefined) delete updates.recurrence_weekdays;
+    if (body.recurrence_count === undefined) delete updates.recurrence_count;
 
     const row = await service.update(id, updates, req.userId);
     if (!row) return reply.status(404).send({ error: "Not Found" });

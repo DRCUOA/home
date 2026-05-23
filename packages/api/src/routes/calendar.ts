@@ -44,10 +44,17 @@ export default async function calendarRoutes(app: FastifyInstance) {
     const projectTypeById = new Map<string, string>();
     for (const p of userProjects) projectTypeById.set(p.id, p.type);
 
+    // A task overlaps the window if it starts on or before `to` and its
+    // last day (end_date, or due_date when end_date is null) lands on or
+    // after `from`. This is what makes multi-day spans whose start sits
+    // outside the visible window still show up on the days they cover.
     const baseConditions = [
       eq(schema.tasks.user_id, req.userId),
-      gte(schema.tasks.due_date, fromDate),
       lte(schema.tasks.due_date, toDate),
+      gte(
+        sql`COALESCE(${schema.tasks.end_date}, ${schema.tasks.due_date})`,
+        fromDate
+      ),
     ];
 
     if (project_type === "sell" || project_type === "buy") {

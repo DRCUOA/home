@@ -46,6 +46,17 @@ type Scale = "days" | "weeks" | "months" | "years";
 
 type CalendarEntry = Task & { project_type: "sell" | "buy" | null };
 
+type SpanPosition = "single" | "start" | "middle" | "end";
+
+type DayEntry = {
+  entry: CalendarEntry;
+  position: SpanPosition;
+  // True for the absolute first day of a multi-day span. Continuation days
+  // suppress the icon/badge to keep the bar reading as one shape, but still
+  // show the title so the user can identify the span without looking back.
+  isFirstDay: boolean;
+};
+
 type ListResponse<T> = { data: T[]; total: number };
 
 export const Route = createFileRoute("/calendar")({
@@ -277,13 +288,38 @@ function CalendarPage() {
   const removeTask = useRemove("tasks", "/tasks");
 
   const entriesByDate = useMemo(() => {
-    const map = new Map<string, CalendarEntry[]>();
+    const map = new Map<string, DayEntry[]>();
     for (const entry of entries) {
       if (!entry.due_date) continue;
-      const iso = entry.due_date.slice(0, 10);
-      const list = map.get(iso) ?? [];
-      list.push(entry);
-      map.set(iso, list);
+      const startIso = entry.due_date.slice(0, 10);
+      const endIso = entry.end_date ? entry.end_date.slice(0, 10) : startIso;
+      // Parse as local dates (no time / no timezone) so we can step day by day
+      // without DST drift.
+      const [sy, sm, sd] = startIso.split("-").map(Number);
+      const [ey, em, ed] = endIso.split("-").map(Number);
+      const startDate = new Date(sy, sm - 1, sd);
+      let endDate = new Date(ey, em - 1, ed);
+      // Defensive: if end_date precedes due_date (bad data), treat as single day.
+      if (endDate < startDate) endDate = startDate;
+
+      const cursor = new Date(startDate);
+      while (cursor <= endDate) {
+        const iso = formatIsoDate(cursor);
+        const isStart = sameDay(cursor, startDate);
+        const isEnd = sameDay(cursor, endDate);
+        const position: SpanPosition =
+          isStart && isEnd
+            ? "single"
+            : isStart
+            ? "start"
+            : isEnd
+            ? "end"
+            : "middle";
+        const list = map.get(iso) ?? [];
+        list.push({ entry, position, isFirstDay: isStart });
+        map.set(iso, list);
+        cursor.setDate(cursor.getDate() + 1);
+      }
     }
     return map;
   }, [entries]);
@@ -765,7 +801,7 @@ function MonthSection({
   monthDate: Date;
   today: Date;
   scale: Scale;
-  entriesByDate: Map<string, CalendarEntry[]>;
+  entriesByDate: Map<string, DayEntry[]>;
   inDragRange: (d: Date) => boolean;
   onDayPointerDown: (day: Date, e: React.PointerEvent) => void;
   onDayPointerEnter: (day: Date, e: React.PointerEvent) => void;
@@ -845,7 +881,7 @@ function DayCell({
   scale: Scale;
   isToday: boolean;
   inRange: boolean;
-  entries: CalendarEntry[];
+  entries: DayEntry[];
   onPointerDown: (e: React.PointerEvent) => void;
   onPointerEnter: (e: React.PointerEvent) => void;
   onPointerMove: (e: React.PointerEvent) => void;
@@ -893,10 +929,12 @@ function DayCell({
 
       {showFullChips && (
         <div className="flex flex-col gap-1">
-          {entries.map((entry) => (
+          {entries.map(({ entry, position, isFirstDay }) => (
             <EntryChip
               key={entry.id}
               entry={entry}
+              position={position}
+              isFirstDay={isFirstDay}
               onClick={(e) => onEntryClick(entry.id, e)}
               onPointerDown={(e) => e.stopPropagation()}
             />
@@ -906,12 +944,15 @@ function DayCell({
 
       {showDots && entries.length > 0 && (
         <div className="flex flex-wrap items-center gap-0.5">
-          {entries.slice(0, 6).map((entry) => (
+          {entries.slice(0, 6).map(({ entry, position }, i) => (
             <span
-              key={entry.id}
+              key={`${entry.id}-${i}`}
               title={entry.title}
               className={cn(
-                "h-1.5 w-1.5 rounded-full",
+                "h-1.5 rounded-full",
+                // Multi-day spans render a short dash to hint at continuation,
+                // single-day entries stay as dots.
+                position === "single" ? "w-1.5" : "w-3",
                 entry.project_type === "sell"
                   ? "bg-emerald-500"
                   : entry.project_type === "buy"
@@ -1122,10 +1163,14 @@ function Legend() {
 
 function EntryChip({
   entry,
+  position,
+  isFirstDay,
   onClick,
   onPointerDown,
 }: {
   entry: CalendarEntry;
+  position: SpanPosition;
+  isFirstDay: boolean;
   onClick: (e: React.MouseEvent) => void;
   onPointerDown: (e: React.PointerEvent) => void;
 }) {
@@ -1133,8 +1178,6 @@ function EntryChip({
   const Icon = isEvent ? Clock : CheckSquare;
   const time = isEvent ? formatTimeOfDay(entry.start_time) : null;
   const endIso = entry.end_date?.slice(0, 10);
-  const startIso = entry.due_date?.slice(0, 10);
-  const isMultiDay = !!(endIso && startIso && endIso !== startIso);
 
   const dotColor =
     entry.project_type === "sell"
@@ -1146,6 +1189,18 @@ function EntryChip({
   const iconColor = isEvent
     ? "text-primary-600 dark:text-primary-400"
     : "text-slate-500 dark:text-slate-400";
+
+  // Negative horizontal margins let the chip bleed into the parent cell's
+  // p-1 padding so adjacent segments visually butt up against each other,
+  // forming a single continuous bar across the days the span covers.
+  const spanLayout: Record<SpanPosition, string> = {
+    single: "rounded-md border",
+    start: "rounded-l-md border border-r-0 -mr-1",
+    middle: "border-y border-x-0 -mx-1",
+    end: "rounded-r-md border border-l-0 -ml-1",
+  };
+
+  const isContinuation = position === "middle" || position === "end";
 
   return (
     <div
@@ -1160,18 +1215,28 @@ function EntryChip({
         }
       }}
       className={cn(
-        "flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-1.5 py-1 text-left text-[11px] leading-tight cursor-pointer",
+        "flex items-center gap-1.5 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-1.5 py-1 text-left text-[11px] leading-tight cursor-pointer",
         "hover:border-primary-300 dark:hover:border-primary-700",
+        spanLayout[position],
         entry.status === "done" && "opacity-60"
       )}
-      aria-label={`${isEvent ? "Event" : "Task"}: ${entry.title}`}
+      aria-label={`${isEvent ? "Event" : "Task"}: ${entry.title}${
+        position !== "single" ? ` (${position} of multi-day span)` : ""
+      }`}
     >
       <span
         className={cn("h-2 w-2 shrink-0 rounded-full", dotColor)}
         aria-hidden="true"
       />
-      <Icon className={cn("h-3 w-3 shrink-0", iconColor)} aria-hidden="true" />
-      {time && (
+      {/* Icon, time and priority only show on the first day so the bar reads
+          as one shape across continuation days. */}
+      {isFirstDay && (
+        <Icon
+          className={cn("h-3 w-3 shrink-0", iconColor)}
+          aria-hidden="true"
+        />
+      )}
+      {isFirstDay && time && (
         <span className="shrink-0 font-semibold tabular-nums text-slate-600 dark:text-slate-300">
           {time}
         </span>
@@ -1179,22 +1244,25 @@ function EntryChip({
       <span
         className={cn(
           "flex-1 truncate font-medium text-slate-800 dark:text-slate-200",
-          entry.status === "done" && "line-through"
+          entry.status === "done" && "line-through",
+          isContinuation && "italic opacity-80"
         )}
       >
         {entry.title}
       </span>
-      {isMultiDay && endIso && (
+      {position === "start" && endIso && (
         <span className="hidden md:inline shrink-0 text-[10px] text-slate-500 dark:text-slate-400 tabular-nums">
           →{formatShortDate(new Date(endIso))}
         </span>
       )}
-      <Badge
-        variant={PRIORITY_VARIANT[entry.priority] ?? "default"}
-        className="hidden sm:inline-flex shrink-0 !px-1.5 !py-0 !text-[10px]"
-      >
-        {entry.priority[0]?.toUpperCase()}
-      </Badge>
+      {isFirstDay && (
+        <Badge
+          variant={PRIORITY_VARIANT[entry.priority] ?? "default"}
+          className="hidden sm:inline-flex shrink-0 !px-1.5 !py-0 !text-[10px]"
+        >
+          {entry.priority[0]?.toUpperCase()}
+        </Badge>
+      )}
     </div>
   );
 }

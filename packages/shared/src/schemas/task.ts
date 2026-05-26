@@ -6,6 +6,7 @@ import {
   CHECKLIST_TYPES,
   CHECKLIST_STATES,
   RECURRENCE_FREQUENCIES,
+  CONFIRMATION_STICKERS,
 } from "../constants/enums.js";
 
 const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -62,6 +63,11 @@ export const createTaskSchema = z.object({
     .transform((v) => (v === "" || v === null ? null : v)),
   recurrence_count: z
     .union([z.number().int().min(1).max(999), z.null()])
+    .optional(),
+
+  // Calendar sticker. Null clears any applied sticker.
+  confirmation: z
+    .union([z.enum(CONFIRMATION_STICKERS), z.null()])
     .optional(),
 });
 

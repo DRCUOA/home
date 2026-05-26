@@ -118,6 +118,9 @@ export interface Task extends BaseEntity {
   recurrence_weekdays?: string | null;
   recurrence_end_date?: string | null;
   recurrence_count?: number | null;
+  // Calendar sticker — null/undefined means no sticker applied.
+  // One of CONFIRMATION_STICKERS: tentative | confirmed | cancelled.
+  confirmation?: string | null;
 }
 
 export interface ChecklistItem extends BaseEntity {

@@ -261,6 +261,8 @@ export const tasks = pgTable(
     recurrence_weekdays: varchar("recurrence_weekdays", { length: 20 }),
     recurrence_end_date: timestamp("recurrence_end_date"),
     recurrence_count: integer("recurrence_count"),
+    // Calendar sticker (tentative | confirmed | cancelled). Nullable.
+    confirmation: varchar("confirmation", { length: 20 }),
     ...timestamps(),
   },
   (t) => [

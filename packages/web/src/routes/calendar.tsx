@@ -18,9 +18,19 @@ import {
   CheckSquare,
   Crosshair,
   Repeat,
+  HelpCircle,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import type { Task, Project } from "@hcc/shared";
-import { TASK_STATUSES, TASK_PRIORITIES, TASK_KINDS } from "@hcc/shared";
+import {
+  TASK_STATUSES,
+  TASK_PRIORITIES,
+  TASK_KINDS,
+  CONFIRMATION_STICKERS,
+  CONFIRMATION_STICKER_LABELS,
+  type ConfirmationSticker,
+} from "@hcc/shared";
 import { PageShell } from "@/components/layout/page-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -124,6 +134,34 @@ const CELL_MIN_H: Record<Scale, string> = {
 const PRELOAD_MONTHS = 6;
 const EXTEND_BY = 6;
 const MAX_LOADED_MONTHS = 60; // hard ceiling so memory doesn't grow forever
+
+// MIME used to identify a sticker drag on the dataTransfer. Custom subtype
+// keeps it off the radar of generic drop handlers elsewhere on the page.
+const STICKER_MIME = "application/x-hcc-sticker";
+
+const STICKER_META: Record<
+  ConfirmationSticker,
+  { icon: typeof HelpCircle; ringClass: string; badgeClass: string }
+> = {
+  tentative: {
+    icon: HelpCircle,
+    ringClass:
+      "ring-2 ring-amber-400 dark:ring-amber-500 ring-offset-1 ring-offset-white dark:ring-offset-slate-900",
+    badgeClass: "bg-amber-500 text-white",
+  },
+  confirmed: {
+    icon: CheckCircle2,
+    ringClass:
+      "ring-2 ring-emerald-500 dark:ring-emerald-400 ring-offset-1 ring-offset-white dark:ring-offset-slate-900",
+    badgeClass: "bg-emerald-600 text-white",
+  },
+  cancelled: {
+    icon: XCircle,
+    ringClass:
+      "ring-2 ring-rose-400 dark:ring-rose-500 ring-offset-1 ring-offset-white dark:ring-offset-slate-900",
+    badgeClass: "bg-rose-500 text-white",
+  },
+};
 
 const MS_PER_DAY = 86_400_000;
 
@@ -379,6 +417,16 @@ function CalendarPage() {
     entriesQuery.refetch();
   }
 
+  function handleStickerDrop(
+    entryId: string,
+    sticker: ConfirmationSticker | null
+  ) {
+    updateTask.mutate(
+      { id: entryId, data: { confirmation: sticker } },
+      { onSuccess: () => invalidateCalendar() }
+    );
+  }
+
   function extendForward() {
     setLoadedMonths((prev) => {
       const last = prev[prev.length - 1];
@@ -592,7 +640,11 @@ function CalendarPage() {
       subtitle="Tasks and events across your sell and buy projects."
       actions={actions}
     >
-      <div className="space-y-4 pb-4">
+      <div className="flex flex-col gap-4 pb-4 lg:flex-row">
+        <aside className="lg:w-56 lg:shrink-0">
+          <StickerPanel />
+        </aside>
+        <div className="flex-1 min-w-0 space-y-4">
         {hasError && (
           <ErrorBanner text="Could not load calendar entries. Try refreshing." />
         )}
@@ -670,6 +722,7 @@ function CalendarPage() {
                       e.stopPropagation();
                       openEditModal(entryId);
                     }}
+                    onStickerDrop={handleStickerDrop}
                     registerRef={(key, el) => {
                       if (el) {
                         monthRefs.current.set(key, el);
@@ -710,6 +763,7 @@ function CalendarPage() {
             </CardContent>
           </Card>
         )}
+        </div>
       </div>
 
       {showHoverTooltip && cursorPos && hoveredDate && (
@@ -824,6 +878,7 @@ function MonthSection({
   onDayPointerEnter,
   onDayPointerMove,
   onEntryClick,
+  onStickerDrop,
   registerRef,
 }: {
   monthDate: Date;
@@ -835,6 +890,10 @@ function MonthSection({
   onDayPointerEnter: (day: Date, e: React.PointerEvent) => void;
   onDayPointerMove: (e: React.PointerEvent) => void;
   onEntryClick: (entryId: string, e: React.MouseEvent) => void;
+  onStickerDrop: (
+    entryId: string,
+    sticker: ConfirmationSticker | null
+  ) => void;
   registerRef: (key: string, el: HTMLDivElement | null) => void;
 }) {
   const key = monthKey(monthDate);
@@ -886,6 +945,7 @@ function MonthSection({
               onPointerEnter={(e) => onDayPointerEnter(day, e)}
               onPointerMove={onDayPointerMove}
               onEntryClick={onEntryClick}
+              onStickerDrop={onStickerDrop}
             />
           );
         })}
@@ -904,6 +964,7 @@ function DayCell({
   onPointerEnter,
   onPointerMove,
   onEntryClick,
+  onStickerDrop,
 }: {
   day: Date;
   scale: Scale;
@@ -914,6 +975,10 @@ function DayCell({
   onPointerEnter: (e: React.PointerEvent) => void;
   onPointerMove: (e: React.PointerEvent) => void;
   onEntryClick: (entryId: string, e: React.MouseEvent) => void;
+  onStickerDrop: (
+    entryId: string,
+    sticker: ConfirmationSticker | null
+  ) => void;
 }) {
   const showFullChips = scale === "days";
   const showDots = scale === "weeks" || scale === "months";
@@ -965,6 +1030,8 @@ function DayCell({
               isFirstDay={isFirstDay}
               onClick={(e) => onEntryClick(entry.id, e)}
               onPointerDown={(e) => e.stopPropagation()}
+              onStickerDrop={(sticker) => onStickerDrop(entry.id, sticker)}
+              onClearSticker={() => onStickerDrop(entry.id, null)}
             />
           ))}
         </div>
@@ -1189,18 +1256,78 @@ function Legend() {
   );
 }
 
+function StickerPanel() {
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-3">
+        <div>
+          <h3 className="font-display text-sm font-extrabold tracking-tight text-slate-800 dark:text-slate-200">
+            Stickers
+          </h3>
+          <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+            Drag onto an event or task to mark it.
+          </p>
+        </div>
+        <div className="grid grid-cols-3 gap-2 lg:grid-cols-1">
+          {CONFIRMATION_STICKERS.map((s) => (
+            <StickerChip key={s} sticker={s} />
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function StickerChip({ sticker }: { sticker: ConfirmationSticker }) {
+  const meta = STICKER_META[sticker];
+  const Icon = meta.icon;
+  return (
+    <div
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = "copy";
+        e.dataTransfer.setData(STICKER_MIME, sticker);
+        // text/plain mirror so DnD inspectors and some browser fallbacks
+        // still see something meaningful.
+        e.dataTransfer.setData("text/plain", sticker);
+      }}
+      role="button"
+      tabIndex={0}
+      title={`Drag ${CONFIRMATION_STICKER_LABELS[sticker]} onto an entry`}
+      aria-label={`${CONFIRMATION_STICKER_LABELS[sticker]} sticker — drag onto an entry`}
+      className={cn(
+        "flex cursor-grab select-none items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 transition-shadow hover:shadow-sm active:cursor-grabbing"
+      )}
+    >
+      <span
+        className={cn(
+          "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full",
+          meta.badgeClass
+        )}
+      >
+        <Icon className="h-4 w-4" aria-hidden="true" />
+      </span>
+      <span className="truncate">{CONFIRMATION_STICKER_LABELS[sticker]}</span>
+    </div>
+  );
+}
+
 function EntryChip({
   entry,
   position,
   isFirstDay,
   onClick,
   onPointerDown,
+  onStickerDrop,
+  onClearSticker,
 }: {
   entry: CalendarEntry;
   position: SpanPosition;
   isFirstDay: boolean;
   onClick: (e: React.MouseEvent) => void;
   onPointerDown: (e: React.PointerEvent) => void;
+  onStickerDrop: (sticker: ConfirmationSticker) => void;
+  onClearSticker: () => void;
 }) {
   const isEvent = entry.kind === "event";
   const Icon = isEvent ? Clock : CheckSquare;
@@ -1208,6 +1335,16 @@ function EntryChip({
   // The "→ end" annotation on the start chip should reflect this occurrence's
   // span, not the series template's, so prefer occurrence_end when present.
   const endIso = (entry.occurrence_end ?? entry.end_date)?.slice(0, 10);
+
+  const [isDropTarget, setIsDropTarget] = useState(false);
+
+  const sticker = (
+    CONFIRMATION_STICKERS as readonly string[]
+  ).includes(entry.confirmation ?? "")
+    ? (entry.confirmation as ConfirmationSticker)
+    : null;
+  const stickerMeta = sticker ? STICKER_META[sticker] : null;
+  const StickerIcon = stickerMeta?.icon;
 
   const dotColor =
     entry.project_type === "sell"
@@ -1244,15 +1381,38 @@ function EntryChip({
           onClick(e as unknown as React.MouseEvent);
         }
       }}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes(STICKER_MIME)) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+          if (!isDropTarget) setIsDropTarget(true);
+        }
+      }}
+      onDragLeave={() => setIsDropTarget(false)}
+      onDrop={(e) => {
+        const raw = e.dataTransfer.getData(STICKER_MIME);
+        setIsDropTarget(false);
+        if (!raw) return;
+        if (!(CONFIRMATION_STICKERS as readonly string[]).includes(raw)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onStickerDrop(raw as ConfirmationSticker);
+      }}
       className={cn(
-        "flex items-center gap-1.5 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-1.5 py-1 text-left text-[11px] leading-tight cursor-pointer",
+        "relative flex items-center gap-1.5 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-1.5 py-1 text-left text-[11px] leading-tight cursor-pointer",
         "hover:border-primary-300 dark:hover:border-primary-700",
         spanLayout[position],
-        entry.status === "done" && "opacity-60"
+        entry.status === "done" && "opacity-60",
+        sticker === "cancelled" && "opacity-60",
+        // Apply the sticker's ring on the segment that actually shows the
+        // badge (first day for multi-day spans, every chip for singles).
+        stickerMeta && isFirstDay && stickerMeta.ringClass,
+        isDropTarget &&
+          "ring-2 ring-primary-500 ring-offset-1 ring-offset-white dark:ring-offset-slate-900"
       )}
       aria-label={`${isEvent ? "Event" : "Task"}: ${entry.title}${
-        position !== "single" ? ` (${position} of multi-day span)` : ""
-      }`}
+        sticker ? ` — ${CONFIRMATION_STICKER_LABELS[sticker]}` : ""
+      }${position !== "single" ? ` (${position} of multi-day span)` : ""}`}
     >
       <span
         className={cn("h-2 w-2 shrink-0 rounded-full", dotColor)}
@@ -1298,6 +1458,24 @@ function EntryChip({
         >
           {entry.priority[0]?.toUpperCase()}
         </Badge>
+      )}
+      {isFirstDay && sticker && StickerIcon && stickerMeta && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClearSticker();
+          }}
+          title={`${CONFIRMATION_STICKER_LABELS[sticker]} — click to clear`}
+          aria-label={`Clear ${CONFIRMATION_STICKER_LABELS[sticker]} sticker`}
+          className={cn(
+            "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full",
+            stickerMeta.badgeClass,
+            "hover:opacity-80"
+          )}
+        >
+          <StickerIcon className="h-3 w-3" aria-hidden="true" />
+        </button>
       )}
     </div>
   );

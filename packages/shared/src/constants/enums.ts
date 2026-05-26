@@ -85,6 +85,21 @@ export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 export const TASK_KINDS = ["task", "event"] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
+// Calendar stickers — independent of TASK_STATUSES (which models task
+// workflow). A null confirmation means "no sticker applied".
+export const CONFIRMATION_STICKERS = [
+  "tentative",
+  "confirmed",
+  "cancelled",
+] as const;
+export type ConfirmationSticker = (typeof CONFIRMATION_STICKERS)[number];
+
+export const CONFIRMATION_STICKER_LABELS: Record<ConfirmationSticker, string> = {
+  tentative: "Tentative",
+  confirmed: "Confirmed",
+  cancelled: "Cancelled",
+};
+
 // Recurrence patterns for tasks/events. Modeled after the common subset of
 // iCalendar RRULE that Outlook/Google/Apple Calendar all expose:
 //   - frequency: daily/weekly/monthly/yearly

@@ -127,6 +127,13 @@
       "when": 1779494800000,
       "tag": "0017_embeddings_user_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1779494900000,
+      "tag": "0018_task_confirmation",
+      "breakpoints": true
     }
   ]
 }

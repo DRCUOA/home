@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { BUILD_FOOTER_TEXT, BUILD_NUMBER } from "@/lib/build-info";
+import { CONFIRMATION_STICKERS } from "@hcc/shared";
+import { StickerChip } from "@/components/features/calendar-stickers";
 
 interface NavItem {
   to: string;
@@ -45,6 +47,7 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const location = useLocation();
+  const onCalendar = location.pathname.startsWith("/calendar");
 
   return (
     <aside
@@ -114,6 +117,22 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           })}
         </ul>
       </nav>
+
+      {/* Stickers: only on /calendar. Drag onto an event/task chip to mark. */}
+      {onCalendar && (
+        <div className="border-t border-border px-2 py-2">
+          {!collapsed && (
+            <p className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-subtle-foreground">
+              Stickers
+            </p>
+          )}
+          <div className={cn("flex flex-col gap-1.5")}>
+            {CONFIRMATION_STICKERS.map((s) => (
+              <StickerChip key={s} sticker={s} collapsed={collapsed} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Footer: build + collapse toggle */}
       <div className="border-t border-border px-2 py-2">

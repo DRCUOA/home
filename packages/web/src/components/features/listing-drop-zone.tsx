@@ -23,6 +23,21 @@ function extractUrl(dataTransfer: DataTransfer): string | null {
   return null;
 }
 
+// True when the drag looks like an external URL or file drop the listing
+// zone cares about. Drags carrying any application/x-* MIME are internal
+// app drags (e.g. calendar stickers, floor-plan items) and must be skipped
+// — otherwise the "Drop listing URL" overlay flashes whenever the user
+// drags a sticker, and the overlay can also race with the chip's own
+// drop handler.
+function isExternalUrlOrFileDrag(types: ReadonlyArray<string>): boolean {
+  for (const t of types) if (t.startsWith("application/x-")) return false;
+  return (
+    types.includes("text/uri-list") ||
+    types.includes("text/plain") ||
+    types.includes("Files")
+  );
+}
+
 export function ListingDropZone() {
   const qc = useQueryClient();
   const [dragging, setDragging] = useState(false);
@@ -40,7 +55,13 @@ export function ListingDropZone() {
   }, []);
 
   useEffect(() => {
+    // We keep preventDefault on dragover/drop universal so the browser
+    // doesn't open a dragged file or URL on top of the app, but the
+    // overlay + confirmation flow only engages for external URL/file
+    // drags. Internal app drags (sticker, floor-plan, etc.) are ignored.
     const onDragEnter = (e: DragEvent) => {
+      if (!e.dataTransfer || !isExternalUrlOrFileDrag(e.dataTransfer.types))
+        return;
       e.preventDefault();
       dragCounterRef.current++;
       if (dragCounterRef.current === 1) setDragging(true);
@@ -48,10 +69,14 @@ export function ListingDropZone() {
 
     const onDragOver = (e: DragEvent) => {
       e.preventDefault();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+      if (e.dataTransfer && isExternalUrlOrFileDrag(e.dataTransfer.types)) {
+        e.dataTransfer.dropEffect = "copy";
+      }
     };
 
     const onDragLeave = (e: DragEvent) => {
+      if (!e.dataTransfer || !isExternalUrlOrFileDrag(e.dataTransfer.types))
+        return;
       e.preventDefault();
       dragCounterRef.current--;
       if (dragCounterRef.current <= 0) {
@@ -65,7 +90,8 @@ export function ListingDropZone() {
       dragCounterRef.current = 0;
       setDragging(false);
 
-      if (!e.dataTransfer) return;
+      if (!e.dataTransfer || !isExternalUrlOrFileDrag(e.dataTransfer.types))
+        return;
       const url = extractUrl(e.dataTransfer);
       if (!url) return;
 

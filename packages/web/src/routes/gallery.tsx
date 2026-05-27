@@ -11,16 +11,20 @@ import {
   ImageOff,
   Download,
 } from "lucide-react";
-import type { FileRecord } from "@hcc/shared";
+import type { FileRecord, Property } from "@hcc/shared";
 import { PageShell } from "@/components/layout/page-shell";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiGet, apiUpload, apiDelete } from "@/lib/api";
+import { apiGet, apiUpload, apiDelete, apiPatch } from "@/lib/api";
 import { CameraCapture } from "@/components/features/camera-capture";
 import { formatDate } from "@/lib/format";
+import { cn } from "@/lib/cn";
 
 type ListResponse<T> = { data: T[]; total: number };
+
+const GENERAL_TAB_ID = "__general__";
+const PHOTO_DRAG_MIME = "application/x-hcc-gallery-photo";
 
 export const Route = createFileRoute("/gallery")({
   component: GalleryPage,
@@ -34,6 +38,11 @@ function thumbUrl(id: string) {
   return `/api/v1/files/${id}/download`;
 }
 
+function propertyLabel(p: Property): string {
+  const parts = [p.address, p.suburb].filter(Boolean);
+  return parts.join(", ") || "Untitled property";
+}
+
 function GalleryPage() {
   const qc = useQueryClient();
 
@@ -42,7 +51,12 @@ function GalleryPage() {
     queryFn: () => apiGet<ListResponse<FileRecord>>("/files"),
   });
 
-  const photos = useMemo(() => {
+  const propertiesQuery = useQuery({
+    queryKey: ["properties"],
+    queryFn: () => apiGet<ListResponse<Property>>("/properties"),
+  });
+
+  const allPhotos = useMemo(() => {
     const all = filesQuery.data?.data ?? [];
     return all
       .filter((f) => isImage(f.mime_type))
@@ -51,6 +65,58 @@ function GalleryPage() {
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
   }, [filesQuery.data]);
+
+  // Build the set of property tabs to show: only properties that currently
+  // have at least one photo. Tabs appear as photos land via listing analysis
+  // or drag-and-drop, and disappear when the last photo moves out.
+  const propertyTabs = useMemo(() => {
+    const propsById = new Map(
+      (propertiesQuery.data?.data ?? []).map((p) => [p.id, p])
+    );
+    const counts = new Map<string, number>();
+    for (const photo of allPhotos) {
+      if (photo.property_id && propsById.has(photo.property_id)) {
+        counts.set(photo.property_id, (counts.get(photo.property_id) ?? 0) + 1);
+      }
+    }
+    return Array.from(counts.entries())
+      .map(([id, count]) => {
+        const p = propsById.get(id)!;
+        return { id, label: propertyLabel(p), count };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [allPhotos, propertiesQuery.data]);
+
+  const generalCount = useMemo(() => {
+    const validPropIds = new Set(
+      (propertiesQuery.data?.data ?? []).map((p) => p.id)
+    );
+    return allPhotos.filter(
+      (p) => !p.property_id || !validPropIds.has(p.property_id)
+    ).length;
+  }, [allPhotos, propertiesQuery.data]);
+
+  const [activeTab, setActiveTab] = useState<string>(GENERAL_TAB_ID);
+
+  // If the active property tab loses all its photos, fall back to General.
+  useEffect(() => {
+    if (activeTab === GENERAL_TAB_ID) return;
+    if (!propertyTabs.some((t) => t.id === activeTab)) {
+      setActiveTab(GENERAL_TAB_ID);
+    }
+  }, [activeTab, propertyTabs]);
+
+  const visiblePhotos = useMemo(() => {
+    const validPropIds = new Set(
+      (propertiesQuery.data?.data ?? []).map((p) => p.id)
+    );
+    if (activeTab === GENERAL_TAB_ID) {
+      return allPhotos.filter(
+        (p) => !p.property_id || !validPropIds.has(p.property_id)
+      );
+    }
+    return allPhotos.filter((p) => p.property_id === activeTab);
+  }, [allPhotos, activeTab, propertiesQuery.data]);
 
   const uploadFile = useMutation({
     mutationFn: (formData: FormData) =>
@@ -63,14 +129,38 @@ function GalleryPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["files"] }),
   });
 
+  const movePhoto = useMutation({
+    mutationFn: ({
+      id,
+      propertyId,
+    }: {
+      id: string;
+      propertyId: string | null;
+    }) =>
+      apiPatch<{ data: FileRecord }>(`/files/${id}`, {
+        property_id: propertyId,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["files"] }),
+  });
+
   const [cameraOpen, setCameraOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  // Uploads default to the active tab so new photos land where the user is
+  // looking. Listing-analysis photos arrive pre-tagged with property_id, so
+  // they automatically appear under the matching property tab.
+  const appendTargetTab = (fd: FormData) => {
+    if (activeTab !== GENERAL_TAB_ID) {
+      fd.append("property_id", activeTab);
+    }
+  };
 
   const handleCameraCapture = (file: File) => {
     setCameraOpen(false);
     const fd = new FormData();
     fd.append("file", file);
     fd.append("category", "photo");
+    appendTargetTab(fd);
     uploadFile.mutate(fd);
   };
 
@@ -81,6 +171,7 @@ function GalleryPage() {
       const fd = new FormData();
       fd.append("file", selected[i]);
       fd.append("category", "photo");
+      appendTargetTab(fd);
       uploadFile.mutate(fd);
     }
     e.target.value = "";
@@ -89,6 +180,14 @@ function GalleryPage() {
   const handleDelete = (id: string) => {
     deleteFile.mutate(id);
     setLightboxIndex(null);
+  };
+
+  const handleDropOnTab = (tabId: string, photoId: string) => {
+    const photo = allPhotos.find((p) => p.id === photoId);
+    if (!photo) return;
+    const targetPropertyId = tabId === GENERAL_TAB_ID ? null : tabId;
+    if (photo.property_id === targetPropertyId) return;
+    movePhoto.mutate({ id: photoId, propertyId: targetPropertyId });
   };
 
   if (filesQuery.isLoading) {
@@ -102,13 +201,26 @@ function GalleryPage() {
     );
   }
 
+  const tabs = [
+    { id: GENERAL_TAB_ID, label: "General", count: generalCount },
+    ...propertyTabs,
+  ];
+
   return (
     <PageShell title="Gallery">
       <div className="space-y-4 pb-4">
+        <GalleryTabs
+          tabs={tabs}
+          active={activeTab}
+          onChange={setActiveTab}
+          onDropPhoto={handleDropOnTab}
+        />
+
         {/* Actions */}
         <div className="flex items-center justify-between gap-2">
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            {photos.length} {photos.length === 1 ? "photo" : "photos"}
+            {visiblePhotos.length}{" "}
+            {visiblePhotos.length === 1 ? "photo" : "photos"}
           </p>
           <div className="flex gap-2">
             <Button
@@ -141,12 +253,33 @@ function GalleryPage() {
           </div>
         )}
 
+        {movePhoto.isPending && (
+          <div className="flex items-center gap-2 rounded-lg bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 px-3 py-2 text-sm text-primary-700 dark:text-primary-300">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Moving photo…
+          </div>
+        )}
+
+        {visiblePhotos.length > 0 && propertyTabs.length > 0 && (
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Tip: drag a photo onto a tab to move it.
+          </p>
+        )}
+
         {/* Gallery grid */}
-        {photos.length === 0 ? (
+        {visiblePhotos.length === 0 ? (
           <EmptyState
             icon={<ImageOff className="h-10 w-10" />}
-            title="No photos yet"
-            description="Take a photo or upload images to build your gallery."
+            title={
+              activeTab === GENERAL_TAB_ID
+                ? "No photos yet"
+                : "No photos in this tab"
+            }
+            description={
+              activeTab === GENERAL_TAB_ID
+                ? "Take a photo or upload images to build your gallery."
+                : "Drag a photo here or upload while this tab is active."
+            }
             action={
               <Button className="min-h-11" onClick={() => setCameraOpen(true)}>
                 <Camera className="h-4 w-4" />
@@ -156,18 +289,24 @@ function GalleryPage() {
           />
         ) : (
           <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
-            {photos.map((photo, i) => (
+            {visiblePhotos.map((photo, i) => (
               <button
                 key={photo.id}
                 type="button"
-                className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 group focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData(PHOTO_DRAG_MIME, photo.id);
+                }}
+                className="relative aspect-square rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 group focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 cursor-grab active:cursor-grabbing"
                 onClick={() => setLightboxIndex(i)}
               >
                 <img
                   src={thumbUrl(photo.id)}
                   alt={photo.filename}
                   loading="lazy"
-                  className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+                  draggable={false}
+                  className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105 pointer-events-none"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
               </button>
@@ -183,9 +322,9 @@ function GalleryPage() {
         title="Take photo"
       />
 
-      {lightboxIndex !== null && photos[lightboxIndex] && (
+      {lightboxIndex !== null && visiblePhotos[lightboxIndex] && (
         <Lightbox
-          photos={photos}
+          photos={visiblePhotos}
           index={lightboxIndex}
           onIndexChange={setLightboxIndex}
           onClose={() => setLightboxIndex(null)}
@@ -193,6 +332,81 @@ function GalleryPage() {
         />
       )}
     </PageShell>
+  );
+}
+
+/* ---------- Tabs with drop targets ---------- */
+
+interface GalleryTab {
+  id: string;
+  label: string;
+  count: number;
+}
+
+function GalleryTabs({
+  tabs,
+  active,
+  onChange,
+  onDropPhoto,
+}: {
+  tabs: GalleryTab[];
+  active: string;
+  onChange: (id: string) => void;
+  onDropPhoto: (tabId: string, photoId: string) => void;
+}) {
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+
+  return (
+    <div className="flex gap-1 overflow-x-auto border-b border-border px-4 -mx-4 scrollbar-hide">
+      {tabs.map((tab) => {
+        const isActive = active === tab.id;
+        const isDropTarget = dropTargetId === tab.id;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => onChange(tab.id)}
+            onDragOver={(e) => {
+              if (e.dataTransfer.types.includes(PHOTO_DRAG_MIME)) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                if (dropTargetId !== tab.id) setDropTargetId(tab.id);
+              }
+            }}
+            onDragLeave={() => {
+              if (dropTargetId === tab.id) setDropTargetId(null);
+            }}
+            onDrop={(e) => {
+              const photoId = e.dataTransfer.getData(PHOTO_DRAG_MIME);
+              setDropTargetId(null);
+              if (!photoId) return;
+              e.preventDefault();
+              onDropPhoto(tab.id, photoId);
+            }}
+            className={cn(
+              "whitespace-nowrap inline-flex items-center min-h-11 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors",
+              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+              isActive
+                ? "border-accent text-accent-soft-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+              isDropTarget && "bg-primary-50 dark:bg-primary-900/20 rounded-t-md"
+            )}
+          >
+            {tab.label}
+            <span
+              className={cn(
+                "ml-1.5 text-xs rounded-full px-1.5 py-0.5",
+                isDropTarget
+                  ? "bg-primary-600 text-white"
+                  : "bg-muted text-muted-foreground"
+              )}
+            >
+              {tab.count}
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

@@ -15,10 +15,10 @@ export const createFileSchema = z.object({
 
 export const updateFileSchema = z.object({
   category: z.enum(FILE_CATEGORIES).optional(),
-  project_id: z.string().uuid().optional(),
-  property_id: z.string().uuid().optional(),
-  contact_id: z.string().uuid().optional(),
-  communication_id: z.string().uuid().optional(),
+  project_id: z.string().uuid().nullable().optional(),
+  property_id: z.string().uuid().nullable().optional(),
+  contact_id: z.string().uuid().nullable().optional(),
+  communication_id: z.string().uuid().nullable().optional(),
   is_pinned: z.boolean().optional(),
 });
 

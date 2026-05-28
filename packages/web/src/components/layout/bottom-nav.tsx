@@ -11,6 +11,7 @@ import {
   MessageCircle,
   Image,
   Truck,
+  Boxes,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { BUILD_FOOTER_TEXT, BUILD_NUMBER } from "@/lib/build-info";
@@ -24,6 +25,7 @@ const tabs = [
   { to: "/tasks", icon: CheckSquare, label: "Tasks" },
   { to: "/calendar", icon: Calendar, label: "Calendar" },
   { to: "/moving", icon: Truck, label: "Moving" },
+  { to: "/inventory", icon: Boxes, label: "Inventory" },
   { to: "/gallery", icon: Image, label: "Gallery" },
   { to: "/library", icon: Library, label: "Library" },
   { to: "/assistant", icon: MessageCircle, label: "Assistant" },

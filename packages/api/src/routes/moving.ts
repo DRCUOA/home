@@ -27,6 +27,9 @@ import {
   createMoveLayerSchema,
   updateMoveLayerSchema,
   MOVE_BOX_STATUSES,
+  MOVE_ITEM_STATUSES,
+  MOVE_ITEM_DISPOSITIONS,
+  MOVE_ITEM_CATEGORIES,
   MOVE_SCAN_ACTIONS,
   type MoveBoxStatus,
   type MoveItemStatus,
@@ -395,6 +398,90 @@ export default async function movingRoutes(app: FastifyInstance) {
       .where(inArray(schema.moveItems.id, validIds));
 
     return { data: { updated: validIds.length } };
+  });
+
+  /**
+   * Bulk-update items from the Inventory page. Each field in `patch` is
+   * applied to every item in `ids` (scoped to this move). Nullable fields
+   * (room/box/category/value/notes) accept `null` to clear the value —
+   * this differs from the per-item PATCH schema, which only allows
+   * setting concrete values.
+   */
+  app.post("/api/v1/moves/:moveId/items/bulk-update", async (req, reply) => {
+    const { moveId } = req.params as { moveId: string };
+    if (!(await assertOwnsMove(req.userId, moveId))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    const body = z
+      .object({
+        ids: z.array(z.string().uuid()).min(1).max(500),
+        patch: z
+          .object({
+            name: z.string().min(1).max(300).optional(),
+            quantity: z.number().int().min(1).optional(),
+            origin_room_id: z.string().uuid().nullable().optional(),
+            destination_room_id: z.string().uuid().nullable().optional(),
+            box_id: z.string().uuid().nullable().optional(),
+            status: z.enum(MOVE_ITEM_STATUSES).optional(),
+            disposition: z.enum(MOVE_ITEM_DISPOSITIONS).optional(),
+            category: z.enum(MOVE_ITEM_CATEGORIES).nullable().optional(),
+            fragile: z.boolean().optional(),
+            value_estimate: z.number().positive().nullable().optional(),
+            notes: z.string().nullable().optional(),
+          })
+          .refine((p) => Object.keys(p).length > 0, {
+            message: "patch must include at least one field",
+          }),
+      })
+      .parse(req.body);
+
+    const valid = await db
+      .select({ id: schema.moveItems.id })
+      .from(schema.moveItems)
+      .where(
+        and(
+          eq(schema.moveItems.move_id, moveId),
+          inArray(schema.moveItems.id, body.ids),
+        ),
+      );
+    const validIds = valid.map((r) => r.id);
+    if (validIds.length === 0) {
+      return reply.status(400).send({ error: "No items belong to this move" });
+    }
+
+    const updated = await db
+      .update(schema.moveItems)
+      .set({ ...body.patch, updated_at: new Date() })
+      .where(inArray(schema.moveItems.id, validIds))
+      .returning({ id: schema.moveItems.id });
+
+    return { updated: updated.length, ids: updated.map((r) => r.id) };
+  });
+
+  /**
+   * Bulk-delete items from the Inventory page. Items must all belong to
+   * the addressed move; cross-move ids are silently dropped.
+   */
+  app.post("/api/v1/moves/:moveId/items/bulk-delete", async (req, reply) => {
+    const { moveId } = req.params as { moveId: string };
+    if (!(await assertOwnsMove(req.userId, moveId))) {
+      return reply.status(404).send({ error: "Not Found" });
+    }
+    const { ids } = z
+      .object({ ids: z.array(z.string().uuid()).min(1).max(500) })
+      .parse(req.body);
+
+    const deleted = await db
+      .delete(schema.moveItems)
+      .where(
+        and(
+          eq(schema.moveItems.move_id, moveId),
+          inArray(schema.moveItems.id, ids),
+        ),
+      )
+      .returning({ id: schema.moveItems.id });
+
+    return { deleted: deleted.length, ids: deleted.map((r) => r.id) };
   });
 
   /* ---------- Move Boxes ---------- */

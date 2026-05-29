@@ -21,6 +21,7 @@ import {
   X,
   AlertTriangle,
   ClipboardList,
+  Lock,
 } from "lucide-react";
 import type {
   Move,
@@ -2376,6 +2377,30 @@ function AllLabelsTab({
     },
   });
 
+  // Seal a box: the status-transition endpoint moves it to "packed" and
+  // cascades item statuses + logs a scan event — same route the pack-box
+  // flow uses, just driven from the card here.
+  const seal = useMutation({
+    mutationFn: async (boxId: string) => {
+      const res = await fetch(`/api/v1/move-boxes/${boxId}/status`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "packed" }),
+      });
+      if (!res.ok) throw new Error(`Seal failed (${res.status})`);
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["move-boxes", moveId] });
+      qc.invalidateQueries({ queryKey: ["move-items", moveId] });
+      qc.invalidateQueries({ queryKey: ["move-scan-events", moveId] });
+    },
+  });
+
+  const getRoomName = (id?: string | null) =>
+    id ? roomName.get(id) ?? "" : "";
+
   const activeBox = boxes.find((b) => b.id === activeBoxId) ?? null;
 
   if (boxes.length === 0) {
@@ -2465,6 +2490,26 @@ function AllLabelsTab({
                     ))}
                   </ul>
                 )}
+
+                {box.status === "preparing" && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-full"
+                    disabled={seal.isPending}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      seal.mutate(box.id);
+                    }}
+                  >
+                    {seal.isPending && seal.variables === box.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Lock className="h-3.5 w-3.5" />
+                    )}
+                    Seal box
+                  </Button>
+                )}
               </CardContent>
             </Card>
           );
@@ -2477,6 +2522,7 @@ function AllLabelsTab({
           contents={contentsByBox.get(activeBox.id) ?? []}
           unassignedItems={unassignedItems}
           pending={assign.isPending}
+          getRoomName={getRoomName}
           onAdd={(id) => assign.mutate({ ids: [id], boxId: activeBox.id })}
           onRemove={(id) => assign.mutate({ ids: [id], boxId: null })}
           onClose={() => setActiveBoxId(null)}
@@ -2488,12 +2534,20 @@ function AllLabelsTab({
 
 /** Modal for editing a single box's contents. The "add" list only ever
  *  shows unassigned items — items already in a box (this one or another)
- *  are excluded so the user can't double-assign. */
+ *  are excluded so the user can't double-assign.
+ *
+ *  A label must have all its items going to the same destination ("To");
+ *  origins ("From") may differ. The box's locked destination is its own
+ *  destination_room_id, or — if unset — the shared destination of the
+ *  items already inside. Items bound for a different destination can't be
+ *  added (their Add button is disabled); items with no destination set
+ *  are always allowed since they don't introduce a conflicting "To". */
 function ManageBoxContentsModal({
   box,
   contents,
   unassignedItems,
   pending,
+  getRoomName,
   onAdd,
   onRemove,
   onClose,
@@ -2502,11 +2556,28 @@ function ManageBoxContentsModal({
   contents: MoveItem[];
   unassignedItems: MoveItem[];
   pending: boolean;
+  getRoomName: (id?: string | null) => string;
   onAdd: (itemId: string) => void;
   onRemove: (itemId: string) => void;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
+
+  // The destination every item in this box must share. Box-level wins;
+  // otherwise it's the common destination of items already inside (only
+  // when they agree). Undefined means "not yet pinned" — anything goes.
+  const lockedDest = useMemo<string | undefined>(() => {
+    if (box.destination_room_id) return box.destination_room_id;
+    const dests = Array.from(
+      new Set(contents.map((c) => c.destination_room_id).filter(Boolean)),
+    );
+    return dests.length === 1 ? (dests[0] as string) : undefined;
+  }, [box.destination_room_id, contents]);
+
+  const conflicts = (it: MoveItem) =>
+    !!lockedDest &&
+    !!it.destination_room_id &&
+    it.destination_room_id !== lockedDest;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -2561,6 +2632,19 @@ function ManageBoxContentsModal({
           <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
             Add unassigned items ({unassignedItems.length})
           </p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            {lockedDest ? (
+              <>
+                All items must go to{" "}
+                <span className="font-medium text-slate-700 dark:text-slate-300">
+                  {getRoomName(lockedDest)}
+                </span>
+                . Items bound elsewhere can't be added.
+              </>
+            ) : (
+              "The first item with a destination sets where this box is going."
+            )}
+          </p>
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -2577,31 +2661,46 @@ function ManageBoxContentsModal({
             </p>
           ) : (
             <ul className="border border-slate-200 dark:border-slate-800 rounded-md divide-y divide-slate-100 dark:divide-slate-800 max-h-72 overflow-y-auto">
-              {filtered.map((it) => (
-                <li
-                  key={it.id}
-                  className="flex items-center gap-2 px-3 py-2 text-sm"
-                >
-                  <span className="flex-1 min-w-0 truncate text-slate-700 dark:text-slate-300">
-                    {it.quantity > 1 && (
-                      <span className="text-slate-400 dark:text-slate-500">
-                        {it.quantity}×{" "}
-                      </span>
-                    )}
-                    {it.name}
-                  </span>
-                  <Button
-                    size="sm"
-                    className="flex-shrink-0"
-                    disabled={pending}
-                    onClick={() => onAdd(it.id)}
-                    aria-label={`Add ${it.name} to box`}
+              {filtered.map((it) => {
+                const conflict = conflicts(it);
+                return (
+                  <li
+                    key={it.id}
+                    className="flex items-center gap-2 px-3 py-2 text-sm"
                   >
-                    <Plus className="h-3.5 w-3.5" />
-                    Add
-                  </Button>
-                </li>
-              ))}
+                    <span className="flex-1 min-w-0 text-slate-700 dark:text-slate-300">
+                      <span className="block truncate">
+                        {it.quantity > 1 && (
+                          <span className="text-slate-400 dark:text-slate-500">
+                            {it.quantity}×{" "}
+                          </span>
+                        )}
+                        {it.name}
+                      </span>
+                      {conflict && (
+                        <span className="block text-xs text-amber-600 dark:text-amber-500 truncate">
+                          Goes to {getRoomName(it.destination_room_id)}
+                        </span>
+                      )}
+                    </span>
+                    <Button
+                      size="sm"
+                      className="flex-shrink-0"
+                      disabled={pending || conflict}
+                      onClick={() => onAdd(it.id)}
+                      title={
+                        conflict
+                          ? "Different destination — can't add to this box"
+                          : undefined
+                      }
+                      aria-label={`Add ${it.name} to box`}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Add
+                    </Button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

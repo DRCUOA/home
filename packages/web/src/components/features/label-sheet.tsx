@@ -1011,8 +1011,19 @@ export function LabelSheet({
           >
             {expanded.map(({ box, copyIndex }) => {
               const contents = itemsByBox.get(box.id) ?? [];
-              const src = roomName(box.source_room_id);
-              const dest = roomName(box.destination_room_id);
+              // Box-level room wins; otherwise fall back to a contained
+              // item's room. "To" is kept consistent across a box's items
+              // (enforced when items are added), so any item's destination
+              // is representative. "From" may vary per item, so we surface
+              // the first one present.
+              const srcId =
+                box.source_room_id ??
+                contents.find((c) => c.origin_room_id)?.origin_room_id;
+              const destId =
+                box.destination_room_id ??
+                contents.find((c) => c.destination_room_id)?.destination_room_id;
+              const src = roomName(srcId);
+              const dest = roomName(destId);
               const barcodeSvg = barcodeSvgFor(box, template);
               return (
                 <div

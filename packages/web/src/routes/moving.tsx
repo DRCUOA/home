@@ -2311,18 +2311,23 @@ function LabelsTab({
 /*  All labels (card view)                                      */
 /* =========================================================== */
 
-/** Read-only overview of every label (box) as a card, listing the
- *  items packed inside it. Complements the print/delete list with a
- *  glanceable "what's in each box" view. */
+/** Overview of every label (box) as a card, listing the items packed
+ *  inside it. Click a card to manage its contents — add unassigned
+ *  items or remove items back to the unassigned pool. */
 function AllLabelsTab({
+  moveId,
   boxes,
   items,
   rooms,
 }: {
+  moveId: string;
   boxes: MoveBox[];
   items: MoveItem[];
   rooms: MoveRoom[];
 }) {
+  const qc = useQueryClient();
+  const [activeBoxId, setActiveBoxId] = useState<string | null>(null);
+
   const roomName = useMemo(() => {
     const map = new Map<string, string>();
     for (const r of rooms) map.set(r.id, r.name);
@@ -2340,6 +2345,39 @@ function AllLabelsTab({
     return map;
   }, [items]);
 
+  // Items not assigned to any box — the only ones eligible to be added.
+  const unassignedItems = useMemo(
+    () => items.filter((it) => !it.box_id),
+    [items],
+  );
+
+  // Reassign or unassign items via the bulk-update endpoint (the per-item
+  // PATCH can't clear box_id, but bulk-update accepts box_id: null).
+  const assign = useMutation({
+    mutationFn: async ({
+      ids,
+      boxId,
+    }: {
+      ids: string[];
+      boxId: string | null;
+    }) => {
+      const res = await fetch(`/api/v1/moves/${moveId}/items/bulk-update`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, patch: { box_id: boxId } }),
+      });
+      if (!res.ok) throw new Error(`Update failed (${res.status})`);
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["move-items", moveId] });
+      qc.invalidateQueries({ queryKey: ["move-boxes", moveId] });
+    },
+  });
+
+  const activeBox = boxes.find((b) => b.id === activeBoxId) ?? null;
+
   if (boxes.length === 0) {
     return (
       <Card>
@@ -2354,71 +2392,221 @@ function AllLabelsTab({
   }
 
   return (
-    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-      {boxes.map((box) => {
-        const contents = contentsByBox.get(box.id) ?? [];
-        const dispositions = Array.from(
-          new Set(
-            contents
-              .map((c) => c.disposition)
-              .filter((d) => d && d !== "unassessed"),
-          ),
-        )
-          .map((d) => MOVE_ITEM_DISPOSITION_LABELS[d as MoveItemDisposition] ?? d)
-          .join(", ");
-        const destination = box.destination_room_id
-          ? roomName.get(box.destination_room_id)
-          : undefined;
-        return (
-          <Card key={box.id}>
-            <CardHeader>
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <CardTitle className="text-sm truncate">{box.label}</CardTitle>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">
-                    {box.barcode}
-                  </p>
+    <>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {boxes.map((box) => {
+          const contents = contentsByBox.get(box.id) ?? [];
+          const dispositions = Array.from(
+            new Set(
+              contents
+                .map((c) => c.disposition)
+                .filter((d) => d && d !== "unassessed"),
+            ),
+          )
+            .map((d) => MOVE_ITEM_DISPOSITION_LABELS[d as MoveItemDisposition] ?? d)
+            .join(", ");
+          const destination = box.destination_room_id
+            ? roomName.get(box.destination_room_id)
+            : undefined;
+          return (
+            <Card
+              key={box.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => setActiveBoxId(box.id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setActiveBoxId(box.id);
+                }
+              }}
+              className="cursor-pointer transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+            >
+              <CardHeader>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <CardTitle className="text-sm truncate">{box.label}</CardTitle>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">
+                      {box.barcode}
+                    </p>
+                  </div>
+                  <StatusBadge status={box.status} />
                 </div>
-                <StatusBadge status={box.status} />
-              </div>
-            </CardHeader>
-            <CardContent className="pb-4 space-y-2">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <Badge variant="default">
-                  {contents.length} {contents.length === 1 ? "item" : "items"}
-                </Badge>
-                {box.fragile && <Badge variant="primary">Fragile</Badge>}
-                {destination && (
-                  <Badge variant="default">▶ {destination}</Badge>
-                )}
-                {dispositions && (
-                  <Badge variant="default">{dispositions}</Badge>
-                )}
-              </div>
+              </CardHeader>
+              <CardContent className="pb-4 space-y-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Badge variant="default">
+                    {contents.length} {contents.length === 1 ? "item" : "items"}
+                  </Badge>
+                  {box.fragile && <Badge variant="primary">Fragile</Badge>}
+                  {destination && (
+                    <Badge variant="default">▶ {destination}</Badge>
+                  )}
+                  {dispositions && (
+                    <Badge variant="default">{dispositions}</Badge>
+                  )}
+                </div>
 
-              {contents.length === 0 ? (
-                <p className="text-xs italic text-slate-400 dark:text-slate-500">
-                  Empty box
-                </p>
-              ) : (
-                <ul className="text-sm text-slate-700 dark:text-slate-300 space-y-0.5">
-                  {contents.map((it) => (
-                    <li key={it.id} className="flex items-baseline gap-1.5 min-w-0">
-                      {it.quantity > 1 && (
-                        <span className="text-xs text-slate-400 dark:text-slate-500 flex-shrink-0">
-                          {it.quantity}×
-                        </span>
-                      )}
-                      <span className="truncate">{it.name}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-        );
-      })}
-    </div>
+                {contents.length === 0 ? (
+                  <p className="text-xs italic text-slate-400 dark:text-slate-500">
+                    Empty box
+                  </p>
+                ) : (
+                  <ul className="text-sm text-slate-700 dark:text-slate-300 space-y-0.5">
+                    {contents.map((it) => (
+                      <li key={it.id} className="flex items-baseline gap-1.5 min-w-0">
+                        {it.quantity > 1 && (
+                          <span className="text-xs text-slate-400 dark:text-slate-500 flex-shrink-0">
+                            {it.quantity}×
+                          </span>
+                        )}
+                        <span className="truncate">{it.name}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      {activeBox && (
+        <ManageBoxContentsModal
+          box={activeBox}
+          contents={contentsByBox.get(activeBox.id) ?? []}
+          unassignedItems={unassignedItems}
+          pending={assign.isPending}
+          onAdd={(id) => assign.mutate({ ids: [id], boxId: activeBox.id })}
+          onRemove={(id) => assign.mutate({ ids: [id], boxId: null })}
+          onClose={() => setActiveBoxId(null)}
+        />
+      )}
+    </>
+  );
+}
+
+/** Modal for editing a single box's contents. The "add" list only ever
+ *  shows unassigned items — items already in a box (this one or another)
+ *  are excluded so the user can't double-assign. */
+function ManageBoxContentsModal({
+  box,
+  contents,
+  unassignedItems,
+  pending,
+  onAdd,
+  onRemove,
+  onClose,
+}: {
+  box: MoveBox;
+  contents: MoveItem[];
+  unassignedItems: MoveItem[];
+  pending: boolean;
+  onAdd: (itemId: string) => void;
+  onRemove: (itemId: string) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return unassignedItems;
+    return unassignedItems.filter((it) => it.name.toLowerCase().includes(q));
+  }, [unassignedItems, query]);
+
+  return (
+    <Modal open onClose={onClose} title={`Contents — ${box.label}`} size="lg">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+            In this box ({contents.length})
+          </p>
+          {contents.length === 0 ? (
+            <p className="text-xs italic text-slate-400 dark:text-slate-500">
+              Empty box — add items from the right.
+            </p>
+          ) : (
+            <ul className="border border-slate-200 dark:border-slate-800 rounded-md divide-y divide-slate-100 dark:divide-slate-800 max-h-80 overflow-y-auto">
+              {contents.map((it) => (
+                <li
+                  key={it.id}
+                  className="flex items-center gap-2 px-3 py-2 text-sm"
+                >
+                  <span className="flex-1 min-w-0 truncate text-slate-700 dark:text-slate-300">
+                    {it.quantity > 1 && (
+                      <span className="text-slate-400 dark:text-slate-500">
+                        {it.quantity}×{" "}
+                      </span>
+                    )}
+                    {it.name}
+                  </span>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="flex-shrink-0"
+                    disabled={pending}
+                    onClick={() => onRemove(it.id)}
+                    aria-label={`Remove ${it.name} from box`}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Remove
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+            Add unassigned items ({unassignedItems.length})
+          </p>
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search items…"
+            aria-label="Search unassigned items"
+          />
+          {unassignedItems.length === 0 ? (
+            <p className="text-xs italic text-slate-400 dark:text-slate-500">
+              No unassigned items — everything is already in a box.
+            </p>
+          ) : filtered.length === 0 ? (
+            <p className="text-xs italic text-slate-400 dark:text-slate-500">
+              No items match "{query}".
+            </p>
+          ) : (
+            <ul className="border border-slate-200 dark:border-slate-800 rounded-md divide-y divide-slate-100 dark:divide-slate-800 max-h-72 overflow-y-auto">
+              {filtered.map((it) => (
+                <li
+                  key={it.id}
+                  className="flex items-center gap-2 px-3 py-2 text-sm"
+                >
+                  <span className="flex-1 min-w-0 truncate text-slate-700 dark:text-slate-300">
+                    {it.quantity > 1 && (
+                      <span className="text-slate-400 dark:text-slate-500">
+                        {it.quantity}×{" "}
+                      </span>
+                    )}
+                    {it.name}
+                  </span>
+                  <Button
+                    size="sm"
+                    className="flex-shrink-0"
+                    disabled={pending}
+                    onClick={() => onAdd(it.id)}
+                    aria-label={`Add ${it.name} to box`}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -3581,7 +3769,7 @@ function ToolsTab({
       )}
 
       {section === "all-labels" && (
-        <AllLabelsTab boxes={boxes} items={items} rooms={rooms} />
+        <AllLabelsTab moveId={move.id} boxes={boxes} items={items} rooms={rooms} />
       )}
 
       {section === "bulk" && (

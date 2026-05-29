@@ -2308,6 +2308,121 @@ function LabelsTab({
 }
 
 /* =========================================================== */
+/*  All labels (card view)                                      */
+/* =========================================================== */
+
+/** Read-only overview of every label (box) as a card, listing the
+ *  items packed inside it. Complements the print/delete list with a
+ *  glanceable "what's in each box" view. */
+function AllLabelsTab({
+  boxes,
+  items,
+  rooms,
+}: {
+  boxes: MoveBox[];
+  items: MoveItem[];
+  rooms: MoveRoom[];
+}) {
+  const roomName = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of rooms) map.set(r.id, r.name);
+    return map;
+  }, [rooms]);
+
+  const contentsByBox = useMemo(() => {
+    const map = new Map<string, MoveItem[]>();
+    for (const it of items) {
+      if (!it.box_id) continue;
+      const list = map.get(it.box_id);
+      if (list) list.push(it);
+      else map.set(it.box_id, [it]);
+    }
+    return map;
+  }, [items]);
+
+  if (boxes.length === 0) {
+    return (
+      <Card>
+        <CardContent className="pt-4 pb-4">
+          <EmptyState
+            title="No labels yet"
+            description="Create boxes or use Tools → Bulk create to generate a stack of labels."
+          />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      {boxes.map((box) => {
+        const contents = contentsByBox.get(box.id) ?? [];
+        const dispositions = Array.from(
+          new Set(
+            contents
+              .map((c) => c.disposition)
+              .filter((d) => d && d !== "unassessed"),
+          ),
+        )
+          .map((d) => MOVE_ITEM_DISPOSITION_LABELS[d as MoveItemDisposition] ?? d)
+          .join(", ");
+        const destination = box.destination_room_id
+          ? roomName.get(box.destination_room_id)
+          : undefined;
+        return (
+          <Card key={box.id}>
+            <CardHeader>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <CardTitle className="text-sm truncate">{box.label}</CardTitle>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">
+                    {box.barcode}
+                  </p>
+                </div>
+                <StatusBadge status={box.status} />
+              </div>
+            </CardHeader>
+            <CardContent className="pb-4 space-y-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Badge variant="default">
+                  {contents.length} {contents.length === 1 ? "item" : "items"}
+                </Badge>
+                {box.fragile && <Badge variant="primary">Fragile</Badge>}
+                {destination && (
+                  <Badge variant="default">▶ {destination}</Badge>
+                )}
+                {dispositions && (
+                  <Badge variant="default">{dispositions}</Badge>
+                )}
+              </div>
+
+              {contents.length === 0 ? (
+                <p className="text-xs italic text-slate-400 dark:text-slate-500">
+                  Empty box
+                </p>
+              ) : (
+                <ul className="text-sm text-slate-700 dark:text-slate-300 space-y-0.5">
+                  {contents.map((it) => (
+                    <li key={it.id} className="flex items-baseline gap-1.5 min-w-0">
+                      {it.quantity > 1 && (
+                        <span className="text-xs text-slate-400 dark:text-slate-500 flex-shrink-0">
+                          {it.quantity}×
+                        </span>
+                      )}
+                      <span className="truncate">{it.name}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+/* =========================================================== */
 /*  Workflow tabs (Survey, Declutter, Stage, Pack, Load,        */
 /*  Unpack, Exceptions)                                         */
 /*                                                              */
@@ -3369,7 +3484,9 @@ function ToolsTab({
 }) {
   const qc = useQueryClient();
   const roomMut = useRoomMutations(move.id);
-  const [section, setSection] = useState<"floor-plan" | "rooms" | "labels" | "bulk">("rooms");
+  const [section, setSection] = useState<
+    "floor-plan" | "rooms" | "labels" | "all-labels" | "bulk"
+  >("rooms");
 
   const bulkCreate = useMutation({
     mutationFn: (data: { count: number; code_type: string; label_prefix: string }) =>
@@ -3390,6 +3507,7 @@ function ToolsTab({
               { id: "rooms" as const, label: "Rooms & zones" },
               { id: "floor-plan" as const, label: "Floor plan" },
               { id: "labels" as const, label: "Print labels" },
+              { id: "all-labels" as const, label: "All labels" },
               { id: "bulk" as const, label: "Bulk create" },
             ].map((s) => (
               <button
@@ -3460,6 +3578,10 @@ function ToolsTab({
 
       {section === "labels" && (
         <LabelsTab moveId={move.id} boxes={boxes} items={items} rooms={rooms} />
+      )}
+
+      {section === "all-labels" && (
+        <AllLabelsTab boxes={boxes} items={items} rooms={rooms} />
       )}
 
       {section === "bulk" && (

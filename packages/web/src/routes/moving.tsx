@@ -2006,6 +2006,7 @@ function LabelsTab({
 }) {
   const qc = useQueryClient();
   const [printOpen, setPrintOpen] = useState(false);
+  const [printSelectedOpen, setPrintSelectedOpen] = useState(false);
   const [singlePrintBoxId, setSinglePrintBoxId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -2157,8 +2158,17 @@ function LabelsTab({
                   </span>
                 </label>
                 <Button
-                  variant="danger"
+                  variant="secondary"
                   className="ml-auto min-h-11"
+                  disabled={selected.size === 0}
+                  onClick={() => setPrintSelectedOpen(true)}
+                >
+                  <Printer className="h-4 w-4" />
+                  Print {selected.size > 0 ? selected.size : ""} selected
+                </Button>
+                <Button
+                  variant="danger"
+                  className="min-h-11"
                   disabled={selected.size === 0 || bulkDelete.isPending}
                   onClick={() => setConfirmOpen(true)}
                 >
@@ -2237,6 +2247,16 @@ function LabelsTab({
         rooms={rooms}
         template={template}
         title="Print single label"
+      />
+
+      <LabelSheet
+        open={printSelectedOpen}
+        onClose={() => setPrintSelectedOpen(false)}
+        boxes={boxes.filter((b) => selected.has(b.id))}
+        items={items}
+        rooms={rooms}
+        template={template}
+        title={`Print ${selected.size} selected ${selected.size === 1 ? "label" : "labels"}`}
       />
 
       {confirmOpen && (

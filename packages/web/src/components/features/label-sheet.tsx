@@ -2,9 +2,32 @@ import { useEffect, useRef, useState } from "react";
 import { Printer, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import type { MoveBox, MoveItem, MoveRoom, MoveLabelTemplate } from "@hcc/shared";
+import type {
+  MoveBox,
+  MoveItem,
+  MoveRoom,
+  MoveLabelTemplate,
+  MoveItemDisposition,
+} from "@hcc/shared";
+import { MOVE_ITEM_DISPOSITION_LABELS } from "@hcc/shared";
 import { code128Svg } from "@/lib/code128";
 import { qrSvg } from "@/lib/qrcode";
+
+/** Summarise the dispositions of a box's contents into a short label
+ *  string for printing (e.g. "Keep" or "Sell, Dump"). "unassessed"
+ *  items are skipped since they carry no actionable disposition.
+ *  Returns "" when nothing meaningful is set. */
+function dispositionSummary(contents: MoveItem[]): string {
+  const seen: string[] = [];
+  for (const c of contents) {
+    if (c.disposition && c.disposition !== "unassessed" && !seen.includes(c.disposition)) {
+      seen.push(c.disposition);
+    }
+  }
+  return seen
+    .map((d) => MOVE_ITEM_DISPOSITION_LABELS[d as MoveItemDisposition] ?? d)
+    .join(", ");
+}
 
 /**
  * Printable label sheet for boxes. Renders a grid of labels and gives
@@ -87,6 +110,7 @@ interface TemplateSpec {
   renderCell(args: {
     box: MoveBox;
     barcodeSvg: string;
+    source: string;
     destination: string;
     contents: MoveItem[];
   }): React.ReactNode;
@@ -155,9 +179,12 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
         justify-content: space-between;
       }
       .label h2 { font-size: 18pt; margin: 0 0 2mm; font-weight: 800; }
-      .label .sub { font-size: 10pt; color: #475569; margin-bottom: 2mm; }
+      .label .route { margin-bottom: 2mm; }
+      .label .sub { font-size: 10pt; color: #475569; margin-bottom: 0.5mm; }
+      .label .sub .route-label { font-weight: 700; color: #1e293b; }
       .label .tags { font-size: 9pt; color: #334155; margin-bottom: 2mm; display: flex; gap: 4mm; flex-wrap: wrap; }
       .label .tag { border: 0.75pt solid #cbd5e1; border-radius: 999pt; padding: 1pt 6pt; }
+      .label .tag.disposition { border-color: #059669; color: #047857; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3pt; }
       .label .tag.fragile { border-color: #dc2626; color: #dc2626; }
       .label .tag.priority-first_night { border-color: #d97706; color: #d97706; }
       .label .tag.priority-high { border-color: #2563eb; color: #2563eb; }
@@ -169,13 +196,28 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
       .label .barcode-wrap.qr svg { width: 28mm; height: 28mm; }
       .label .code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 10pt; letter-spacing: 0.5pt; text-align: center; margin-top: 1mm; }
     `,
-    renderCell({ box, barcodeSvg, destination, contents }) {
+    renderCell({ box, barcodeSvg, source, destination, contents }) {
       const sym = box.code_type === "code128" ? "code128" : "qr";
+      const dispositions = dispositionSummary(contents);
       return (
         <>
           <h2>{box.label}</h2>
-          {destination && <div className="sub">→ {destination}</div>}
+          {(source || destination) && (
+            <div className="route">
+              {source && (
+                <div className="sub">
+                  <span className="route-label">From:</span> {source}
+                </div>
+              )}
+              {destination && (
+                <div className="sub">
+                  <span className="route-label">To:</span> {destination}
+                </div>
+              )}
+            </div>
+          )}
           <div className="tags">
+            {dispositions && <span className="tag disposition">{dispositions}</span>}
             {box.priority && box.priority !== "normal" && (
               <span className={`tag priority-${box.priority}`}>
                 {box.priority === "first_night" ? "First night" : box.priority}
@@ -282,7 +324,7 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
       /* Barcode stretches to the full content width and a fixed height —
          preserveAspectRatio=none on the SVG side makes this exact. */
       .label .barcode { width: 100%; }
-      .label .barcode svg { display: block; width: 100%; height: 14mm; }
+      .label .barcode svg { display: block; width: 100%; height: 12mm; }
       .label .caption {
         font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
         font-size: 8pt;
@@ -292,9 +334,22 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
         text-overflow: ellipsis;
         white-space: nowrap;
       }
+      .label .route {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 6.5pt;
+        line-height: 1.1;
+        text-align: center;
+        color: #475569;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
     `,
-    renderCell({ box, barcodeSvg, destination }) {
-      const caption = destination ? `${box.label} → ${destination}` : box.label;
+    renderCell({ box, barcodeSvg, source, destination, contents }) {
+      const dispositions = dispositionSummary(contents);
+      const caption = dispositions ? `${box.label} · ${dispositions}` : box.label;
+      const route =
+        source || destination ? `${source || "?"} → ${destination || "?"}` : "";
       return (
         <>
           <div
@@ -303,6 +358,7 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
             dangerouslySetInnerHTML={{ __html: barcodeSvg }}
           />
           <div className="caption">{caption}</div>
+          {route && <div className="route">{route}</div>}
         </>
       );
     },
@@ -955,6 +1011,7 @@ export function LabelSheet({
           >
             {expanded.map(({ box, copyIndex }) => {
               const contents = itemsByBox.get(box.id) ?? [];
+              const src = roomName(box.source_room_id);
               const dest = roomName(box.destination_room_id);
               const barcodeSvg = barcodeSvgFor(box, template);
               return (
@@ -971,7 +1028,7 @@ export function LabelSheet({
                     margin: `-${margin.top}mm -${margin.right}mm -${margin.bottom}mm -${margin.left}mm`,
                   }}
                 >
-                  {spec.renderCell({ box, barcodeSvg, destination: dest, contents })}
+                  {spec.renderCell({ box, barcodeSvg, source: src, destination: dest, contents })}
                 </div>
               );
             })}

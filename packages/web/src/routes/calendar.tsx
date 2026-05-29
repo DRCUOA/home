@@ -959,8 +959,8 @@ function DayCell({
         "flex flex-col items-stretch gap-1 border-b border-r border-slate-100 dark:border-slate-800 p-1 text-left transition-colors cursor-pointer bg-white dark:bg-slate-900",
         inRange
           ? "bg-slate-200/80 dark:bg-slate-700/60 ring-1 ring-primary-400 dark:ring-primary-600"
-          : entries.length > 0 && (scale === "months" || scale === "years")
-          ? "bg-primary-50/60 dark:bg-primary-900/20 hover:bg-primary-100/70"
+          : entries.length > 0
+          ? "bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
           : "hover:bg-slate-50 dark:hover:bg-slate-800/50"
       )}
     >

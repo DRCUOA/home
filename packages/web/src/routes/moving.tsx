@@ -2348,6 +2348,40 @@ function AllLabelsTab({
 }) {
   const qc = useQueryClient();
   const [activeBoxId, setActiveBoxId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [printOpen, setPrintOpen] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  // Reuse the template chosen in the Print labels tab so output is
+  // consistent with whatever stock the user prints on.
+  const template = useMemo<MoveLabelTemplate>(() => {
+    if (typeof window === "undefined") return "a4-8up";
+    const saved = window.localStorage.getItem(LABEL_TEMPLATE_KEY);
+    return (MOVE_LABEL_TEMPLATES as readonly string[]).includes(saved ?? "")
+      ? (saved as MoveLabelTemplate)
+      : "a4-8up";
+  }, []);
+
+  // Drop selected ids that no longer exist after a delete/refetch.
+  useEffect(() => {
+    setSelected((prev) => {
+      const live = new Set(boxes.map((b) => b.id));
+      const next = new Set<string>();
+      let changed = false;
+      for (const id of prev) {
+        if (live.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [boxes]);
+
+  const toggleSelect = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const roomName = useMemo(() => {
     const map = new Map<string, string>();
@@ -2418,10 +2452,36 @@ function AllLabelsTab({
     },
   });
 
+  // Delete the selected boxes. Items inside are kept — the FK is
+  // ON DELETE SET NULL — so they return to the unassigned pool.
+  const bulkDelete = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const res = await fetch(`/api/v1/moves/${moveId}/boxes/bulk-delete`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) throw new Error(`Bulk delete failed (${res.status})`);
+      return res.json() as Promise<{ deleted: number; ids: string[] }>;
+    },
+    onSuccess: () => {
+      setSelected(new Set());
+      setConfirmDeleteOpen(false);
+      qc.invalidateQueries({ queryKey: ["move-boxes", moveId] });
+      qc.invalidateQueries({ queryKey: ["move-items", moveId] });
+    },
+  });
+
   const getRoomName = (id?: string | null) =>
     id ? roomName.get(id) ?? "" : "";
 
   const activeBox = boxes.find((b) => b.id === activeBoxId) ?? null;
+  const selectedBoxes = boxes.filter((b) => selected.has(b.id));
+  const selectedItemCount = selectedBoxes.reduce(
+    (sum, b) => sum + (contentsByBox.get(b.id)?.length ?? 0),
+    0,
+  );
 
   if (boxes.length === 0) {
     return (
@@ -2438,6 +2498,39 @@ function AllLabelsTab({
 
   return (
     <>
+      {selected.size >= 2 && (
+        <div className="sticky top-2 z-10 mb-2 flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-900/95 backdrop-blur px-3 py-2 shadow-sm">
+          <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+            {selected.size} selected
+          </span>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="ml-auto"
+            onClick={() => setPrintOpen(true)}
+          >
+            <Printer className="h-4 w-4" />
+            Print {selected.size}
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            disabled={bulkDelete.isPending}
+            onClick={() => setConfirmDeleteOpen(true)}
+          >
+            <Trash2 className="h-4 w-4" />
+            Delete {selected.size}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setSelected(new Set())}
+          >
+            Clear
+          </Button>
+        </div>
+      )}
+
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {boxes.map((box) => {
           const contents = contentsByBox.get(box.id) ?? [];
@@ -2469,11 +2562,21 @@ function AllLabelsTab({
             >
               <CardHeader>
                 <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <CardTitle className="text-sm truncate">{box.label}</CardTitle>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">
-                      {box.barcode}
-                    </p>
+                  <div className="flex items-start gap-2 min-w-0">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 mt-0.5 accent-primary-500 flex-shrink-0 cursor-pointer"
+                      checked={selected.has(box.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => toggleSelect(box.id)}
+                      aria-label={`Select ${box.label}`}
+                    />
+                    <div className="min-w-0">
+                      <CardTitle className="text-sm truncate">{box.label}</CardTitle>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">
+                        {box.barcode}
+                      </p>
+                    </div>
                   </div>
                   <StatusBadge status={box.status} />
                 </div>
@@ -2547,6 +2650,65 @@ function AllLabelsTab({
           onRemove={(id) => assign.mutate({ ids: [id], boxId: null })}
           onClose={() => setActiveBoxId(null)}
         />
+      )}
+
+      <LabelSheet
+        open={printOpen}
+        onClose={() => setPrintOpen(false)}
+        boxes={selectedBoxes}
+        items={items}
+        rooms={rooms}
+        template={template}
+        title={`Print ${selectedBoxes.length} selected ${selectedBoxes.length === 1 ? "label" : "labels"}`}
+      />
+
+      {confirmDeleteOpen && (
+        <Modal
+          open
+          onClose={() => !bulkDelete.isPending && setConfirmDeleteOpen(false)}
+          title={`Delete ${selected.size} ${selected.size === 1 ? "label" : "labels"}?`}
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-slate-700 dark:text-slate-300">
+              This permanently removes {selected.size}{" "}
+              {selected.size === 1 ? "box" : "boxes"} from this move.
+              {selectedItemCount > 0 && (
+                <>
+                  {" "}
+                  <span className="font-medium">
+                    {selectedItemCount}{" "}
+                    {selectedItemCount === 1 ? "item" : "items"}
+                  </span>{" "}
+                  will be unassigned but kept.
+                </>
+              )}
+            </p>
+            {bulkDelete.isError && (
+              <p className="text-xs text-red-600 dark:text-red-400">
+                Couldn't delete. Try again, or refresh and re-select.
+              </p>
+            )}
+            <div className="flex gap-2 pt-1">
+              <Button
+                variant="secondary"
+                className="flex-1 min-h-11"
+                onClick={() => setConfirmDeleteOpen(false)}
+                disabled={bulkDelete.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                className="flex-1 min-h-11"
+                onClick={() => bulkDelete.mutate([...selected])}
+                disabled={bulkDelete.isPending}
+              >
+                <Trash2 className="h-4 w-4" />
+                {bulkDelete.isPending ? "Deleting…" : `Delete ${selected.size}`}
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
     </>
   );

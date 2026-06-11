@@ -14,21 +14,21 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 
 /**
- * Bottom sheet shown in /scan "Assign" mode. A scanned barcode opens
- * this over the paused camera. It resolves to one of three states:
+ * Bottom sheet shown in /scan "Assign" mode and from the universal
+ * ScanActionSheet. A scanned barcode opens this over the paused camera.
  *
- *   - the code is a known box   → editable box metadata table
- *   - the code is a known item  → editable item metadata table
- *   - the code is unknown       → a chooser: bind it to a new/existing
- *                                 box or item
+ * A single barcode can represent either a **box** or an **item**, so the
+ * sheet leads with a Box | Item toggle. Whichever side is active edits
+ * the matching record for the code (or creates a new one). The table is
+ * location-first and every control is a 48px touch target sized for a
+ * phone or iPad held while packing.
  *
- * The table is location-first (destination / source / which-box rows
- * sit at the top, within thumb reach) and every control is a full-width
- * 48px touch target sized for a phone or iPad held while packing.
+ * For an **item**, its container is itself a barcode — the box it gets
+ * packed in — so the "packed in" field is a barcode input that resolves
+ * live to a box (with a picker fallback), not a label dropdown.
  *
- * No new API surface: assign = PATCH the barcode onto an existing
- * record or POST a new one carrying it; "Unassign" clears an item's
- * code so the physical label can be moved elsewhere.
+ * No new API surface: assign = PATCH the barcode onto an existing record
+ * or POST a new one carrying it; "Unassign" clears an item's code.
  */
 
 const prettify = (s: string) =>
@@ -42,7 +42,8 @@ const itemCategoryOptions = MOVE_ITEM_CATEGORIES.map((s) => ({ value: s, label: 
 interface AssignSheetProps {
   move: Move;
   code: string;
-  /** Resolved target when the scanned code is already known. */
+  /** Resolved target when the scanned code is already known — used only
+   *  to pick the initial Box/Item tab. */
   initialBox: MoveBox | null;
   initialItem: MoveItem | null;
   boxes: MoveBox[];
@@ -54,17 +55,14 @@ interface AssignSheetProps {
   onSaved: (summary: string) => void;
 }
 
-type Stage =
-  | { kind: "choose" }
-  | { kind: "box"; boxId: string | null }
-  | { kind: "item"; itemId: string | null };
+type Kind = "box" | "item";
 
 /** One row of the metadata table: a fixed-width label and a full-width
  *  control, stacked tight so the whole table fits a small screen. */
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-3 py-1.5">
-      <span className="w-24 flex-shrink-0 text-sm font-medium text-foreground-secondary">
+    <div className="flex items-start gap-3 py-1.5">
+      <span className="w-24 flex-shrink-0 pt-2.5 text-sm font-medium text-foreground-secondary">
         {label}
       </span>
       <div className="flex-1 min-w-0">{children}</div>
@@ -92,12 +90,8 @@ export function AssignSheet({
   onClose,
   onSaved,
 }: AssignSheetProps) {
-  const [stage, setStage] = useState<Stage>(() =>
-    initialBox
-      ? { kind: "box", boxId: initialBox.id }
-      : initialItem
-        ? { kind: "item", itemId: initialItem.id }
-        : { kind: "choose" }
+  const [kind, setKind] = useState<Kind>(
+    initialItem && !initialBox ? "item" : "box"
   );
 
   const destRooms = useMemo(
@@ -108,6 +102,25 @@ export function AssignSheet({
     () => rooms.filter((r) => r.side === "origin"),
     [rooms]
   );
+
+  // The record (if any) the scanned code already maps to, per kind.
+  const box = useMemo(
+    () => boxes.find((b) => b.barcode === code) ?? null,
+    [boxes, code]
+  );
+  const item = useMemo(
+    () => items.find((i) => i.barcode === code) ?? null,
+    [items, code]
+  );
+
+  const subtitle =
+    kind === "box"
+      ? box
+        ? "Editing this box"
+        : "New box for this barcode"
+      : item
+        ? "Editing this object"
+        : "New object for this barcode";
 
   return (
     <div className="fixed inset-0 z-[10000] flex flex-col justify-end">
@@ -139,35 +152,55 @@ export function AssignSheet({
           </button>
         </div>
 
-        {stage.kind === "choose" && (
-          <Chooser
-            boxes={boxes}
-            items={items}
-            onPickNewBox={() => setStage({ kind: "box", boxId: null })}
-            onPickNewItem={() => setStage({ kind: "item", itemId: null })}
-            onPickBox={(id) => setStage({ kind: "box", boxId: id })}
-            onPickItem={(id) => setStage({ kind: "item", itemId: id })}
-          />
-        )}
+        {/* Box | Item toggle — declares what this barcode represents */}
+        <div className="px-4 pt-3">
+          <div className="flex gap-1 p-1 rounded-xl bg-muted" role="tablist">
+            {(["box", "item"] as const).map((k) => {
+              const active = kind === k;
+              const Icon = k === "box" ? BoxIcon : Package;
+              const exists = k === "box" ? !!box : !!item;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setKind(k)}
+                  className={
+                    "flex-1 min-h-11 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 transition-colors " +
+                    (active
+                      ? "bg-card shadow text-foreground"
+                      : "text-foreground-secondary active:bg-muted-strong")
+                  }
+                >
+                  <Icon className="h-4 w-4" />
+                  {k === "box" ? "Box" : "Item"}
+                  {exists && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-1.5 text-xs text-foreground-secondary">{subtitle}</p>
+        </div>
 
-        {stage.kind === "box" && (
+        {kind === "box" ? (
           <BoxForm
-            key={stage.boxId ?? "new"}
+            key={`box-${box?.id ?? "new"}`}
             move={move}
             code={code}
-            box={boxes.find((b) => b.id === stage.boxId) ?? null}
+            box={box}
             destRooms={destRooms}
             originRooms={originRooms}
             onSaved={onSaved}
           />
-        )}
-
-        {stage.kind === "item" && (
+        ) : (
           <ItemForm
-            key={stage.itemId ?? "new"}
+            key={`item-${item?.id ?? "new"}`}
             move={move}
             code={code}
-            item={items.find((i) => i.id === stage.itemId) ?? null}
+            item={item}
             boxes={boxes}
             destRooms={destRooms}
             originRooms={originRooms}
@@ -179,74 +212,12 @@ export function AssignSheet({
   );
 }
 
-/* ----------------------------- Chooser ----------------------------- */
-
-function Chooser({
-  boxes,
-  items,
-  onPickNewBox,
-  onPickNewItem,
-  onPickBox,
-  onPickItem,
-}: {
-  boxes: MoveBox[];
-  items: MoveItem[];
-  onPickNewBox: () => void;
-  onPickNewItem: () => void;
-  onPickBox: (id: string) => void;
-  onPickItem: (id: string) => void;
-}) {
-  return (
-    <div className="p-4 space-y-4 overflow-y-auto">
-      <p className="text-sm text-foreground-secondary">
-        This barcode isn't assigned yet. Bind it to a box or an object.
-      </p>
-      <div className="grid grid-cols-2 gap-3">
-        <Button
-          type="button"
-          variant="secondary"
-          className="flex-col h-24 gap-1"
-          onClick={onPickNewBox}
-        >
-          <BoxIcon className="h-6 w-6" />
-          New box
-        </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          className="flex-col h-24 gap-1"
-          onClick={onPickNewItem}
-        >
-          <Package className="h-6 w-6" />
-          New object
-        </Button>
-      </div>
-
-      <Select
-        label="…or attach to an existing box"
-        placeholder="Select a box"
-        value=""
-        onChange={(e) => e.target.value && onPickBox(e.target.value)}
-        options={boxes.map((b) => ({
-          value: b.id,
-          label: `${b.label} · ${b.barcode}`,
-        }))}
-      />
-      <Select
-        label="…or attach to an existing object"
-        placeholder="Select an object"
-        value=""
-        onChange={(e) => e.target.value && onPickItem(e.target.value)}
-        options={items.map((i) => ({ value: i.id, label: i.name }))}
-      />
-    </div>
-  );
-}
-
-/* ----------------------------- Box form ----------------------------- */
+/* ----------------------------- helpers ------------------------------ */
 
 const roomOptions = (rooms: MoveRoom[]) =>
   rooms.map((r) => ({ value: r.id, label: r.name }));
+
+/* ----------------------------- Box form ----------------------------- */
 
 function BoxForm({
   move,
@@ -295,8 +266,6 @@ function BoxForm({
 
   return (
     <FormShell
-      title={isNew ? "New box" : "Box"}
-      icon={<BoxIcon className="h-4 w-4" />}
       onSave={() => save.mutate()}
       canSave={canSave}
       saving={save.isPending}
@@ -369,7 +338,10 @@ function ItemForm({
 }) {
   const isNew = !item;
   const [name, setName] = useState(item?.name ?? "");
-  const [boxId, setBoxId] = useState(item?.box_id ?? "");
+  // The container is itself a barcode: the box the item gets packed in.
+  const [boxBarcode, setBoxBarcode] = useState(
+    item?.box_id ? (boxes.find((b) => b.id === item.box_id)?.barcode ?? "") : ""
+  );
   const [destination, setDestination] = useState(item?.destination_room_id ?? "");
   const [origin, setOrigin] = useState(item?.origin_room_id ?? "");
   const [status, setStatus] = useState(item?.status ?? "surveyed");
@@ -380,6 +352,13 @@ function ItemForm({
   );
   const [fragile, setFragile] = useState(item?.fragile ?? false);
 
+  const trimmedBox = boxBarcode.trim();
+  const resolvedBox = useMemo(
+    () => (trimmedBox ? boxes.find((b) => b.barcode === trimmedBox) ?? null : null),
+    [boxes, trimmedBox]
+  );
+  const boxNotFound = trimmedBox.length > 0 && !resolvedBox;
+
   const save = useMutation({
     mutationFn: () => {
       const qty = parseInt(quantity, 10);
@@ -387,7 +366,7 @@ function ItemForm({
       const payload = {
         barcode: code,
         name: name.trim(),
-        box_id: boxId || undefined,
+        box_id: resolvedBox?.id || undefined,
         destination_room_id: destination || undefined,
         origin_room_id: origin || undefined,
         status,
@@ -408,12 +387,10 @@ function ItemForm({
     onSuccess: () => onSaved(`Freed code from: ${item!.name}`),
   });
 
-  const canSave = name.trim().length > 0 && !save.isPending;
+  const canSave = name.trim().length > 0 && !boxNotFound && !save.isPending;
 
   return (
     <FormShell
-      title={isNew ? "New object" : "Object"}
-      icon={<Package className="h-4 w-4" />}
       onSave={() => save.mutate()}
       canSave={canSave}
       saving={save.isPending}
@@ -429,16 +406,44 @@ function ItemForm({
           : undefined
       }
     >
-      <Divider label="Location" />
-      <Row label="In box">
+      <Divider label="Packed in box" />
+      <Row label="Box barcode">
+        <div className="space-y-1">
+          <Input
+            value={boxBarcode}
+            onChange={(e) => setBoxBarcode(e.target.value)}
+            placeholder="Scan or type the box's barcode"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            className={boxNotFound ? "border-amber-500" : undefined}
+          />
+          {trimmedBox.length > 0 &&
+            (resolvedBox ? (
+              <p className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                <BoxIcon className="h-3 w-3" /> {resolvedBox.label}
+              </p>
+            ) : (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                No box with that barcode in this move yet.
+              </p>
+            ))}
+        </div>
+      </Row>
+      <Row label="or pick box">
         <Select
-          placeholder="Loose / no box"
-          value={boxId}
-          onChange={(e) => setBoxId(e.target.value)}
-          options={boxes.map((b) => ({ value: b.id, label: b.label }))}
+          placeholder="Choose from list"
+          value={resolvedBox?.id ?? ""}
+          onChange={(e) => {
+            const b = boxes.find((x) => x.id === e.target.value);
+            setBoxBarcode(b?.barcode ?? "");
+          }}
+          options={boxes.map((b) => ({ value: b.id, label: `${b.label} · ${b.barcode}` }))}
         />
       </Row>
-      <Row label="Destination">
+
+      <Divider label="Destination" />
+      <Row label="Room">
         <Select
           placeholder="Unassigned"
           value={destination}
@@ -503,8 +508,6 @@ function ItemForm({
 /* ----------------------------- shared ------------------------------- */
 
 function FormShell({
-  title,
-  icon,
   children,
   onSave,
   canSave,
@@ -512,8 +515,6 @@ function FormShell({
   error,
   secondary,
 }: {
-  title: string;
-  icon: React.ReactNode;
   children: React.ReactNode;
   onSave: () => void;
   canSave: boolean;
@@ -528,14 +529,8 @@ function FormShell({
 }) {
   return (
     <>
-      <div className="flex items-center gap-2 px-4 pt-3 text-sm font-semibold">
-        {icon}
-        {title}
-      </div>
       <div className="px-4 py-2 overflow-y-auto flex-1">{children}</div>
-      {error && (
-        <p className="px-4 pb-1 text-sm text-destructive">{error}</p>
-      )}
+      {error && <p className="px-4 pb-1 text-sm text-destructive">{error}</p>}
       <div className="flex gap-2 px-4 py-3 border-t border-border pb-[max(env(safe-area-inset-bottom),0.75rem)]">
         {secondary && (
           <Button

@@ -14,16 +14,19 @@ import {
   MapPin,
   Search,
   ScanLine,
+  Tag,
 } from "lucide-react";
 import type {
   Move,
   MoveBox,
   MoveItem,
+  MoveRoom,
   MoveScanAction,
 } from "@hcc/shared";
 import { apiGet, apiPost } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AssignSheet } from "@/components/features/assign-sheet";
 import {
   useBarcodeCamera,
   playScanBeep,
@@ -49,9 +52,14 @@ import {
 
 type ListResponse<T> = { data: T[]; total: number };
 
-type SearchParams = { move?: string; action?: MoveScanAction };
+/** The "assign" chip is local-only — it opens the metadata sheet rather
+ *  than recording a scan event, so it lives outside MoveScanAction. */
+type LocalAction = MoveScanAction | "assign";
 
-const VALID_ACTIONS: MoveScanAction[] = [
+type SearchParams = { move?: string; action?: LocalAction };
+
+const VALID_ACTIONS: LocalAction[] = [
+  "assign",
   "pack",
   "load",
   "transit",
@@ -67,18 +75,19 @@ export const Route = createFileRoute("/scan")({
     action:
       typeof raw.action === "string" &&
       (VALID_ACTIONS as string[]).includes(raw.action)
-        ? (raw.action as MoveScanAction)
+        ? (raw.action as LocalAction)
         : undefined,
   }),
 });
 
 const ACTIONS: {
-  id: MoveScanAction;
+  id: LocalAction;
   label: string;
   short: string;
   verb: string;
   icon: typeof Package;
 }[] = [
+  { id: "assign", label: "Assign / re-assign", short: "Assign", verb: "Assigned", icon: Tag },
   { id: "pack", label: "Pack", short: "Pack", verb: "Packed", icon: Package },
   { id: "load", label: "Load on truck", short: "Load", verb: "Loaded", icon: Truck },
   { id: "transit", label: "In transit", short: "Transit", verb: "In transit", icon: Navigation },
@@ -119,7 +128,7 @@ function ScanPage() {
     [moves, moveId]
   );
 
-  const [action, setAction] = useState<MoveScanAction>(search.action ?? "pack");
+  const [action, setAction] = useState<LocalAction>(search.action ?? "assign");
 
   const { data: boxesResp } = useQuery({
     queryKey: ["move-boxes", moveId],
@@ -136,6 +145,13 @@ function ScanPage() {
     enabled: !!moveId,
   });
   const items = itemsResp?.data ?? [];
+
+  const { data: roomsResp } = useQuery({
+    queryKey: ["move-rooms", moveId],
+    queryFn: () => apiGet<ListResponse<MoveRoom>>(`/moves/${moveId}/rooms`),
+    enabled: !!moveId,
+  });
+  const rooms = roomsResp?.data ?? [];
 
   const boxByBarcode = useMemo(() => {
     const m = new Map<string, MoveBox>();
@@ -162,6 +178,13 @@ function ScanPage() {
   const [manualMode, setManualMode] = useState(false);
   const [manualValue, setManualValue] = useState("");
 
+  // Assign-mode metadata sheet target. Non-null while the sheet is open.
+  const [assignState, setAssignState] = useState<{
+    code: string;
+    box: MoveBox | null;
+    item: MoveItem | null;
+  } | null>(null);
+
   // Keep latest action/move/maps in a ref so the camera scan callback,
   // which is recreated infrequently, always sees current state.
   const ctxRef = useRef({
@@ -169,12 +192,22 @@ function ScanPage() {
     moveId,
     boxByBarcode,
     itemByBarcode,
+    assignOpen: false,
   });
-  ctxRef.current = { action, moveId, boxByBarcode, itemByBarcode };
+  ctxRef.current = {
+    action,
+    moveId,
+    boxByBarcode,
+    itemByBarcode,
+    assignOpen: assignState !== null,
+  };
 
   const handleScan = (code: string) => {
-    const { action: a, moveId: mid, boxByBarcode: bx, itemByBarcode: it } = ctxRef.current;
+    const { action: a, moveId: mid, boxByBarcode: bx, itemByBarcode: it, assignOpen } = ctxRef.current;
     if (!mid) return;
+    // Ignore camera detections while the assign sheet is open so a code
+    // drifting into frame doesn't hijack the form mid-edit.
+    if (assignOpen) return;
 
     const box = bx.get(code);
     const item = !box ? it.get(code) : null;
@@ -182,6 +215,13 @@ function ScanPage() {
 
     playScanBeep();
     vibrateScan();
+
+    // Assign / re-assign: open the metadata sheet instead of recording a
+    // lifecycle scan event. Unknown codes land on the chooser.
+    if (a === "assign") {
+      setAssignState({ code, box: box ?? null, item: item ?? null });
+      return;
+    }
 
     if (!box && !item) {
       const entry: SessionScan = {
@@ -247,6 +287,29 @@ function ScanPage() {
 
   const close = () => {
     navigate({ to: "/moving" });
+  };
+
+  const handleAssignSaved = (summary: string) => {
+    playScanBeep();
+    vibrateScan();
+    if (moveId) {
+      qc.invalidateQueries({ queryKey: ["move-boxes", moveId] });
+      qc.invalidateQueries({ queryKey: ["move-items", moveId] });
+      qc.invalidateQueries({ queryKey: ["move-scan-events", moveId] });
+    }
+    setSession((s) =>
+      [
+        {
+          key: `assign-${Date.now()}`,
+          code: assignState?.code ?? "",
+          state: "ok" as const,
+          summary,
+          at: Date.now(),
+        },
+        ...s,
+      ].slice(0, 5)
+    );
+    setAssignState(null);
   };
 
   // Esc closes the scan view — handy when paired with a Bluetooth keyboard.
@@ -488,6 +551,21 @@ function ScanPage() {
           })}
         </div>
       </div>
+
+      {/* ============ Assign / re-assign metadata sheet ============ */}
+      {assignState && move && (
+        <AssignSheet
+          move={move}
+          code={assignState.code}
+          initialBox={assignState.box}
+          initialItem={assignState.item}
+          boxes={boxes}
+          items={items}
+          rooms={rooms}
+          onClose={() => setAssignState(null)}
+          onSaved={handleAssignSaved}
+        />
+      )}
     </div>
   );
 }

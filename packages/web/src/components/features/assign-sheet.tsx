@@ -110,7 +110,7 @@ export function AssignSheet({
   );
 
   return (
-    <div className="absolute inset-0 z-10 flex flex-col justify-end">
+    <div className="fixed inset-0 z-[10000] flex flex-col justify-end">
       {/* backdrop — tap to dismiss */}
       <button
         type="button"

@@ -38,6 +38,8 @@ export interface DispatchCallbacks {
   onViewScanHistory?: (target: ResolvedTarget) => void;
   onAddNewBox?: (code: string) => void;
   onAddNewItem?: (code: string) => void;
+  /** Open the assign / re-assign metadata sheet for any target. */
+  onAssign?: (target: ResolvedTarget) => void;
   onPrintLabel?: (target: ResolvedTarget) => void;
   onAddPhoto?: (item: MoveItem) => void;
 }
@@ -140,6 +142,14 @@ export function useWorkflowDispatch(
       extras: DispatchExtras = {}
     ): Promise<void> => {
       const id: ActionId = action.id;
+
+      // ------- Assign / re-assign (any target kind) -------
+      // UI-only intent: hand off to the metadata sheet. Works for box,
+      // item, and unknown codes alike.
+      if (id === "assign_barcode") {
+        callbacks.onAssign?.(target);
+        return;
+      }
 
       // ------- Unknown-target actions -------
       if (target.kind === "unknown") {

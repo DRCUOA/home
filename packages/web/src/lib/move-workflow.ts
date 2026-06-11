@@ -57,6 +57,9 @@ export type ActionId =
   | "add_as_box"
   | "add_as_item"
   | "ignore_scan"
+  // Assign / re-assign a barcode to a box or object (opens the metadata
+  // sheet). Valid for every target kind.
+  | "assign_barcode"
   // Box lifecycle
   | "seal_box"
   | "stage_box"
@@ -159,7 +162,13 @@ export function getMovePhase(boxes: MoveBox[], items: MoveItem[]): WorkflowPhase
 
 function unknownActions(): WorkflowAction[] {
   return [
-    { id: "add_as_box", label: "Add as new box", primary: true },
+    {
+      id: "assign_barcode",
+      label: "Assign barcode",
+      description: "Bind this code to a box or object",
+      primary: true,
+    },
+    { id: "add_as_box", label: "Add as new box" },
     { id: "add_as_item", label: "Add as new item" },
     { id: "ignore_scan", label: "Ignore", description: "Log the scan only" },
   ];
@@ -338,8 +347,13 @@ export function getActions(
   ctx: WorkflowContext
 ): WorkflowAction[] {
   if (target.kind === "unknown") return unknownActions();
-  if (target.kind === "box") return boxActions(target.record, ctx);
-  return itemActions(target.record, ctx);
+  // Known box / item: keep the lifecycle actions, and always offer
+  // "Re-assign barcode" (opens the metadata sheet) as a secondary.
+  const base =
+    target.kind === "box"
+      ? boxActions(target.record, ctx)
+      : itemActions(target.record, ctx);
+  return [...base, { id: "assign_barcode", label: "Re-assign barcode / edit details" }];
 }
 
 export function getRecommendedAction(

@@ -79,6 +79,7 @@ import { BarcodeScanner } from "@/components/features/barcode-scanner";
 import { LabelSheet } from "@/components/features/label-sheet";
 import { CameraCapture } from "@/components/features/camera-capture";
 import { ScanActionSheet } from "@/components/features/scan-action-sheet";
+import { AssignSheet } from "@/components/features/assign-sheet";
 import {
   getMovePhase,
   getNextActionPrompts,
@@ -288,6 +289,9 @@ function MovingPage() {
   // then routes the resolved target through the generic ScanActionSheet.
   const [universalScannerOpen, setUniversalScannerOpen] = useState(false);
   const [scanTarget, setScanTarget] = useState<ResolvedTarget | null>(null);
+  // Assign / re-assign metadata sheet — opened from the ScanActionSheet's
+  // "Assign barcode" action for any resolved target.
+  const [assignTarget, setAssignTarget] = useState<ResolvedTarget | null>(null);
 
   // Shared cross-tab modal state (item/box edit, view-contents, "add
   // new" prefill from an unknown scan). Lifted here so any tab — or
@@ -360,6 +364,7 @@ function MovingPage() {
         setItemPrefillBarcode(code);
         setItemEditOpen(true);
       },
+      onAssign: (target) => setAssignTarget(target),
       onPrintLabel: () => {
         setTab("tools");
       },
@@ -611,6 +616,30 @@ function MovingPage() {
           }}
           onClose={() => setScanTarget(null)}
         />
+        {assignTarget && selectedMove && (
+          <AssignSheet
+            move={selectedMove}
+            code={
+              assignTarget.kind === "unknown"
+                ? assignTarget.code
+                : assignTarget.kind === "box"
+                  ? assignTarget.record.barcode
+                  : (assignTarget.record.barcode ?? "")
+            }
+            initialBox={assignTarget.kind === "box" ? assignTarget.record : null}
+            initialItem={assignTarget.kind === "item" ? assignTarget.record : null}
+            boxes={boxes}
+            items={items}
+            rooms={rooms}
+            onClose={() => setAssignTarget(null)}
+            onSaved={() => {
+              qc.invalidateQueries({ queryKey: ["move-boxes", selectedMoveId] });
+              qc.invalidateQueries({ queryKey: ["move-items", selectedMoveId] });
+              qc.invalidateQueries({ queryKey: ["move-scan-events", selectedMoveId] });
+              setAssignTarget(null);
+            }}
+          />
+        )}
 
         {/* Shared edit modals — lifted to MovingPage so any tab + the
             universal scan flow can open them. */}

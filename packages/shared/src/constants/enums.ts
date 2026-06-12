@@ -449,10 +449,11 @@ export type MoveScanTargetKind = (typeof MOVE_SCAN_TARGET_KINDS)[number];
  *  values map to physical Avery / Pelltech sheets; the renderer adapts
  *  layout (cells per page, cell size, content density) per template.
  *
- *  - a4-8up: large 99×67mm labels (Avery L7165 / J8165) — full content
- *    incl. contents list. The current/default layout.
- *  - lc30:   compact 64×25mm labels (LC30 inkjet) — QR + box name +
- *    barcode text only; no contents list (no room).
+ *  - a4-8up: large 105×74.3mm labels (Printec LC8 / A0081 / Avery 3427),
+ *    full-bleed 2×4 — full content incl. contents list. Default layout.
+ *  - lc30:   compact 70×29.7mm labels (Printec LC30 / A0300 / Avery 3489),
+ *    full-bleed 3×10 — Code 128 + box name + destination only; no
+ *    contents list (no room).
  */
 export const MOVE_LABEL_TEMPLATES = ["a4-8up", "lc30"] as const;
 export type MoveLabelTemplate = (typeof MOVE_LABEL_TEMPLATES)[number];

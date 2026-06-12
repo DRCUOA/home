@@ -123,30 +123,35 @@ const A4_H_MM = 297;
 const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
   "a4-8up": {
     perPage: 8,
-    label: "A4 — 8 labels (99×67mm)",
-    description: "Avery L7165 / J8165",
+    label: "LC8 — 8 labels (105×74.3mm)",
+    description: "Printec A0081 / Avery 3427",
     previewCols: 2,
     symbology: (box) => (box.code_type === "code128" ? "code128" : "qr"),
     previewCellClass:
       "label rounded border-2 border-dashed border-slate-400 bg-white p-3 text-slate-900",
-    defaultPadding: { top: 6, right: 6, bottom: 6, left: 6 },
+    /* LC8 is full-bleed (no page margin), so the printer's own
+     * unprintable border (~3-5mm on most inkjet/laser) would clip
+     * content placed too near the die-cut. Keep a generous default
+     * padding so the barcode/text stays well inside the safe area. */
+    defaultPadding: { top: 8, right: 8, bottom: 8, left: 8 },
     defaultMargin: { top: 0, right: 0, bottom: 0, left: 0 },
     computeCells() {
-      /* Page margins are hardcoded at 10mm uniform; the cells line up
-       * with the Avery die-cuts inside that. */
-      const pageMargin = 10;
+      /* LC8 / Avery 3427 is full-bleed: 2 cols × 4 rows of 105×74.3mm
+       * labels that tile the entire A4 sheet — no page margin and no
+       * inter-cell gaps (2×105 = 210mm width, 4×74.25 ≈ 297mm height).
+       * We use 74.25mm (= 297/4) for the row pitch so 4 rows land on
+       * exactly 297mm and never spill onto a blank second page; the
+       * 0.05mm vs the published 74.3 is well within die tolerance. */
       const cols = 2;
       const rows = 4;
-      const colGap = 6;
-      const rowGap = 6;
-      const cellW = (A4_W_MM - pageMargin * 2 - colGap * (cols - 1)) / cols;
-      const cellH = 60;
+      const cellW = 105;
+      const cellH = 74.25;
       const cells: CellRect[] = [];
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           cells.push({
-            xMm: pageMargin + c * (cellW + colGap),
-            yMm: pageMargin + r * (cellH + rowGap),
+            xMm: c * cellW,
+            yMm: r * cellH,
             wMm: cellW,
             hMm: cellH,
           });
@@ -155,15 +160,16 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
       return cells;
     },
     pageCss: (p, m) => `
-      @page { size: A4; margin: 10mm; }
-      .sheet { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6mm; padding: 0; }
+      @page { size: A4; margin: 0; }
+      .sheet { display: grid; grid-template-columns: repeat(2, 105mm); grid-auto-rows: 74.25mm; gap: 0; padding: 0; }
       .label {
-        /* Margin EXPANDS the painted cell beyond its grid slot — the
-           grid placement stays where it's computed, but the cell
+        /* Margin EXPANDS the painted cell beyond its 105×74.25mm slot —
+           the grid placement stays where it's computed, but the cell
            overflows outward by ${m.top}/${m.right}/${m.bottom}/${m.left}mm.
-           Use this to compensate for printer drift where the real
-           die-cut sits a mm or two outside the computed grid. */
-        width: calc(100% + ${m.left + m.right}mm);
+           Use this only to compensate for residual printer drift where
+           the real die-cut sits a fraction of a mm outside the grid. */
+        width: calc(105mm + ${m.left + m.right}mm);
+        height: calc(74.25mm + ${m.top + m.bottom}mm);
         margin-top: -${m.top}mm;
         margin-right: -${m.right}mm;
         margin-bottom: -${m.bottom}mm;
@@ -173,7 +179,7 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
         padding: ${p.top}mm ${p.right}mm ${p.bottom}mm ${p.left}mm;
         page-break-inside: avoid;
         break-inside: avoid;
-        min-height: calc(60mm + ${m.top + m.bottom}mm);
+        overflow: hidden;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
@@ -248,7 +254,7 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
     },
   },
 
-  /* LC30 — 30-up 64×25mm small-label layout.
+  /* LC30 — 30-up 70×29.7mm small-label layout.
    *
    * Spec from the user: just the Code 128 barcode (full width) with a
    * single mono caption "Box N → Room" underneath. No QR, no fragile
@@ -256,30 +262,28 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
    * room with the minimum ink that reliably scans. */
   lc30: {
     perPage: 30,
-    label: "LC30 — 30 labels (64×25mm)",
-    description: "LC30 inkjet, 3 cols × 10 rows, Code 128 only",
+    label: "LC30 — 30 labels (70×29.7mm)",
+    description: "Printec A0300 / Avery 3489, 3 cols × 10 rows, Code 128 only",
     previewCols: 3,
     symbology: () => "code128",
     previewCellClass:
       "lc30-label flex flex-col items-stretch justify-center gap-1 rounded-sm border border-slate-300 bg-white p-1.5 text-slate-900 min-h-[60px]",
-    defaultPadding: { top: 1.5, right: 2, bottom: 1.5, left: 2 },
+    defaultPadding: { top: 2, right: 3, bottom: 2, left: 3 },
     defaultMargin: { top: 0, right: 0, bottom: 0, left: 0 },
     computeCells() {
-      /* LC30 page margins are fixed by the stock — 13.5mm top/bottom,
-       * 7mm sides — so the 3×10 grid lands on the die-cuts. The user
-       * controls inner cell padding, not these. */
-      const marginTop = 13.5;
-      const marginLeft = 7;
-      const cellW = 64;
-      const cellH = 25;
+      /* LC30 / Avery 3489 is full-bleed: 3 cols × 10 rows of 70×29.7mm
+       * labels tiling the whole A4 sheet — no page margin, no gaps
+       * (3×70 = 210mm width, 10×29.7 = 297mm height, both exact). */
+      const cellW = 70;
+      const cellH = 29.7;
       const cols = 3;
       const rows = 10;
       const cells: CellRect[] = [];
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           cells.push({
-            xMm: marginLeft + c * cellW,
-            yMm: marginTop + r * cellH,
+            xMm: c * cellW,
+            yMm: r * cellH,
             wMm: cellW,
             hMm: cellH,
           });
@@ -288,26 +292,25 @@ const TEMPLATES: Record<MoveLabelTemplate, TemplateSpec> = {
       return cells;
     },
     pageCss: (p, m) => `
-      /* LC30 sheet: 3 cols × 10 rows of 64×25mm labels, ~7mm side
-         margins, ~13.5mm top/bottom margins, no inter-cell gap.
-         @page margin set so the grid starts at the first die.
-         Per-label margin EXPANDS the painted cell beyond its 64×25
+      /* LC30 sheet: full-bleed 3 cols × 10 rows of 70×29.7mm labels —
+         no page margin, no inter-cell gap (3×70=210mm, 10×29.7=297mm).
+         Per-label margin EXPANDS the painted cell beyond its 70×29.7
          slot — the grid placement stays as computed, but each cell
-         overflows outward by the margin amount. Use this when the
-         physical die-cuts don't quite line up with the computed
-         grid; small positive margins (1-2mm) compensate for printer
+         overflows outward by the margin amount. Use this only when the
+         physical die-cuts don't quite line up with the computed grid;
+         small positive margins (<1mm) compensate for residual printer
          drift without misaligning the rest of the sheet. */
-      @page { size: A4; margin: 13.5mm 7mm; }
+      @page { size: A4; margin: 0; }
       .sheet {
         display: grid;
-        grid-template-columns: repeat(3, 64mm);
-        grid-auto-rows: 25mm;
+        grid-template-columns: repeat(3, 70mm);
+        grid-auto-rows: 29.7mm;
         column-gap: 0;
         row-gap: 0;
       }
       .label {
-        width: calc(64mm + ${m.left + m.right}mm);
-        height: calc(25mm + ${m.top + m.bottom}mm);
+        width: calc(70mm + ${m.left + m.right}mm);
+        height: calc(29.7mm + ${m.top + m.bottom}mm);
         margin-top: -${m.top}mm;
         margin-right: -${m.right}mm;
         margin-bottom: -${m.bottom}mm;
@@ -980,6 +983,25 @@ export function LabelSheet({
               Print
             </Button>
           </div>
+        </div>
+
+        {/* Critical print-dialog settings. The CSS below pins every
+            label to exact mm, but the browser's print dialog will
+            silently rescale and re-margin the whole sheet unless these
+            are set — which is the usual cause of "the margins keep
+            changing". There is no way to force these from CSS. */}
+        <div className="rounded-lg border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-900/20 p-3 text-[12px] leading-relaxed text-amber-900 dark:text-amber-200">
+          <p className="font-semibold">In the print dialog, set these or the labels will shift:</p>
+          <ul className="mt-1 list-disc pl-4 space-y-0.5">
+            <li><strong>Margins: None</strong> (Chrome/Edge) — the sheet is full-bleed.</li>
+            <li><strong>Scale: 100%</strong> — turn OFF “Fit to printable area” / “Shrink to fit”.</li>
+            <li><strong>Paper size: A4</strong>, Portrait.</li>
+            <li>Turn OFF headers &amp; footers; print at <strong>Actual size</strong> (Safari/macOS).</li>
+          </ul>
+          <p className="mt-1">
+            Do a test print on plain paper, hold it against a label sheet to the light, then nudge with
+            the margin control below only if the die-cuts are still off by a fraction.
+          </p>
         </div>
 
         {/* Per-label inset preview — to-scale A4 diagram with the

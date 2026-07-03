@@ -17,6 +17,8 @@ import {
   Camera,
   Flag,
   Sparkles,
+  Download,
+  Copy,
 } from "lucide-react";
 import type {
   Project,
@@ -60,6 +62,12 @@ import {
 } from "@/hooks/use-query-helpers";
 import { apiGet, apiPost, apiPatch, apiPut } from "@/lib/api";
 import { formatCurrency, formatDate, formatPercent, capitalize } from "@/lib/format";
+import {
+  buildPropertyExport,
+  downloadTextFile,
+  EXPORT_FORMAT_LABELS,
+  type ExportFormat,
+} from "@/lib/property-export";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 type ListResponse<T> = { data: T[]; total: number };
@@ -1055,6 +1063,7 @@ function PropertiesTab({
   onDelete: (id: string) => void;
   deletePending: boolean;
 }) {
+  const [exportOpen, setExportOpen] = useState(false);
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -1066,11 +1075,30 @@ function PropertiesTab({
             options={watchlistFilterOptions}
           />
         </div>
-        <Button size="md" className="min-h-11 w-full sm:w-auto shrink-0" onClick={onAddProperty}>
-          <Plus className="h-4 w-4" />
-          Add property
-        </Button>
+        <div className="flex gap-2 w-full sm:w-auto shrink-0">
+          <Button
+            size="md"
+            variant="secondary"
+            className="min-h-11 flex-1 sm:flex-none"
+            onClick={() => setExportOpen(true)}
+            disabled={properties.length === 0}
+          >
+            <Download className="h-4 w-4" />
+            Export
+          </Button>
+          <Button size="md" className="min-h-11 flex-1 sm:flex-none" onClick={onAddProperty}>
+            <Plus className="h-4 w-4" />
+            Add property
+          </Button>
+        </div>
       </div>
+
+      <ExportPropertiesModal
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        properties={properties}
+        filtered={Boolean(watchlistFilter)}
+      />
 
       {loading ? (
         <div className="flex justify-center py-12 text-slate-500 dark:text-slate-400">
@@ -1212,6 +1240,102 @@ function PropertiesTab({
         </div>
       )}
     </div>
+  );
+}
+
+const EXPORT_FORMATS: ExportFormat[] = ["json", "csv", "markdown"];
+
+function ExportPropertiesModal({
+  open,
+  onClose,
+  properties,
+  filtered,
+}: {
+  open: boolean;
+  onClose: () => void;
+  properties: Property[];
+  filtered: boolean;
+}) {
+  const [format, setFormat] = useState<ExportFormat>("csv");
+  const [copied, setCopied] = useState(false);
+
+  const preview = useMemo(
+    () => buildPropertyExport(properties, format),
+    [properties, format]
+  );
+
+  const filename = `buy-properties-${new Date().toISOString().slice(0, 10)}.${preview.extension}`;
+
+  const handleDownload = () => {
+    downloadTextFile(filename, preview.mimeType, preview.content);
+    onClose();
+  };
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(preview.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      alert("Could not copy to clipboard.");
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Export properties" size="lg">
+      <div className="space-y-4">
+        <p className="text-sm text-slate-600 dark:text-slate-400">
+          Export {properties.length} {properties.length === 1 ? "property" : "properties"}
+          {filtered ? " (current filter)" : ""}. Photos are not included; the original
+          listing URL is.
+        </p>
+
+        <div>
+          <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-2">Format</p>
+          <div className="flex flex-wrap gap-2">
+            {EXPORT_FORMATS.map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFormat(f)}
+                className={`rounded-full px-4 py-2 text-sm font-medium border min-h-10 ${
+                  format === f
+                    ? "border-primary-600 dark:border-primary-400 bg-primary-50 dark:bg-primary-900/30 text-primary-800 dark:text-primary-200"
+                    : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400"
+                }`}
+              >
+                {EXPORT_FORMAT_LABELS[f]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+            Preview
+          </p>
+          <pre className="max-h-64 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 p-3 text-xs text-slate-700 dark:text-slate-300 whitespace-pre">
+            {preview.content || "No data"}
+          </pre>
+        </div>
+
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button
+            type="button"
+            variant="secondary"
+            className="min-h-11 sm:flex-none"
+            onClick={handleCopy}
+          >
+            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            {copied ? "Copied" : "Copy"}
+          </Button>
+          <Button type="button" className="min-h-11 flex-1" onClick={handleDownload}>
+            <Download className="h-4 w-4" />
+            Download {preview.extension.toUpperCase()}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

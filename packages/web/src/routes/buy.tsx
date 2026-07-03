@@ -19,6 +19,7 @@ import {
   Sparkles,
   Download,
   Copy,
+  Search,
 } from "lucide-react";
 import type {
   Project,
@@ -1064,6 +1065,7 @@ function PropertiesTab({
   deletePending: boolean;
 }) {
   const [exportOpen, setExportOpen] = useState(false);
+  const [homesSearchOpen, setHomesSearchOpen] = useState(false);
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -1075,7 +1077,16 @@ function PropertiesTab({
             options={watchlistFilterOptions}
           />
         </div>
-        <div className="flex gap-2 w-full sm:w-auto shrink-0">
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto shrink-0">
+          <Button
+            size="md"
+            variant="secondary"
+            className="min-h-11 flex-1 sm:flex-none"
+            onClick={() => setHomesSearchOpen(true)}
+          >
+            <Search className="h-4 w-4" />
+            homes.co.nz
+          </Button>
           <Button
             size="md"
             variant="secondary"
@@ -1092,6 +1103,11 @@ function PropertiesTab({
           </Button>
         </div>
       </div>
+
+      <SearchHomesModal
+        open={homesSearchOpen}
+        onClose={() => setHomesSearchOpen(false)}
+      />
 
       <ExportPropertiesModal
         open={exportOpen}
@@ -1240,6 +1256,67 @@ function PropertiesTab({
         </div>
       )}
     </div>
+  );
+}
+
+function SearchHomesModal({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState("");
+
+  const submit = () => {
+    const q = query.trim();
+    // homes.co.nz search lives at /map. We pass the query as a best-effort
+    // `search` param; if their SPA doesn't honour it the user still lands on
+    // the search page with their box ready. Opened in a new tab — we never
+    // frame their site (ToS + it can add frame-ancestors at any time).
+    const url = q
+      ? `https://homes.co.nz/map?search=${encodeURIComponent(q)}`
+      : "https://homes.co.nz/map";
+    window.open(url, "_blank", "noopener,noreferrer");
+    onClose();
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Search homes.co.nz">
+      <div className="space-y-4">
+        <p className="text-sm text-slate-600 dark:text-slate-400">
+          Opens homes.co.nz in a new tab. Find a listing there, copy its URL, then use{" "}
+          <span className="font-medium text-slate-800 dark:text-slate-200">Add property</span> to
+          import the details.
+        </p>
+        <Input
+          label="Suburb or address"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="e.g. Ponsonby, Auckland"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              submit();
+            }
+          }}
+        />
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            className="min-h-11 flex-1"
+            onClick={onClose}
+          >
+            Cancel
+          </Button>
+          <Button type="button" className="min-h-11 flex-1" onClick={submit}>
+            <ExternalLink className="h-4 w-4" />
+            Search
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

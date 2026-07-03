@@ -20,6 +20,7 @@ import {
   Download,
   Copy,
   Search,
+  Landmark,
 } from "lucide-react";
 import type {
   Project,
@@ -1209,6 +1210,7 @@ function PropertiesTab({
                         Listing <ExternalLink className="h-3 w-3" />
                       </a>
                     )}
+                    <LandRecordButton address={p.address} />
                   </div>
                   <div
                     className="flex items-center gap-1"
@@ -1256,6 +1258,42 @@ function PropertiesTab({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Opens LINZ Land Record Search for a property. LINZ's search box is
+ * autocomplete-only — it has no URL param to prefill an address (and it sends
+ * X-Frame-Options: SAMEORIGIN, so it can't be embedded either). So we copy the
+ * address to the clipboard and open their search page, ready to paste.
+ */
+function LandRecordButton({ address }: { address: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const open = async () => {
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard may be blocked (permissions / insecure context); still open.
+    }
+    window.open("https://lrs.linz.govt.nz/search/", "_blank", "noopener,noreferrer");
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        open();
+      }}
+      className="inline-flex items-center gap-1 text-xs text-primary-600 dark:text-primary-400"
+      title="Open LINZ Land Record Search — address copied so you can paste it"
+    >
+      <Landmark className="h-3 w-3" />
+      {copied ? "Address copied" : "Land record"}
+    </button>
   );
 }
 

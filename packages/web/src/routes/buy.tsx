@@ -1295,7 +1295,8 @@ function PropertyPhotoHoverPreview({ propertyId }: { propertyId: string | null }
   const shown = photos.slice(0, HOVER_PREVIEW_MAX_PHOTOS);
   const extra = photos.length - shown.length;
 
-  const visible = Boolean(propertyId) && propertyId === displayId && shown.length > 0;
+  const visible =
+    Boolean(propertyId) && propertyId === displayId && filesQuery.isSuccess;
 
   return (
     <div
@@ -1304,22 +1305,32 @@ function PropertyPhotoHoverPreview({ propertyId }: { propertyId: string | null }
         visible ? "opacity-100" : "opacity-0"
       }`}
     >
-      {displayId && shown.length > 0 && (
+      {displayId && filesQuery.isSuccess && (
         <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm shadow-xl p-3">
-          <div className="grid grid-cols-2 gap-2">
-            {shown.map((f) => (
-              <img
-                key={f.id}
-                src={`/api/v1/files/${f.id}/download`}
-                alt={f.filename}
-                loading="lazy"
-                className="aspect-square w-full rounded-lg object-cover bg-slate-100 dark:bg-slate-800"
-              />
-            ))}
-          </div>
-          {extra > 0 && (
-            <p className="mt-2 text-xs text-center text-slate-500 dark:text-slate-400">
-              +{extra} more photo{extra === 1 ? "" : "s"}
+          {shown.length > 0 ? (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                {shown.map((f) => (
+                  <img
+                    key={f.id}
+                    src={`/api/v1/files/${f.id}/download`}
+                    alt={f.filename}
+                    loading="lazy"
+                    className="aspect-square w-full rounded-lg object-cover bg-slate-100 dark:bg-slate-800"
+                  />
+                ))}
+              </div>
+              {extra > 0 && (
+                <p className="mt-2 text-xs text-center text-slate-500 dark:text-slate-400">
+                  +{extra} more photo{extra === 1 ? "" : "s"}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-center text-slate-500 dark:text-slate-400 py-1.5">
+              No photos yet — use{" "}
+              <Sparkles className="inline h-3.5 w-3.5 -mt-0.5" /> Enrich to
+              fetch listing photos
             </p>
           )}
         </div>

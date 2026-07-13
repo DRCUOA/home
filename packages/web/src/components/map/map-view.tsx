@@ -52,6 +52,9 @@ export interface MapViewHandle {
 
 interface MapViewProps {
   config: MapConfig;
+  /** Fit all properties into view on first load (default). Disable when the
+   * caller positions the camera itself, e.g. a ?property= deep link. */
+  autoFit?: boolean;
   properties: MapProperty[];
   customPins: MapPin[];
   visibleLayers: Set<string>;
@@ -92,6 +95,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
   function MapView(
     {
       config,
+      autoFit = true,
       properties,
       customPins,
       visibleLayers,
@@ -187,7 +191,12 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
     }));
 
     useEffect(() => {
-      if (properties.length === 0 || !mapRef.current || initialFitDone.current)
+      if (
+        !autoFit ||
+        properties.length === 0 ||
+        !mapRef.current ||
+        initialFitDone.current
+      )
         return;
 
       initialFitDone.current = true;
@@ -214,7 +223,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
           { padding: 60, duration: 1200 }
         );
       }
-    }, [properties]);
+    }, [properties, autoFit]);
 
     const handleMove = useCallback((e: ViewStateChangeEvent) => {
       setViewState(e.viewState);

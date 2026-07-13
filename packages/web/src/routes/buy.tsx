@@ -21,6 +21,7 @@ import {
   Copy,
   Search,
   Landmark,
+  MapPin,
 } from "lucide-react";
 import type {
   Project,
@@ -63,6 +64,7 @@ import {
   useDetail,
 } from "@/hooks/use-query-helpers";
 import { apiGet, apiPost, apiPatch, apiPut } from "@/lib/api";
+import { useThemeStore } from "@/stores/theme";
 import { formatCurrency, formatDate, formatPercent, capitalize } from "@/lib/format";
 import {
   buildPropertyExport,
@@ -1118,7 +1120,9 @@ function PropertiesTab({
         filtered={Boolean(watchlistFilter)}
       />
 
-      <PropertyPhotoHoverPreview propertyId={hoveredId} />
+      <PropertyHoverPreview
+        property={properties.find((p) => p.id === hoveredId) ?? null}
+      />
 
       {loading ? (
         <div className="flex justify-center py-12 text-slate-500 dark:text-slate-400">
@@ -1269,14 +1273,33 @@ function PropertiesTab({
 }
 
 const HOVER_PREVIEW_MAX_PHOTOS = 4;
+const HOVER_MAP_ZOOM = 15;
+const MAP_TILE_SIZE = 256;
 
-function PropertyPhotoHoverPreview({ propertyId }: { propertyId: string | null }) {
-  // Keep the last hovered property so the same photos remain rendered while
-  // the panel fades out after the pointer leaves the card.
-  const [displayId, setDisplayId] = useState<string | null>(null);
+/** Fractional slippy-map tile coordinates for a point at a zoom level. */
+function tileCoordinates(latitude: number, longitude: number, zoom: number) {
+  const scale = 2 ** zoom;
+  const latRad = (latitude * Math.PI) / 180;
+  return {
+    x: ((longitude + 180) / 360) * scale,
+    y:
+      ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) *
+      scale,
+  };
+}
+
+function PropertyHoverPreview({ property }: { property: Property | null }) {
+  // Keep the last hovered property so the same panels remain rendered while
+  // they fade out after the pointer leaves the card.
+  const [displayProperty, setDisplayProperty] = useState<Property | null>(null);
+  // The map panel is clickable, so hovering it must also hold the panels open
+  // (moving the pointer from the card to the map leaves the card).
+  const [mapHovered, setMapHovered] = useState(false);
   useEffect(() => {
-    if (propertyId) setDisplayId(propertyId);
-  }, [propertyId]);
+    if (property) setDisplayProperty(property);
+  }, [property]);
+
+  const displayId = displayProperty?.id ?? null;
 
   const filesQuery = useQuery({
     queryKey: ["files", "by-property", displayId],
@@ -1296,46 +1319,158 @@ function PropertyPhotoHoverPreview({ propertyId }: { propertyId: string | null }
   const extra = photos.length - shown.length;
 
   const visible =
-    Boolean(propertyId) && propertyId === displayId && filesQuery.isSuccess;
+    (Boolean(property) && property?.id === displayId && filesQuery.isSuccess) ||
+    mapHovered;
+
+  // Keep the map panel clickable while it fades out, so the pointer can
+  // travel from the card to the panel without it going inert mid-flight.
+  const [fadeGrace, setFadeGrace] = useState(false);
+  useEffect(() => {
+    if (visible) {
+      setFadeGrace(false);
+      return;
+    }
+    setFadeGrace(true);
+    const t = setTimeout(() => setFadeGrace(false), 600);
+    return () => clearTimeout(t);
+  }, [visible]);
 
   return (
     <div
-      aria-hidden
       className={`hidden lg:block fixed right-6 top-[16%] z-40 w-[20vw] max-w-sm pointer-events-none transition-opacity duration-300 ease-out ${
         visible ? "opacity-100" : "opacity-0"
       }`}
     >
-      {displayId && filesQuery.isSuccess && (
-        <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm shadow-xl p-3">
-          {shown.length > 0 ? (
-            <>
-              <div className="grid grid-cols-2 gap-2">
-                {shown.map((f) => (
-                  <img
-                    key={f.id}
-                    src={`/api/v1/files/${f.id}/download`}
-                    alt={f.filename}
-                    loading="lazy"
-                    className="aspect-square w-full rounded-lg object-cover bg-slate-100 dark:bg-slate-800"
-                  />
-                ))}
-              </div>
-              {extra > 0 && (
-                <p className="mt-2 text-xs text-center text-slate-500 dark:text-slate-400">
-                  +{extra} more photo{extra === 1 ? "" : "s"}
-                </p>
-              )}
-            </>
-          ) : (
-            <p className="text-xs text-center text-slate-500 dark:text-slate-400 py-1.5">
-              No photos yet — use{" "}
-              <Sparkles className="inline h-3.5 w-3.5 -mt-0.5" /> Enrich to
-              fetch listing photos
-            </p>
-          )}
-        </div>
+      {displayProperty && filesQuery.isSuccess && (
+        <>
+          <div
+            aria-hidden
+            className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm shadow-xl p-3"
+          >
+            {shown.length > 0 ? (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  {shown.map((f) => (
+                    <img
+                      key={f.id}
+                      src={`/api/v1/files/${f.id}/download`}
+                      alt={f.filename}
+                      loading="lazy"
+                      className="aspect-square w-full rounded-lg object-cover bg-slate-100 dark:bg-slate-800"
+                    />
+                  ))}
+                </div>
+                {extra > 0 && (
+                  <p className="mt-2 text-xs text-center text-slate-500 dark:text-slate-400">
+                    +{extra} more photo{extra === 1 ? "" : "s"}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-center text-slate-500 dark:text-slate-400 py-1.5">
+                No photos yet — use{" "}
+                <Sparkles className="inline h-3.5 w-3.5 -mt-0.5" /> Enrich to
+                fetch listing photos
+              </p>
+            )}
+          </div>
+          <HoverMapPanel
+            property={displayProperty}
+            interactive={visible || fadeGrace}
+            onHoverChange={setMapHovered}
+          />
+        </>
       )}
     </div>
+  );
+}
+
+/**
+ * Static mini-map under the photo preview: a 3×3 grid of Carto raster tiles
+ * centred on the property, with a pin at its exact position. Clicking opens
+ * the in-app Map page focused on this property, in a new window.
+ */
+function HoverMapPanel({
+  property,
+  interactive,
+  onHoverChange,
+}: {
+  property: Property;
+  interactive: boolean;
+  onHoverChange: (hovered: boolean) => void;
+}) {
+  const isDark = useThemeStore((s) => s.resolved === "dark");
+
+  if (property.latitude == null || property.longitude == null) {
+    return (
+      <div
+        aria-hidden
+        className="mt-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm shadow-xl p-3"
+      >
+        <p className="text-xs text-center text-slate-500 dark:text-slate-400 py-1.5">
+          No location yet — geocode from the Map page to see a preview
+        </p>
+      </div>
+    );
+  }
+
+  const { x, y } = tileCoordinates(
+    property.latitude,
+    property.longitude,
+    HOVER_MAP_ZOOM
+  );
+  const baseX = Math.floor(x);
+  const baseY = Math.floor(y);
+  const tileStyle = isDark ? "dark_all" : "light_all";
+  const tiles = [-1, 0, 1].flatMap((dy) =>
+    [-1, 0, 1].map((dx) => ({ tx: baseX + dx, ty: baseY + dy }))
+  );
+
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        window.open(
+          `/map?property=${encodeURIComponent(property.id)}`,
+          "_blank",
+          "noopener,noreferrer"
+        )
+      }
+      onMouseEnter={() => onHoverChange(true)}
+      onMouseLeave={() => onHoverChange(false)}
+      tabIndex={interactive ? 0 : -1}
+      className={`mt-3 relative block w-full aspect-square overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shadow-xl group cursor-pointer ${
+        interactive ? "pointer-events-auto" : ""
+      }`}
+      title={`Open ${property.address} on the map`}
+    >
+      {tiles.map(({ tx, ty }) => (
+        <img
+          key={`${tx}/${ty}`}
+          src={`https://basemaps.cartocdn.com/${tileStyle}/${HOVER_MAP_ZOOM}/${tx}/${ty}@2x.png`}
+          alt=""
+          draggable={false}
+          className="absolute max-w-none"
+          style={{
+            width: MAP_TILE_SIZE,
+            height: MAP_TILE_SIZE,
+            left: `calc(50% + ${(tx - x) * MAP_TILE_SIZE}px)`,
+            top: `calc(50% + ${(ty - y) * MAP_TILE_SIZE}px)`,
+          }}
+        />
+      ))}
+      {/* Pin tip sits exactly on the property location (panel centre) */}
+      <MapPin
+        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-full h-7 w-7 text-red-500 fill-red-500/30 drop-shadow-md"
+        aria-hidden
+      />
+      <span className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 bg-slate-900/70 py-1.5 text-[11px] font-medium text-white opacity-0 group-hover:opacity-100 transition-opacity">
+        <ExternalLink className="h-3 w-3" /> Open on map
+      </span>
+      <span className="absolute bottom-0.5 right-1 text-[8px] text-slate-500 bg-white/70 dark:bg-slate-900/70 dark:text-slate-400 px-1 rounded group-hover:opacity-0 transition-opacity">
+        © CARTO © OpenStreetMap
+      </span>
+    </button>
   );
 }
 

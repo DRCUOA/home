@@ -114,8 +114,19 @@ function groupByCityTown<T extends { cityTown: string; label: string }>(
     }));
 }
 
+type MapSearch = {
+  /** Property id to select and fly to on load (used by Buy-page deep links). */
+  property?: string;
+};
+
 export const Route = createFileRoute("/map")({
   component: MapPage,
+  validateSearch: (raw: Record<string, unknown>): MapSearch => ({
+    property:
+      typeof raw.property === "string" && raw.property
+        ? raw.property
+        : undefined,
+  }),
 });
 
 function MapPage() {
@@ -589,6 +600,18 @@ function MapPage() {
   const handleFlyTo = useCallback((lng: number, lat: number, zoom = 14) => {
     mapHandle.current?.flyTo(lng, lat, zoom);
   }, []);
+
+  // Deep link (?property=<id>): once properties load, select it and fly there.
+  const { property: focusPropertyId } = Route.useSearch();
+  const focusHandledRef = useRef(false);
+  useEffect(() => {
+    if (!focusPropertyId || focusHandledRef.current) return;
+    const target = properties.find((p) => p.id === focusPropertyId);
+    if (!target) return;
+    focusHandledRef.current = true;
+    setSelectedProperty(target);
+    handleFlyTo(target.longitude, target.latitude, 16);
+  }, [focusPropertyId, properties, handleFlyTo]);
 
   const handleQuickGotoChange = useCallback(
     (value: string) => {
@@ -1072,6 +1095,7 @@ function MapPage() {
         <MapView
           ref={mapHandle}
           config={config}
+          autoFit={!focusPropertyId}
           properties={properties}
           customPins={customPins}
           visibleLayers={visibleLayers}

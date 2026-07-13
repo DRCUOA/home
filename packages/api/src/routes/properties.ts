@@ -12,6 +12,11 @@ import { createPropertySchema, updatePropertySchema } from "@hcc/shared";
 import { indexRecord } from "../agents/embeddings.js";
 import { enrichPropertyWorkflow } from "../agents/workflows/enrich-property.js";
 import { geocodeAddress } from "../services/geocoding.js";
+import {
+  scrapeListingPhotoUrls,
+  photoUrlHash,
+  MAX_LISTING_PHOTOS,
+} from "../services/listing-photos.js";
 
 const UPLOADS_DIR = path.resolve(process.cwd(), "uploads");
 
@@ -20,104 +25,11 @@ const PROPERTY_INDEX_FIELDS = [
   "listing_description", "watchlist_status",
 ] as const;
 
-async function scrapePhotoUrls(listingUrl: string): Promise<string[]> {
-  try {
-    const res = await fetch(listingUrl, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        Accept: "text/html,application/xhtml+xml",
-      },
-      signal: AbortSignal.timeout(15000),
-      redirect: "follow",
-    });
-    if (!res.ok) {
-      console.log(`[Enrich] Listing fetch failed: ${res.status} ${res.statusText}`);
-      return [];
-    }
-
-    const html = await res.text();
-    const urls = new Set<string>();
-
-    const ogImages = html.matchAll(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/gi);
-    for (const m of ogImages) urls.add(m[1]);
-
-    const ogImagesAlt = html.matchAll(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/gi);
-    for (const m of ogImagesAlt) urls.add(m[1]);
-
-    const jsonLdBlocks = html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
-    for (const block of jsonLdBlocks) {
-      try {
-        const data = JSON.parse(block[1]);
-        const items = Array.isArray(data) ? data : [data];
-        for (const item of items) {
-          if (Array.isArray(item.photo)) {
-            for (const p of item.photo) {
-              const imgUrl = typeof p === "string" ? p : p?.contentUrl ?? p?.url;
-              if (imgUrl) urls.add(imgUrl);
-            }
-          }
-          if (Array.isArray(item.image)) {
-            for (const img of item.image) {
-              const imgUrl = typeof img === "string" ? img : img?.url ?? img?.contentUrl;
-              if (imgUrl) urls.add(imgUrl);
-            }
-          } else if (typeof item.image === "string") {
-            urls.add(item.image);
-          }
-        }
-      } catch { /* skip malformed JSON-LD */ }
-    }
-
-    const imgTags = html.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*/gi);
-    for (const m of imgTags) {
-      const src = m[1];
-      const tag = m[0].toLowerCase();
-      const isListing =
-        tag.includes("gallery") || tag.includes("carousel") || tag.includes("slider") ||
-        tag.includes("property") || tag.includes("listing") || tag.includes("hero") ||
-        tag.includes("photo") || tag.includes("main-image");
-      const isLargeEnough =
-        !src.includes("thumb") && !src.includes("icon") && !src.includes("logo") &&
-        !src.includes("avatar") && !src.includes("favicon") && !src.includes("1x1");
-      if (isListing && isLargeEnough) urls.add(src);
-    }
-
-    const srcsets = html.matchAll(/["'](https?:\/\/[^"'\s]+\.(?:jpg|jpeg|png|webp)[^"'\s]*)["']/gi);
-    for (const m of srcsets) {
-      const src = m[1];
-      if (!src.includes("thumb") && !src.includes("icon") && !src.includes("logo") && !src.includes("avatar")) {
-        if (src.includes("property") || src.includes("listing") || src.includes("photo") ||
-            src.includes("gallery") || src.includes("image") || src.includes("media")) {
-          urls.add(src);
-        }
-      }
-    }
-
-    const cleaned: string[] = [];
-    for (let url of urls) {
-      if (url.startsWith("//")) url = "https:" + url;
-      if (!url.startsWith("http")) continue;
-      if (url.includes("logo") || url.includes("icon") || url.includes("avatar") ||
-          url.includes("favicon") || url.includes("placeholder") || url.includes("1x1") ||
-          url.includes(".svg") || url.includes(".gif")) continue;
-      cleaned.push(url);
-    }
-
-    console.log(`[Enrich] Scraped ${cleaned.length} photo URLs from listing page`);
-    return cleaned;
-  } catch (err) {
-    console.error("[Enrich] Failed to scrape listing page:", (err as Error).message);
-    return [];
-  }
-}
-
 async function downloadPhoto(
   url: string,
   userId: string,
   propertyId: string,
   projectId: string,
-  index: number,
 ): Promise<{ id: string; filename: string } | null> {
   try {
     const res = await fetch(url, {
@@ -133,7 +45,9 @@ async function downloadPhoto(
       contentType.includes("png") ? ".png" :
       contentType.includes("webp") ? ".webp" :
       ".jpg";
-    const filename = `listing-photo-${index + 1}${ext}`;
+    // Name derives from the source URL so re-enrich runs can tell which
+    // photos they already have.
+    const filename = `listing-photo-${photoUrlHash(url)}${ext}`;
     const fileId = randomUUID();
     const storagePath = path.join(userId, fileId, filename);
     const fullDir = path.join(UPLOADS_DIR, userId, fileId);
@@ -375,20 +289,20 @@ export default async function propertyRoutes(app: FastifyInstance) {
         "[Enrich] Starting enrichment"
       );
 
-      const result = await enrichPropertyWorkflow.invoke({
-        listing_url: property.listing_url ?? "",
-        address: property.address ?? "",
-        suburb: property.suburb ?? "",
-        city: property.city ?? "",
-      });
-
-      const extracted = result.extracted ?? {};
-      app.log.info({ propertyId: id, extracted }, "[Enrich] Workflow returned");
-
-      if (Object.keys(extracted).length === 0) {
-        return reply
-          .status(422)
-          .send({ error: "Could not extract listing details" });
+      let extracted: Record<string, any> = {};
+      try {
+        const result = await enrichPropertyWorkflow.invoke({
+          listing_url: property.listing_url ?? "",
+          address: property.address ?? "",
+          suburb: property.suburb ?? "",
+          city: property.city ?? "",
+        });
+        extracted = result.extracted ?? {};
+        app.log.info({ propertyId: id, extracted }, "[Enrich] Workflow returned");
+      } catch (err: any) {
+        // Photo scraping doesn't depend on the AI extraction, so a failed
+        // LLM call shouldn't abort the whole enrich.
+        app.log.error(err, "[Enrich] Field extraction workflow failed");
       }
 
       const updates: Record<string, any> = {};
@@ -418,31 +332,60 @@ export default async function propertyRoutes(app: FastifyInstance) {
         updates.address = extracted.address;
       }
 
-      if (Object.keys(updates).length === 0) {
+      let updated = property;
+      let enrichedFields: string[] = [];
+      if (Object.keys(updates).length > 0) {
+        updates.updated_at = new Date();
+        [updated] = await db
+          .update(schema.properties)
+          .set(updates)
+          .where(eq(schema.properties.id, id))
+          .returning();
+
+        indexProperty(updated);
+
+        enrichedFields = Object.keys(updates).filter((k) => k !== "updated_at");
+        app.log.info({ propertyId: id, enrichedFields }, "[Enrich] Property updated");
+      } else {
         app.log.info({ propertyId: id }, "[Enrich] No usable fields in extracted data");
-        return { data: property, enriched_fields: [], extracted };
       }
 
-      updates.updated_at = new Date();
-      const [updated] = await db
-        .update(schema.properties)
-        .set(updates)
-        .where(eq(schema.properties.id, id))
-        .returning();
-
-      indexProperty(updated);
-
-      const enrichedFields = Object.keys(updates).filter((k) => k !== "updated_at");
-      app.log.info({ propertyId: id, enrichedFields }, "[Enrich] Property updated");
-
+      // Photos come from scraping the listing page directly, not from the AI
+      // extraction — so attempt them even when no fields could be extracted.
       let photosDownloaded = 0;
       if (property.listing_url) {
-        const photoUrls = await scrapePhotoUrls(property.listing_url);
+        const photoUrls = await scrapeListingPhotoUrls(property.listing_url);
         if (photoUrls.length > 0) {
-          app.log.info({ propertyId: id, count: photoUrls.length }, "[Enrich] Downloading listing photos");
+          // Skip photos a previous enrich run already saved (matched by the
+          // source-URL hash in the filename) and only top up to the cap.
+          const existingFiles = await db
+            .select({ filename: schema.files.filename })
+            .from(schema.files)
+            .where(
+              and(
+                eq(schema.files.property_id, id),
+                eq(schema.files.category, "photo")
+              )
+            );
+          const existingNames = existingFiles.map((f) => f.filename);
+          const existingListingPhotos = existingNames.filter((n) =>
+            n.startsWith("listing-photo-")
+          ).length;
+          const remaining = Math.max(0, MAX_LISTING_PHOTOS - existingListingPhotos);
+          const toDownload = photoUrls
+            .filter((url) => {
+              const prefix = `listing-photo-${photoUrlHash(url)}`;
+              return !existingNames.some((n) => n.startsWith(prefix));
+            })
+            .slice(0, remaining);
+
+          app.log.info(
+            { propertyId: id, found: photoUrls.length, downloading: toDownload.length },
+            "[Enrich] Downloading listing photos"
+          );
           const downloads = await Promise.allSettled(
-            photoUrls.slice(0, 20).map((url, i) =>
-              downloadPhoto(url, req.userId, id, property.project_id, i)
+            toDownload.map((url) =>
+              downloadPhoto(url, req.userId, id, property.project_id)
             )
           );
           photosDownloaded = downloads.filter(
@@ -454,7 +397,13 @@ export default async function propertyRoutes(app: FastifyInstance) {
         }
       }
 
-      return { data: updated, enriched_fields: enrichedFields, photos_downloaded: photosDownloaded };
+      if (Object.keys(extracted).length === 0 && photosDownloaded === 0) {
+        return reply
+          .status(422)
+          .send({ error: "Could not extract listing details" });
+      }
+
+      return { data: updated, enriched_fields: enrichedFields, photos_downloaded: photosDownloaded, extracted };
     } catch (err: any) {
       app.log.error(err, "[Enrich] Property enrichment failed");
       return reply.status(500).send({ error: "Enrichment failed: " + err.message });

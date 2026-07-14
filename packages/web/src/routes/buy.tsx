@@ -1343,9 +1343,14 @@ function PropertyHoverPreview({ property }: { property: Property | null }) {
     >
       {displayProperty && filesQuery.isSuccess && (
         <>
+          <HoverMapPanel
+            property={displayProperty}
+            interactive={visible || fadeGrace}
+            onHoverChange={setMapHovered}
+          />
           <div
             aria-hidden
-            className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm shadow-xl p-3"
+            className="mt-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm shadow-xl p-3"
           >
             {shown.length > 0 ? (
               <>
@@ -1374,11 +1379,6 @@ function PropertyHoverPreview({ property }: { property: Property | null }) {
               </p>
             )}
           </div>
-          <HoverMapPanel
-            property={displayProperty}
-            interactive={visible || fadeGrace}
-            onHoverChange={setMapHovered}
-          />
         </>
       )}
     </div>
@@ -1405,7 +1405,7 @@ function HoverMapPanel({
     return (
       <div
         aria-hidden
-        className="mt-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm shadow-xl p-3"
+        className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm shadow-xl p-3"
       >
         <p className="text-xs text-center text-slate-500 dark:text-slate-400 py-1.5">
           No location yet — geocode from the Map page to see a preview
@@ -1439,7 +1439,7 @@ function HoverMapPanel({
       onMouseEnter={() => onHoverChange(true)}
       onMouseLeave={() => onHoverChange(false)}
       tabIndex={interactive ? 0 : -1}
-      className={`mt-3 relative block w-full aspect-square overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shadow-xl group cursor-pointer ${
+      className={`relative block w-full aspect-square overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 shadow-xl group cursor-pointer ${
         interactive ? "pointer-events-auto" : ""
       }`}
       title={`Open ${property.address} on the map`}

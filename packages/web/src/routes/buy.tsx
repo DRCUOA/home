@@ -1200,9 +1200,12 @@ function PropertiesTab({
   const [homesSearchOpen, setHomesSearchOpen] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex-1 grid gap-3 sm:grid-cols-2">
+    // On lg+ screens the right padding reserves a rail for the fixed hover
+    // preview (map + photos, w-[20vw] max-w-sm at right-6), so the panels can
+    // never cover the cards' icon action buttons at any scroll position.
+    <div className="space-y-4 lg:pr-[calc(min(20vw,24rem)+2.25rem)]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+        <div className="grid gap-3 sm:min-w-[26rem] sm:flex-1 sm:grid-cols-2">
           <Select
             label="Filter by watchlist"
             value={watchlistFilter}
@@ -1219,7 +1222,7 @@ function PropertiesTab({
             ]}
           />
         </div>
-        <div className="flex flex-wrap gap-2 w-full sm:w-auto shrink-0">
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
           <Button
             size="md"
             variant="secondary"

@@ -48,6 +48,13 @@ export interface Property extends BaseEntity {
   favourite_rank?: number;
   latitude?: number;
   longitude?: number;
+  custom_type_ids?: string[];
+}
+
+export interface PropertyCustomType extends BaseEntity {
+  user_id: string;
+  name: string;
+  color: string;
 }
 
 export interface Contact extends BaseEntity {

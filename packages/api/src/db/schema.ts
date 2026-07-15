@@ -9,6 +9,7 @@ import {
   real,
   jsonb,
   index,
+  uniqueIndex,
   primaryKey,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -458,6 +459,41 @@ export const tags = pgTable("tags", {
   name: varchar("name", { length: 100 }).notNull().unique(),
   ...timestamps(),
 });
+
+export const propertyCustomTypes = pgTable(
+  "property_custom_types",
+  {
+    id: id(),
+    user_id: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    name: varchar("name", { length: 100 }).notNull(),
+    color: varchar("color", { length: 20 }).default("default").notNull(),
+    ...timestamps(),
+  },
+  (t) => [index("property_custom_types_user_idx").on(t.user_id)]
+);
+
+export const propertyCustomTypeLinks = pgTable(
+  "property_custom_type_links",
+  {
+    id: id(),
+    property_id: uuid("property_id")
+      .notNull()
+      .references(() => properties.id, { onDelete: "cascade" }),
+    custom_type_id: uuid("custom_type_id")
+      .notNull()
+      .references(() => propertyCustomTypes.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    index("property_custom_type_links_property_idx").on(t.property_id),
+    index("property_custom_type_links_type_idx").on(t.custom_type_id),
+    uniqueIndex("property_custom_type_links_unique_idx").on(
+      t.property_id,
+      t.custom_type_id
+    ),
+  ]
+);
 
 export const mapPins = pgTable(
   "map_pins",

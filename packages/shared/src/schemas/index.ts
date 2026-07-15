@@ -1,6 +1,7 @@
 export * from "./auth.js";
 export * from "./project.js";
 export * from "./property.js";
+export * from "./property-custom-type.js";
 export * from "./property-criteria.js";
 export * from "./property-evaluation.js";
 export * from "./contact.js";

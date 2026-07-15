@@ -134,6 +134,13 @@
       "when": 1779494900000,
       "tag": "0018_task_confirmation",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1779495000000,
+      "tag": "0019_property_custom_types",
+      "breakpoints": true
     }
   ]
 }

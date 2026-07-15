@@ -8,7 +8,11 @@ import path from "path";
 import { eq, and, inArray } from "drizzle-orm";
 import { authGuard } from "../middleware/auth.js";
 import { db, schema } from "../db/index.js";
-import { createPropertySchema, updatePropertySchema } from "@hcc/shared";
+import {
+  createPropertySchema,
+  updatePropertySchema,
+  setPropertyCustomTypesSchema,
+} from "@hcc/shared";
 import { indexRecord } from "../agents/embeddings.js";
 import { enrichPropertyWorkflow } from "../agents/workflows/enrich-property.js";
 import { geocodeAddress } from "../services/geocoding.js";
@@ -128,6 +132,33 @@ function indexProperty(row: Record<string, any>): Promise<void> {
   })();
 }
 
+// Properties carry their assigned custom-type ids on the wire so the web app
+// can render chips and filter without a second round-trip per property.
+async function attachCustomTypeIds<T extends { id: string }>(
+  rows: T[]
+): Promise<(T & { custom_type_ids: string[] })[]> {
+  if (rows.length === 0) return [];
+  const links = await db
+    .select({
+      property_id: schema.propertyCustomTypeLinks.property_id,
+      custom_type_id: schema.propertyCustomTypeLinks.custom_type_id,
+    })
+    .from(schema.propertyCustomTypeLinks)
+    .where(
+      inArray(
+        schema.propertyCustomTypeLinks.property_id,
+        rows.map((r) => r.id)
+      )
+    );
+  const byProperty = new Map<string, string[]>();
+  for (const link of links) {
+    const list = byProperty.get(link.property_id) ?? [];
+    list.push(link.custom_type_id);
+    byProperty.set(link.property_id, list);
+  }
+  return rows.map((r) => ({ ...r, custom_type_ids: byProperty.get(r.id) ?? [] }));
+}
+
 export default async function propertyRoutes(app: FastifyInstance) {
   app.addHook("preHandler", authGuard);
 
@@ -158,7 +189,7 @@ export default async function propertyRoutes(app: FastifyInstance) {
   });
 
   app.get("/api/v1/properties", async (req) => {
-    const { project_id, watchlist_status } = req.query as any;
+    const { project_id, watchlist_status, custom_type_id } = req.query as any;
 
     const userProjects = await db
       .select({ id: schema.projects.id })
@@ -175,13 +206,27 @@ export default async function propertyRoutes(app: FastifyInstance) {
     if (watchlist_status) {
       conditions.push(eq(schema.properties.watchlist_status, watchlist_status));
     }
+    if (custom_type_id) {
+      const linked = await db
+        .select({ property_id: schema.propertyCustomTypeLinks.property_id })
+        .from(schema.propertyCustomTypeLinks)
+        .where(eq(schema.propertyCustomTypeLinks.custom_type_id, custom_type_id));
+      if (linked.length === 0) return { data: [], total: 0 };
+      conditions.push(
+        inArray(
+          schema.properties.id,
+          linked.map((l) => l.property_id)
+        )
+      );
+    }
 
     const rows = await db
       .select()
       .from(schema.properties)
       .where(and(...conditions));
 
-    return { data: rows, total: rows.length };
+    const data = await attachCustomTypeIds(rows);
+    return { data, total: data.length };
   });
 
   app.get("/api/v1/properties/:id", async (req, reply) => {
@@ -192,7 +237,65 @@ export default async function propertyRoutes(app: FastifyInstance) {
       .where(eq(schema.properties.id, id))
       .limit(1);
     if (!row) return reply.status(404).send({ error: "Not Found" });
-    return { data: row };
+    const [data] = await attachCustomTypeIds([row]);
+    return { data };
+  });
+
+  app.put("/api/v1/properties/:id/custom-types", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { custom_type_ids } = setPropertyCustomTypesSchema.parse(req.body);
+
+    // The property must belong to one of the caller's projects, and every
+    // custom type must belong to the caller — no cross-user assignments.
+    const [property] = await db
+      .select({ id: schema.properties.id })
+      .from(schema.properties)
+      .innerJoin(
+        schema.projects,
+        eq(schema.properties.project_id, schema.projects.id)
+      )
+      .where(
+        and(
+          eq(schema.properties.id, id),
+          eq(schema.projects.user_id, req.userId)
+        )
+      )
+      .limit(1);
+    if (!property) return reply.status(404).send({ error: "Not Found" });
+
+    const uniqueIds = [...new Set(custom_type_ids)];
+    if (uniqueIds.length > 0) {
+      const owned = await db
+        .select({ id: schema.propertyCustomTypes.id })
+        .from(schema.propertyCustomTypes)
+        .where(
+          and(
+            eq(schema.propertyCustomTypes.user_id, req.userId),
+            inArray(schema.propertyCustomTypes.id, uniqueIds)
+          )
+        );
+      if (owned.length !== uniqueIds.length) {
+        return reply
+          .status(400)
+          .send({ error: "One or more custom types were not found" });
+      }
+    }
+
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(schema.propertyCustomTypeLinks)
+        .where(eq(schema.propertyCustomTypeLinks.property_id, id));
+      if (uniqueIds.length > 0) {
+        await tx.insert(schema.propertyCustomTypeLinks).values(
+          uniqueIds.map((custom_type_id) => ({
+            property_id: id,
+            custom_type_id,
+          }))
+        );
+      }
+    });
+
+    return { data: { property_id: id, custom_type_ids: uniqueIds } };
   });
 
   app.post("/api/v1/properties", async (req, reply) => {

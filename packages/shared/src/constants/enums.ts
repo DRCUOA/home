@@ -41,6 +41,15 @@ export const WATCHLIST_STATUSES = [
 ] as const;
 export type WatchlistStatus = (typeof WATCHLIST_STATUSES)[number];
 
+export const CUSTOM_TYPE_COLORS = [
+  "default",
+  "primary",
+  "success",
+  "warning",
+  "danger",
+] as const;
+export type CustomTypeColor = (typeof CUSTOM_TYPE_COLORS)[number];
+
 export const PROPERTY_TYPES = [
   "house",
   "townhouse",

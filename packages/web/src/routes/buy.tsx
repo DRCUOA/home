@@ -22,10 +22,13 @@ import {
   Search,
   Landmark,
   MapPin,
+  Tag,
+  Tags,
 } from "lucide-react";
 import type {
   Project,
   Property,
+  PropertyCustomType,
   PropertyCriteria,
   PropertyEvaluation,
   Offer,
@@ -38,6 +41,7 @@ import {
   BUY_MILESTONES,
   PROPERTY_TYPES,
   WATCHLIST_STATUSES,
+  CUSTOM_TYPE_COLORS,
   LISTING_METHODS,
   OFFER_CONDITIONS,
   OFFER_STATUSES,
@@ -140,6 +144,9 @@ function BuyPage() {
   const [propertyDetailId, setPropertyDetailId] = useState<string | null>(null);
   const [addPropertyOpen, setAddPropertyOpen] = useState(false);
   const [watchlistFilter, setWatchlistFilter] = useState("");
+  const [customTypeFilter, setCustomTypeFilter] = useState("");
+  const [manageTypesOpen, setManageTypesOpen] = useState(false);
+  const [assignTypesPropertyId, setAssignTypesPropertyId] = useState<string | null>(null);
   const [compareIds, setCompareIds] = useState<(string | null)[]>([null, null, null]);
   const [offerModalOpen, setOfferModalOpen] = useState(false);
   const [editingOfferId, setEditingOfferId] = useState<string | null>(null);
@@ -170,10 +177,29 @@ function BuyPage() {
   });
 
   const properties = propertiesQuery.data?.data ?? [];
+
+  const customTypesQuery = useList<PropertyCustomType>(
+    "property-custom-types",
+    "/property-custom-types"
+  );
+  const customTypes = useMemo(
+    () => customTypesQuery.data?.data ?? [],
+    [customTypesQuery.data]
+  );
+  const typeById = useMemo(
+    () => new Map(customTypes.map((t) => [t.id, t])),
+    [customTypes]
+  );
+
   const filteredProperties = useMemo(() => {
-    if (!watchlistFilter) return properties;
-    return properties.filter((p) => p.watchlist_status === watchlistFilter);
-  }, [properties, watchlistFilter]);
+    if (!watchlistFilter && !customTypeFilter) return properties;
+    return properties.filter(
+      (p) =>
+        (!watchlistFilter || p.watchlist_status === watchlistFilter) &&
+        (!customTypeFilter ||
+          (p.custom_type_ids ?? []).includes(customTypeFilter))
+    );
+  }, [properties, watchlistFilter, customTypeFilter]);
 
   const shortlisted = useMemo(() => properties.filter(isShortlisted), [properties]);
 
@@ -231,6 +257,23 @@ function BuyPage() {
   const createProperty = useCreate<Property>("properties", "/properties");
   const updateProperty = useUpdate<Property>("properties", "/properties");
   const removeProperty = useRemove("properties", "/properties");
+  const createCustomType = useCreate<PropertyCustomType>(
+    "property-custom-types",
+    "/property-custom-types"
+  );
+  const updateCustomType = useUpdate<PropertyCustomType>(
+    "property-custom-types",
+    "/property-custom-types"
+  );
+  const removeCustomType = useRemove("property-custom-types", "/property-custom-types");
+  const setPropertyCustomTypes = useMutation({
+    mutationFn: ({ id, custom_type_ids }: { id: string; custom_type_ids: string[] }) =>
+      apiPut<{ data: { property_id: string; custom_type_ids: string[] } }>(
+        `/properties/${id}/custom-types`,
+        { custom_type_ids }
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["properties"] }),
+  });
   const [enrichingIds, setEnrichingIds] = useState<Set<string>>(new Set());
   const enrichProperty = useMutation({
     mutationFn: (id: string) => apiPost<{ data: Property; enriched_fields: string[]; photos_downloaded: number }>(`/properties/${id}/enrich`, {}),
@@ -338,6 +381,10 @@ function BuyPage() {
     ? properties.find((p) => p.id === propertyDetailId) ?? null
     : null;
 
+  const assignProperty = assignTypesPropertyId
+    ? properties.find((p) => p.id === assignTypesPropertyId) ?? null
+    : null;
+
   if (loading && !buy) {
     return (
       <PageShell title="Buy">
@@ -410,6 +457,12 @@ function BuyPage() {
             allCount={properties.length}
             watchlistFilter={watchlistFilter}
             onWatchlistFilter={setWatchlistFilter}
+            customTypes={customTypes}
+            typeById={typeById}
+            customTypeFilter={customTypeFilter}
+            onCustomTypeFilter={setCustomTypeFilter}
+            onManageTypes={() => setManageTypesOpen(true)}
+            onAssignTypes={(id) => setAssignTypesPropertyId(id)}
             loading={propertiesQuery.isLoading}
             evaluations={evalByPropertyId}
             enrichingIds={enrichingIds}
@@ -570,6 +623,16 @@ function BuyPage() {
         open={propertyDetailId != null}
         property={detailProperty}
         evaluation={detailProperty ? evalByPropertyId.get(detailProperty.id) : undefined}
+        assignedCustomTypes={
+          detailProperty
+            ? (detailProperty.custom_type_ids ?? [])
+                .map((id) => typeById.get(id))
+                .filter((t): t is PropertyCustomType => Boolean(t))
+            : []
+        }
+        onEditCustomTypes={() => {
+          if (detailProperty) setAssignTypesPropertyId(detailProperty.id);
+        }}
         onClose={() => setPropertyDetailId(null)}
         onCreateEvaluation={() => {
           if (!detailProperty) return;
@@ -609,6 +672,60 @@ function BuyPage() {
           updateProperty.mutate({ id: detailProperty.id, data });
         }}
         updatingProperty={updateProperty.isPending}
+      />
+
+      <ManageCustomTypesModal
+        open={manageTypesOpen}
+        onClose={() => setManageTypesOpen(false)}
+        customTypes={customTypes}
+        onCreate={(data, onDone) =>
+          createCustomType.mutate(data, {
+            onSuccess: onDone,
+            onError: (e) => alert(e.message),
+          })
+        }
+        onUpdate={(id, data, onDone) =>
+          updateCustomType.mutate(
+            { id, data },
+            {
+              onSuccess: () => {
+                onDone();
+                // Renamed / recoloured chips are shown on property cards.
+                qc.invalidateQueries({ queryKey: ["properties"] });
+              },
+              onError: (e) => alert(e.message),
+            }
+          )
+        }
+        onDelete={(id) => {
+          if (customTypeFilter === id) setCustomTypeFilter("");
+          removeCustomType.mutate(id, {
+            onSuccess: () => qc.invalidateQueries({ queryKey: ["properties"] }),
+            onError: () => alert("Failed to delete custom type"),
+          });
+        }}
+        creating={createCustomType.isPending}
+        updating={updateCustomType.isPending}
+        deleting={removeCustomType.isPending}
+      />
+
+      <AssignCustomTypesModal
+        open={assignProperty != null}
+        property={assignProperty}
+        customTypes={customTypes}
+        onClose={() => setAssignTypesPropertyId(null)}
+        onSave={(ids) => {
+          if (!assignProperty) return;
+          setPropertyCustomTypes.mutate(
+            { id: assignProperty.id, custom_type_ids: ids },
+            {
+              onSuccess: () => setAssignTypesPropertyId(null),
+              onError: () => alert("Failed to save custom types"),
+            }
+          );
+        }}
+        saving={setPropertyCustomTypes.isPending}
+        onManageTypes={() => setManageTypesOpen(true)}
       />
 
       <BuyOfferModal
@@ -1039,6 +1156,12 @@ function PropertiesTab({
   allCount,
   watchlistFilter,
   onWatchlistFilter,
+  customTypes,
+  typeById,
+  customTypeFilter,
+  onCustomTypeFilter,
+  onManageTypes,
+  onAssignTypes,
   loading,
   evaluations,
   enrichingIds,
@@ -1055,6 +1178,12 @@ function PropertiesTab({
   allCount: number;
   watchlistFilter: string;
   onWatchlistFilter: (v: string) => void;
+  customTypes: PropertyCustomType[];
+  typeById: Map<string, PropertyCustomType>;
+  customTypeFilter: string;
+  onCustomTypeFilter: (v: string) => void;
+  onManageTypes: () => void;
+  onAssignTypes: (id: string) => void;
   loading: boolean;
   evaluations: Map<string, PropertyEvaluation>;
   enrichingIds: Set<string>;
@@ -1073,15 +1202,33 @@ function PropertiesTab({
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex-1">
+        <div className="flex-1 grid gap-3 sm:grid-cols-2">
           <Select
             label="Filter by watchlist"
             value={watchlistFilter}
             onChange={(e) => onWatchlistFilter(e.target.value)}
             options={watchlistFilterOptions}
           />
+          <Select
+            label="Filter by custom type"
+            value={customTypeFilter}
+            onChange={(e) => onCustomTypeFilter(e.target.value)}
+            options={[
+              { value: "", label: "All custom types" },
+              ...customTypes.map((t) => ({ value: t.id, label: t.name })),
+            ]}
+          />
         </div>
         <div className="flex flex-wrap gap-2 w-full sm:w-auto shrink-0">
+          <Button
+            size="md"
+            variant="secondary"
+            className="min-h-11 flex-1 sm:flex-none"
+            onClick={onManageTypes}
+          >
+            <Tags className="h-4 w-4" />
+            Custom types
+          </Button>
           <Button
             size="md"
             variant="secondary"
@@ -1117,7 +1264,8 @@ function PropertiesTab({
         open={exportOpen}
         onClose={() => setExportOpen(false)}
         properties={properties}
-        filtered={Boolean(watchlistFilter)}
+        typeById={typeById}
+        filtered={Boolean(watchlistFilter) || Boolean(customTypeFilter)}
       />
 
       <PropertyHoverPreview
@@ -1133,11 +1281,11 @@ function PropertiesTab({
           <CardContent className="py-10">
             <EmptyState
               icon={<Home className="h-9 w-9" />}
-              title={allCount === 0 ? "No saved properties" : "No matches for this filter"}
+              title={allCount === 0 ? "No saved properties" : "No matches for these filters"}
               description={
                 allCount === 0
                   ? "Add a listing URL to start tracking homes you are considering."
-                  : "Try clearing the watchlist filter."
+                  : "Try clearing the watchlist or custom type filters."
               }
             />
           </CardContent>
@@ -1196,6 +1344,14 @@ function PropertiesTab({
                     </>
                   )}
                 </div>
+                {(p.custom_type_ids?.length ?? 0) > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {(p.custom_type_ids ?? []).map((typeId) => {
+                      const t = typeById.get(typeId);
+                      return t ? <CustomTypeBadge key={typeId} type={t} /> : null;
+                    })}
+                  </div>
+                )}
                 <div
                   className="space-y-2"
                   onClick={(e) => e.stopPropagation()}
@@ -1227,6 +1383,15 @@ function PropertiesTab({
                     className="flex items-center gap-1"
                     onClick={(e) => e.stopPropagation()}
                   >
+                    <button
+                      type="button"
+                      onClick={() => onAssignTypes(p.id)}
+                      className="p-2 rounded-lg text-slate-400 dark:text-slate-500 hover:text-primary-600 dark:hover:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors"
+                      aria-label="Assign custom types"
+                      title="Custom types"
+                    >
+                      <Tag className="h-4 w-4" />
+                    </button>
                     <button
                       type="button"
                       onClick={() => onEnrich(p)}
@@ -1573,23 +1738,339 @@ function SearchHomesModal({
 
 const EXPORT_FORMATS: ExportFormat[] = ["json", "csv", "markdown"];
 
+function CustomTypeBadge({ type }: { type: PropertyCustomType }) {
+  const variant = (CUSTOM_TYPE_COLORS as readonly string[]).includes(type.color)
+    ? (type.color as (typeof CUSTOM_TYPE_COLORS)[number])
+    : "default";
+  return <Badge variant={variant}>{type.name}</Badge>;
+}
+
+const customTypeColorOptions = CUSTOM_TYPE_COLORS.map((c) => ({
+  value: c,
+  label: capitalize(c),
+}));
+
+function ManageCustomTypesModal({
+  open,
+  onClose,
+  customTypes,
+  onCreate,
+  onUpdate,
+  onDelete,
+  creating,
+  updating,
+  deleting,
+}: {
+  open: boolean;
+  onClose: () => void;
+  customTypes: PropertyCustomType[];
+  onCreate: (data: { name: string; color: string }, onDone: () => void) => void;
+  onUpdate: (id: string, data: { name: string; color: string }, onDone: () => void) => void;
+  onDelete: (id: string) => void;
+  creating: boolean;
+  updating: boolean;
+  deleting: boolean;
+}) {
+  const [draftName, setDraftName] = useState("");
+  const [draftColor, setDraftColor] = useState("default");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editColor, setEditColor] = useState("default");
+
+  useEffect(() => {
+    if (!open) return;
+    setDraftName("");
+    setDraftColor("default");
+    setEditingId(null);
+  }, [open]);
+
+  const submitNew = () => {
+    const name = draftName.trim();
+    if (!name) return;
+    onCreate({ name, color: draftColor }, () => {
+      setDraftName("");
+      setDraftColor("default");
+    });
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Custom types">
+      <div className="space-y-4">
+        <p className="text-sm text-slate-600 dark:text-slate-400">
+          Custom types are labels you define to group homes any way you like — an
+          area ("Auckland High End"), a price bracket ("in-budget"), or anything
+          else ("homes with pink doors"). Assign them to properties and filter
+          your watchlist by them.
+        </p>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitNew();
+          }}
+          className="flex flex-col gap-2 sm:flex-row sm:items-end"
+        >
+          <div className="flex-1">
+            <Input
+              label="New custom type"
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              placeholder="e.g. Auckland High End"
+              maxLength={100}
+            />
+          </div>
+          <div className="sm:w-36">
+            <Select
+              label="Colour"
+              value={draftColor}
+              onChange={(e) => setDraftColor(e.target.value)}
+              options={customTypeColorOptions}
+            />
+          </div>
+          <Button
+            type="submit"
+            className="min-h-11 shrink-0"
+            disabled={creating || !draftName.trim()}
+          >
+            {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            Add
+          </Button>
+        </form>
+
+        {customTypes.length === 0 ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-4">
+            No custom types yet. Add your first one above.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {customTypes.map((t) =>
+              editingId === t.id ? (
+                <li
+                  key={t.id}
+                  className="flex flex-col gap-2 sm:flex-row sm:items-end rounded-lg border border-slate-200 dark:border-slate-700 p-3"
+                >
+                  <div className="flex-1">
+                    <Input
+                      label="Name"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      maxLength={100}
+                    />
+                  </div>
+                  <div className="sm:w-36">
+                    <Select
+                      label="Colour"
+                      value={editColor}
+                      onChange={(e) => setEditColor(e.target.value)}
+                      options={customTypeColorOptions}
+                    />
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="min-h-11"
+                      onClick={() => setEditingId(null)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      className="min-h-11"
+                      disabled={updating || !editName.trim()}
+                      onClick={() =>
+                        onUpdate(
+                          t.id,
+                          { name: editName.trim(), color: editColor },
+                          () => setEditingId(null)
+                        )
+                      }
+                    >
+                      {updating ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+                    </Button>
+                  </div>
+                </li>
+              ) : (
+                <li
+                  key={t.id}
+                  className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2"
+                >
+                  <CustomTypeBadge type={t} />
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingId(t.id);
+                        setEditName(t.name);
+                        setEditColor(t.color);
+                      }}
+                      className="p-2 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                      aria-label={`Edit ${t.name}`}
+                      title="Edit"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (
+                          confirm(
+                            `Delete "${t.name}"? It will be removed from every property.`
+                          )
+                        )
+                          onDelete(t.id);
+                      }}
+                      disabled={deleting}
+                      className="p-2 rounded-lg text-slate-400 dark:text-slate-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 transition-colors"
+                      aria-label={`Delete ${t.name}`}
+                      title="Delete"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </li>
+              )
+            )}
+          </ul>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function AssignCustomTypesModal({
+  open,
+  onClose,
+  property,
+  customTypes,
+  onSave,
+  saving,
+  onManageTypes,
+}: {
+  open: boolean;
+  onClose: () => void;
+  property: Property | null;
+  customTypes: PropertyCustomType[];
+  onSave: (customTypeIds: string[]) => void;
+  saving: boolean;
+  onManageTypes: () => void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (open && property) setSelected(new Set(property.custom_type_ids ?? []));
+  }, [open, property?.id]);
+
+  if (!open || !property) return null;
+
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  return (
+    <Modal open={open} onClose={onClose} title="Assign custom types">
+      <div className="space-y-4">
+        <p className="text-sm text-slate-600 dark:text-slate-400 leading-snug">
+          {property.address}
+        </p>
+
+        {customTypes.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-slate-200 dark:border-slate-700 p-4 text-center space-y-3">
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+              No custom types yet. Create one to start grouping homes your way.
+            </p>
+            <Button type="button" className="min-h-11" onClick={onManageTypes}>
+              <Tags className="h-4 w-4" />
+              Manage custom types
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {customTypes.map((t) => (
+              <label
+                key={t.id}
+                className="flex items-center gap-3 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+              >
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-primary-600"
+                  checked={selected.has(t.id)}
+                  onChange={() => toggle(t.id)}
+                />
+                <CustomTypeBadge type={t} />
+              </label>
+            ))}
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            className="flex-1 min-h-11"
+            onClick={onClose}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            className="flex-1 min-h-11"
+            disabled={saving || customTypes.length === 0}
+            onClick={() => onSave([...selected])}
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+          </Button>
+        </div>
+
+        {customTypes.length > 0 && (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-xs text-primary-600 dark:text-primary-400"
+            onClick={onManageTypes}
+          >
+            <Tags className="h-3.5 w-3.5" /> Manage custom types
+          </button>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 function ExportPropertiesModal({
   open,
   onClose,
   properties,
+  typeById,
   filtered,
 }: {
   open: boolean;
   onClose: () => void;
   properties: Property[];
+  typeById: Map<string, PropertyCustomType>;
   filtered: boolean;
 }) {
   const [format, setFormat] = useState<ExportFormat>("csv");
   const [copied, setCopied] = useState(false);
 
+  // Custom types are exported by name — ids are meaningless outside the app.
+  const exportRows = useMemo(
+    () =>
+      properties.map((p) => ({
+        ...p,
+        custom_type_ids: (p.custom_type_ids ?? []).map(
+          (id) => typeById.get(id)?.name ?? id
+        ),
+      })),
+    [properties, typeById]
+  );
+
   const preview = useMemo(
-    () => buildPropertyExport(properties, format),
-    [properties, format]
+    () => buildPropertyExport(exportRows, format),
+    [exportRows, format]
   );
 
   const filename = `buy-properties-${new Date().toISOString().slice(0, 10)}.${preview.extension}`;
@@ -2610,6 +3091,8 @@ function PropertyDetailModal({
   open,
   property,
   evaluation,
+  assignedCustomTypes,
+  onEditCustomTypes,
   onClose,
   onCreateEvaluation,
   onPatchEvaluation,
@@ -2625,6 +3108,8 @@ function PropertyDetailModal({
   open: boolean;
   property: Property | null;
   evaluation: PropertyEvaluation | undefined;
+  assignedCustomTypes: PropertyCustomType[];
+  onEditCustomTypes: () => void;
   onClose: () => void;
   onCreateEvaluation: () => void;
   onPatchEvaluation: (id: string, data: Record<string, unknown>) => void;
@@ -2762,11 +3247,22 @@ function PropertyDetailModal({
             <div className="flex justify-between items-start gap-2">
               <div>
                 <p className="font-semibold text-slate-900 dark:text-slate-100 leading-snug">{property.address}</p>
-                <div className="flex flex-wrap gap-2 mt-2">
+                <div className="flex flex-wrap items-center gap-2 mt-2">
                   {property.watchlist_status && <StatusBadge status={property.watchlist_status} />}
                   {property.listing_method && (
                     <Badge>{capitalize(property.listing_method)}</Badge>
                   )}
+                  {assignedCustomTypes.map((t) => (
+                    <CustomTypeBadge key={t.id} type={t} />
+                  ))}
+                  <button
+                    type="button"
+                    onClick={onEditCustomTypes}
+                    className="inline-flex items-center gap-1 text-xs text-primary-600 dark:text-primary-400"
+                  >
+                    <Tag className="h-3 w-3" />
+                    {assignedCustomTypes.length > 0 ? "Edit types" : "Add custom type"}
+                  </button>
                 </div>
               </div>
               <button

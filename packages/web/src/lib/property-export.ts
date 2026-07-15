@@ -33,6 +33,7 @@ const COLUMNS: Column[] = [
   { key: "land_area_sqm", header: "Land m²" },
   { key: "floor_area_sqm", header: "Floor m²" },
   { key: "watchlist_status", header: "Watchlist status" },
+  { key: "custom_type_ids", header: "Custom types" },
   { key: "favourite_rank", header: "Favourite rank" },
   { key: "rejection_reason", header: "Rejection reason" },
   { key: "listing_description", header: "Listing description" },
@@ -54,6 +55,7 @@ export type ExportResult = {
 function cellText(value: unknown): string {
   if (value == null) return "";
   if (typeof value === "boolean") return value ? "true" : "false";
+  if (Array.isArray(value)) return value.join("; ");
   return String(value);
 }
 
@@ -61,8 +63,11 @@ function toJson(properties: Property[]): string {
   const rows = properties.map((p) => {
     const row: Record<string, unknown> = {};
     for (const { key } of COLUMNS) {
+      // Callers substitute custom-type names for ids before exporting, so the
+      // JSON key is renamed to match what the value actually holds.
+      const jsonKey = key === "custom_type_ids" ? "custom_types" : key;
       // Preserve native types (numbers stay numbers) for JSON consumers.
-      row[key] = p[key] ?? null;
+      row[jsonKey] = p[key] ?? null;
     }
     return row;
   });

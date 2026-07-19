@@ -8,8 +8,10 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   ImageOff,
   Download,
+  MapPin,
 } from "lucide-react";
 import type { FileRecord, Property } from "@hcc/shared";
 import { PageShell } from "@/components/layout/page-shell";
@@ -18,6 +20,10 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiUpload, apiDelete, apiPatch } from "@/lib/api";
 import { CameraCapture } from "@/components/features/camera-capture";
+import {
+  PropertyPicker,
+  propertyLabel,
+} from "@/components/features/property-picker";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/cn";
 
@@ -36,11 +42,6 @@ function isImage(mime: string) {
 
 function thumbUrl(id: string) {
   return `/api/v1/files/${id}/download`;
-}
-
-function propertyLabel(p: Property): string {
-  const parts = [p.address, p.suburb].filter(Boolean);
-  return parts.join(", ") || "Untitled property";
 }
 
 function GalleryPage() {
@@ -145,13 +146,37 @@ function GalleryPage() {
 
   const [cameraOpen, setCameraOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [uploadPickerOpen, setUploadPickerOpen] = useState(false);
 
   // Uploads default to the active tab so new photos land where the user is
-  // looking. Listing-analysis photos arrive pre-tagged with property_id, so
-  // they automatically appear under the matching property tab.
-  const appendTargetTab = (fd: FormData) => {
-    if (activeTab !== GENERAL_TAB_ID) {
-      fd.append("property_id", activeTab);
+  // looking, but the target can be overridden by picking any property by
+  // address — including one with no photos yet (which has no tab to drop on).
+  // Switching tabs clears the override so the default stays predictable.
+  const [uploadTargetOverride, setUploadTargetOverride] = useState<
+    string | null | undefined
+  >(undefined);
+
+  useEffect(() => {
+    setUploadTargetOverride(undefined);
+  }, [activeTab]);
+
+  const properties = propertiesQuery.data?.data ?? [];
+  const uploadTargetId =
+    uploadTargetOverride !== undefined
+      ? uploadTargetOverride
+      : activeTab === GENERAL_TAB_ID
+        ? null
+        : activeTab;
+  const uploadTargetProperty = uploadTargetId
+    ? properties.find((p) => p.id === uploadTargetId)
+    : undefined;
+  const uploadTargetLabel = uploadTargetProperty
+    ? propertyLabel(uploadTargetProperty)
+    : "General";
+
+  const appendUploadTarget = (fd: FormData) => {
+    if (uploadTargetId) {
+      fd.append("property_id", uploadTargetId);
     }
   };
 
@@ -160,7 +185,7 @@ function GalleryPage() {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("category", "photo");
-    appendTargetTab(fd);
+    appendUploadTarget(fd);
     uploadFile.mutate(fd);
   };
 
@@ -171,7 +196,7 @@ function GalleryPage() {
       const fd = new FormData();
       fd.append("file", selected[i]);
       fd.append("category", "photo");
-      appendTargetTab(fd);
+      appendUploadTarget(fd);
       uploadFile.mutate(fd);
     }
     e.target.value = "";
@@ -182,12 +207,15 @@ function GalleryPage() {
     setLightboxIndex(null);
   };
 
-  const handleDropOnTab = (tabId: string, photoId: string) => {
+  const handleAssign = (photoId: string, propertyId: string | null) => {
     const photo = allPhotos.find((p) => p.id === photoId);
     if (!photo) return;
-    const targetPropertyId = tabId === GENERAL_TAB_ID ? null : tabId;
-    if (photo.property_id === targetPropertyId) return;
-    movePhoto.mutate({ id: photoId, propertyId: targetPropertyId });
+    if ((photo.property_id ?? null) === propertyId) return;
+    movePhoto.mutate({ id: photoId, propertyId });
+  };
+
+  const handleDropOnTab = (tabId: string, photoId: string) => {
+    handleAssign(photoId, tabId === GENERAL_TAB_ID ? null : tabId);
   };
 
   if (filesQuery.isLoading) {
@@ -217,12 +245,25 @@ function GalleryPage() {
         />
 
         {/* Actions */}
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm text-slate-500 dark:text-slate-400">
             {visiblePhotos.length}{" "}
             {visiblePhotos.length === 1 ? "photo" : "photos"}
           </p>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setUploadPickerOpen(true)}
+              title={`New photos will be added to ${uploadTargetLabel}`}
+              className={cn(
+                "inline-flex min-h-11 max-w-56 items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted",
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              )}
+            >
+              <MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="truncate">{uploadTargetLabel}</span>
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            </button>
             <Button
               variant="secondary"
               size="md"
@@ -322,13 +363,28 @@ function GalleryPage() {
         title="Take photo"
       />
 
+      <PropertyPicker
+        open={uploadPickerOpen}
+        onClose={() => setUploadPickerOpen(false)}
+        title="Add new photos to…"
+        properties={properties}
+        selectedId={uploadTargetId}
+        allowNone
+        onSelect={(id) => {
+          setUploadTargetOverride(id);
+          setUploadPickerOpen(false);
+        }}
+      />
+
       {lightboxIndex !== null && visiblePhotos[lightboxIndex] && (
         <Lightbox
           photos={visiblePhotos}
           index={lightboxIndex}
+          properties={properties}
           onIndexChange={setLightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onDelete={handleDelete}
+          onAssign={handleAssign}
         />
       )}
     </PageShell>
@@ -415,19 +471,28 @@ function GalleryTabs({
 function Lightbox({
   photos,
   index,
+  properties,
   onIndexChange,
   onClose,
   onDelete,
+  onAssign,
 }: {
   photos: FileRecord[];
   index: number;
+  properties: Property[];
   onIndexChange: (i: number) => void;
   onClose: () => void;
   onDelete: (id: string) => void;
+  onAssign: (photoId: string, propertyId: string | null) => void;
 }) {
   const photo = photos[index];
   const hasPrev = index > 0;
   const hasNext = index < photos.length - 1;
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const assignedProperty = photo.property_id
+    ? properties.find((p) => p.id === photo.property_id)
+    : undefined;
 
   const goPrev = useCallback(() => {
     if (hasPrev) onIndexChange(index - 1);
@@ -446,13 +511,16 @@ function Lightbox({
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // While the property picker is open it owns the keyboard (its own
+      // Escape handler closes it, and typing in search uses the arrows).
+      if (pickerOpen) return;
       if (e.key === "Escape") onClose();
       if (e.key === "ArrowLeft") goPrev();
       if (e.key === "ArrowRight") goNext();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [onClose, goPrev, goNext]);
+  }, [onClose, goPrev, goNext, pickerOpen]);
 
   const [touchStart, setTouchStart] = useState<number | null>(null);
 
@@ -488,6 +556,19 @@ function Lightbox({
           <p className="text-xs text-white/50">
             {formatDate(photo.created_at)} · {index + 1} of {photos.length}
           </p>
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            className="mt-0.5 inline-flex max-w-full items-center gap-1 text-xs text-white/60 hover:text-white transition-colors"
+            aria-label="Assign to property"
+          >
+            <MapPin className="h-3 w-3 shrink-0" />
+            <span className="truncate underline decoration-white/30 underline-offset-2">
+              {assignedProperty
+                ? propertyLabel(assignedProperty)
+                : "No property — assign"}
+            </span>
+          </button>
         </div>
         <div className="flex items-center gap-1 ml-2">
           <button
@@ -593,6 +674,19 @@ function Lightbox({
           </div>
         </div>
       )}
+
+      <PropertyPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        title="Assign photo to property"
+        properties={properties}
+        selectedId={assignedProperty ? assignedProperty.id : null}
+        allowNone
+        onSelect={(id) => {
+          setPickerOpen(false);
+          onAssign(photo.id, id);
+        }}
+      />
     </div>
   );
 }

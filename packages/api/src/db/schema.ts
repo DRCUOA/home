@@ -231,7 +231,10 @@ export const files = pgTable(
     is_pinned: boolean("is_pinned").default(false).notNull(),
     ...timestamps(),
   },
-  (t) => [index("files_user_idx").on(t.user_id)]
+  (t) => [
+    index("files_user_idx").on(t.user_id),
+    index("files_property_idx").on(t.property_id),
+  ]
 );
 
 export const tasks = pgTable(
